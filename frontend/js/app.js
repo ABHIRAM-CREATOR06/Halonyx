@@ -6,7 +6,11 @@ const ws = new WebSocket('ws://localhost:8081');
 ws.onmessage = (event) => {
     const msgDiv = document.createElement('div');
     msgDiv.textContent = event.data;
+    msgDiv.classList.add('message');
     document.getElementById('messages').appendChild(msgDiv);
+    // Auto-scroll to bottom
+    const messagesDiv = document.getElementById('messages');
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
 };
 
 if (token && usid) {
