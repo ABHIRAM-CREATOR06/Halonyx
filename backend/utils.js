@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 
 function generateUSID() {
-    // Generate 32 bytes (256 bits) of random data, convert to hex (64 characters)
+    // Generate a secure, random 256-bit USID
     return crypto.randomBytes(32).toString('hex');
 }
 
