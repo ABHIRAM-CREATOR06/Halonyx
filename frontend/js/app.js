@@ -66,7 +66,8 @@ let reconnectTimeout = null;
 function connectWS() {
     if (!myUsid) return;
 
-    ws = new WebSocket(`ws://${window.location.hostname}:8081`);
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${protocol}//${window.location.host}`);
 
     ws.onopen = () => {
         console.log('[WS] Connected. Sending registration check...');

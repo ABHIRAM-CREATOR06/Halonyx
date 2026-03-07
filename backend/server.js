@@ -5,8 +5,10 @@ const fs = require('fs');
 const { hashUSID, generateUSID } = require('./utils');
 const WebSocket = require('ws');
 const dgram = require('dgram');
+const http = require('http');
 
 const app = express();
+const server = http.createServer(app);
 app.use(express.json());
 
 // Operational Database
@@ -108,7 +110,7 @@ app.get('/contacts', authenticate, (req, res) => {
 });
 
 // WebSocket for messaging
-const wss = new WebSocket.Server({ port: 8081 });
+const wss = new WebSocket.Server({ server });
 const clients = new Map(); // hashed_usid -> WebSocket
 
 wss.on('connection', (ws) => {
@@ -245,5 +247,14 @@ udpServer.on('listening', () => {
 
 udpServer.bind(UDP_PORT);
 
+app.use((req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+    next();
+});
+
 app.use(express.static('frontend'));
-app.listen(3000, () => console.log('Server running on port 3000'));
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
