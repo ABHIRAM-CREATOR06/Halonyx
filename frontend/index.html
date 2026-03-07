@@ -12,7 +12,7 @@
     <link rel="stylesheet" href="css/style.css">
 </head>
 
-<body class="m3-theme">
+<body class="m3-theme theme-dark">
     <!-- Splash Screen & Registration -->
     <div id="splash-screen" class="splash-screen">
         <div id="splash-header" class="splash-content">
@@ -61,6 +61,9 @@
                     </div>
                 </div>
                 <div class="m3-top-app-bar-end">
+                    <button id="theme-btn" class="m3-icon-button theme-toggle-btn" aria-label="Toggle Theme">
+                        <span class="material-icons-outlined" aria-hidden="true">light_mode</span>
+                    </button>
                     <button id="emergency-btn" class="m3-icon-button emergency-broadcast-btn"
                         aria-label="Broadcast Emergency Message">
                         <span class="material-icons-outlined" aria-hidden="true">emergency_share</span>
@@ -89,6 +92,22 @@
 
             <!-- Chat View -->
             <main id="chat-screen" class="screen" role="main" aria-label="Chat conversation">
+                
+                <!-- Key Exchange Overlay -->
+                <div id="key-exchange-overlay" class="hidden">
+                    <div class="exchange-illustration">
+                        <div class="exchange-node" id="node-a">
+                            <span class="material-icons-outlined">lock</span>
+                        </div>
+                        <div class="exchange-line"></div>
+                        <div class="exchange-node" id="node-b">
+                            <span class="material-icons-outlined">lock_open</span>
+                        </div>
+                    </div>
+                    <div class="exchange-step-text" id="exchange-status">Initializing Secure Channel</div>
+                    <div class="exchange-subtext" id="exchange-details">Verifying identities...</div>
+                </div>
+
                 <div id="messages-container" class="messages-area" role="log" aria-live="polite">
                     <!-- Messages will be injected here -->
                 </div>

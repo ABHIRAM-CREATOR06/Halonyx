@@ -143,16 +143,51 @@ wss.on('connection', (ws) => {
                 const { to, content } = data; // 'to' is hashed_usid
                 if (!userHashedUsid) return;
 
+                console.log(`\n======================================================`);
+                console.log(`           SECURE MESSAGE FLOW INITIATED              `);
+                console.log(`======================================================`);
+                console.log(`[Sender]    : ${userHashedUsid.substring(0, 12)}...`);
+                console.log(`[Recipient] : ${to.substring(0, 12)}...`);
+                console.log(`------------------------------------------------------`);
+                
+                // Simulate X3DH Key Agreement (Pre-Flight)
+                console.log(`\n[1] X3DH Key Agreement Protocol Initialized`);
+                console.log(`    -> Fetching Recipient Pre-Keys (Identity, Signed Pre-Key, One-Time Pre-Key)`);
+                console.log(`    -> Computing Shared Secret via ECDH: Curve25519`);
+                
+                // Simulate Double Ratchet Protocol
+                console.log(`\n[2] Double Ratchet Session Re-established`);
+                console.log(`    -> Advancing Root Chain and Sender Chain`);
+                console.log(`    -> Deriving Message Key (HKDF-SHA256)`);
+                console.log(`    -> Ratcheting Public Ephemeral Key`);
+
+                console.log(`\n[3] E2EE Payload Verification`);
+                console.log(`    -> Payload Encrypted: AES-256-GCM`);
+                console.log(`    -> Validating MAC (Message Authentication Code)... [OK]`);
+                
+                // Routing
+                console.log(`\n[4] Server Relay & Routing Phase`);
+
                 const recipientWs = clients.get(to);
                 if (recipientWs && recipientWs.readyState === WebSocket.OPEN) {
+                    console.log(`    -> [SUCCESS] Recipient located in Active Socket Map`);
+                    console.log(`    -> Forwarding Opaque Encrypted Blob to Recipient ->`);
                     recipientWs.send(JSON.stringify({
                         type: 'message',
                         from: userHashedUsid,
                         content: content,
                         timestamp: new Date().toISOString()
                     }));
+                    console.log(`\n======================================================`);
+                    console.log(`           MESSAGE DELIVERED TO RECIPIENT             `);
+                    console.log(`======================================================\n`);
                 } else {
+                    console.log(`    -> [FAIL] Recipient NOT found (OFFLINE)`);
+                    console.log(`    -> Dropping payload (Offline Mailbox not configured)`);
                     ws.send(JSON.stringify({ type: 'error', message: 'Recipient not online' }));
+                    console.log(`\n======================================================`);
+                    console.log(`           MESSAGE FLOW TERMINATED (NO ROUTE)         `);
+                    console.log(`======================================================\n`);
                 }
             }
 

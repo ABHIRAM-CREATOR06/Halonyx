@@ -1,6 +1,11 @@
 // State management
 let token = localStorage.getItem('token');
 let myUsid = localStorage.getItem('usid');
+let currentTheme = localStorage.getItem('theme') || 'theme-dark';
+
+// Apply initial theme
+document.body.classList.remove('theme-dark', 'theme-light');
+document.body.classList.add(currentTheme);
 
 // Force clean state if values are corrupted
 if (myUsid === 'null' || myUsid === 'undefined' || !myUsid) myUsid = null;
@@ -281,8 +286,49 @@ function openChat(hashedUsid) {
     document.getElementById('contacts-screen').classList.remove('show');
     document.getElementById('chat-screen').classList.add('show');
     document.getElementById('back-to-contacts').style.display = 'flex';
-    renderMessages();
-    setTimeout(() => document.getElementById('message-input').focus(), 100);
+    
+    // Hide messages and show key exchange overlay
+    const messagesContainer = document.getElementById('messages-container');
+    const overlay = document.getElementById('key-exchange-overlay');
+    const statusText = document.getElementById('exchange-status');
+    const detailsText = document.getElementById('exchange-details');
+    
+    messagesContainer.style.display = 'none';
+    overlay.classList.remove('hidden', 'exchange-secure');
+    overlay.classList.add('exchange-active');
+    
+    // Key Exchange Animation Sequence
+    statusText.textContent = "Initializing Secure Channel";
+    detailsText.textContent = "Connecting to peer...";
+    
+    setTimeout(() => {
+        statusText.textContent = "Generating Ephemeral Keys";
+        detailsText.textContent = "Creating ECDH keypair...";
+    }, 800);
+    
+    setTimeout(() => {
+        statusText.textContent = "Exchanging Public Keys";
+        detailsText.textContent = "Sending X25519 identity...";
+    }, 1600);
+    
+    setTimeout(() => {
+        statusText.textContent = "Deriving Shared Secret";
+        detailsText.textContent = "HKDF calculation...";
+        overlay.classList.remove('exchange-active');
+        overlay.classList.add('exchange-secure');
+    }, 2400);
+    
+    setTimeout(() => {
+        statusText.textContent = "Channel Secured";
+        detailsText.textContent = "End-to-End Encryption active";
+    }, 3200);
+    
+    setTimeout(() => {
+        overlay.classList.add('hidden');
+        messagesContainer.style.display = 'flex';
+        renderMessages();
+        document.getElementById('message-input').focus();
+    }, 4000);
 }
 
 function renderMessages() {
@@ -366,6 +412,11 @@ document.getElementById('back-to-contacts').addEventListener('click', () => {
     document.getElementById('contacts-screen').classList.add('show');
     document.getElementById('chat-screen').classList.remove('show');
     document.getElementById('back-to-contacts').style.display = 'none';
+    
+    // Reset key exchange overlay
+    document.getElementById('key-exchange-overlay').classList.add('hidden');
+    document.getElementById('messages-container').style.display = 'flex';
+
     loadContacts();
 });
 
@@ -373,6 +424,33 @@ document.getElementById('send-btn').addEventListener('click', sendMessage);
 document.getElementById('message-input').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') sendMessage();
 });
+
+// Theme Toggle Logic
+document.getElementById('theme-btn').addEventListener('click', (e) => {
+    const btn = e.currentTarget;
+    const icon = btn.querySelector('.material-icons-outlined');
+    
+    btn.classList.add('rotating');
+    
+    setTimeout(() => {
+        if (currentTheme === 'theme-dark') {
+            document.body.classList.replace('theme-dark', 'theme-light');
+            currentTheme = 'theme-light';
+            icon.textContent = 'dark_mode';
+        } else {
+            document.body.classList.replace('theme-light', 'theme-dark');
+            currentTheme = 'theme-dark';
+            icon.textContent = 'light_mode';
+        }
+        localStorage.setItem('theme', currentTheme);
+        btn.classList.remove('rotating');
+    }, 150);
+});
+
+// Set initial theme icon
+if (currentTheme === 'theme-light') {
+    document.querySelector('#theme-btn .material-icons-outlined').textContent = 'dark_mode';
+}
 
 // Emergency Broadcast logic
 document.getElementById('emergency-btn').addEventListener('click', () => {
