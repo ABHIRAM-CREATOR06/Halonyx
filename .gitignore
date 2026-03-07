@@ -1,0 +1,6 @@
+node_modules/
+.env
+db/*.sqlite
+db/*.db
+macOS
+.DS_Store
