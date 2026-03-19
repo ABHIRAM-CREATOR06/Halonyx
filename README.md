@@ -314,7 +314,7 @@ Halonyx/
 |---|---|
 | **Abhiram P** | Backend & Protocol |
 | **Geo Jose** | Frontend & UI |
-| **Anirudh** | Cryptography & Security |
+| **Anirudh** | Frontend & Testing |
 | **Antony S Kannampuzha** | Database & Infrastructure |
 
 *Department of Computer Science and Engineering*
