@@ -161,4 +161,4 @@ Built at **SNGCE, Kerala** · APJ Abdul Kalam Technological University · 2026
 
 ---
 
-<div align="center"><sub>Connect Securely. Leave No Trace.</sub></div>
+<div align="center"><sub>Connect Securely. Leave No Traces.</sub></div>
