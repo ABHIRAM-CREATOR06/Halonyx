@@ -27,7 +27,15 @@ window.addEventListener('load', () => {
         // User exists: verifying identity with server...
         console.log('[Init] Existing credentials found. Verifying identity...');
         loaderContainer.style.display = 'block';
-        connectWS();
+
+        // Edge Startup Boost runs pages in a pre-render context where the WS
+        // connection would fire before the real browsing context is active.
+        // Defer until page is actually activated to avoid false identity failures.
+        if (document.prerendering) {
+            document.addEventListener('prerenderingchange', () => connectWS(), { once: true });
+        } else {
+            connectWS();
+        }
     } else {
         // New user or cleared state: forcing registration
         console.log('[Init] No credentials. Showing mandatory registration.');
@@ -62,6 +70,7 @@ function showRegistrationForm() {
 
 let ws;
 let reconnectTimeout = null;
+let identityRejected = false; // Stops reconnect loop if server rejects identity
 
 function connectWS() {
     if (!myUsid) return;
@@ -84,6 +93,7 @@ function connectWS() {
                 hideSplashScreen();
             } else if (data.type === 'error' && data.message === 'Identity not verified') {
                 console.error('[WS] Identity FAILED. Forcing re-registration.');
+                identityRejected = true; // prevent reconnect loop
                 localStorage.removeItem('token');
                 localStorage.removeItem('usid');
                 token = null;
@@ -104,7 +114,10 @@ function connectWS() {
     };
 
     ws.onclose = () => {
-        if (myUsid) {
+        // Do not reconnect if identity was rejected by the server — that would
+        // cause an infinite loop of failed register attempts and repeated
+        // 'Identity invalid' notifications (especially noticeable in Edge).
+        if (myUsid && !identityRejected) {
             console.log('[WS] Reconnecting...');
             reconnectTimeout = setTimeout(connectWS, 2000);
         }

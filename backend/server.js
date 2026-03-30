@@ -247,6 +247,8 @@ udpServer.on('listening', () => {
 
 udpServer.bind(UDP_PORT);
 
+// Disable all caching — must come BEFORE static middleware so Edge (and other browsers)
+// never serve a stale app.js from cache, which would cause identity hash mismatches.
 app.use((req, res, next) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
@@ -255,6 +257,6 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(express.static('frontend'));
+app.use(express.static('frontend', { etag: false, lastModified: false }));
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
