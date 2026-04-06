@@ -98,7 +98,7 @@ function connectWS() {
                 localStorage.removeItem('usid');
                 token = null;
                 myUsid = null;
-                showSnackbar('Identity invalid. Registration mandatory.');
+                // showSnackbar('Identity invalid. Registration mandatory.'); // Temporarily disabled
                 showRegistrationForm();
             } else if (data.type === 'message') {
                 const { from, content, timestamp } = data;
