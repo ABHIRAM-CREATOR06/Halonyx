@@ -4,3 +4,6 @@ db/*.sqlite
 db/*.db
 macOS
 .DS_Store
+backend/db/identity.db
+backend/db/app.db
+backend/db/identity.db

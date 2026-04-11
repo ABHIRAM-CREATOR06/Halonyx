@@ -1,6 +1,6 @@
 /**
  * Halonyx Secura — Core App
- * Version 4.0
+ * Version 4.2.1
  * Improvements:
  *  - Streamlined, clean UI logic
  *  - Effective WebTorrent: upload progress, speed, seeding, multi-file
@@ -8,6 +8,9 @@
  *  - Torrent stats in details pane
  *  - Proper cleanup on torrent completion
  *  - Snackbar with icons & types
+ *  - Automatic duplicate contact removal
+ *  - Enhanced error handling and logging
+ *  - Improved contact management
  */
 
 // ─────────────────────────────────────────
@@ -201,19 +204,47 @@ async function signup() {
 async function loadContacts() {
   if (!token) return;
   try {
+    console.log("[Load Contacts] Fetching contacts list...");
     const res = await fetch("/contacts", {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return;
-    contacts = await res.json();
-    renderContactsList();
+
+    if (!res.ok) {
+      console.warn(
+        `[Load Contacts] Server error: ${res.status} ${res.statusText}`,
+      );
+      try {
+        const errData = await res.json();
+        console.warn("[Load Contacts] Error details:", errData);
+      } catch (e) {
+        // Response is not JSON
+      }
+      return;
+    }
+
+    try {
+      contacts = await res.json();
+      console.log(
+        `[Load Contacts] Successfully loaded ${contacts.length} contacts`,
+      );
+      renderContactsList();
+    } catch (parseErr) {
+      console.error("[Load Contacts] Failed to parse contacts JSON:", parseErr);
+      showSnackbar("Failed to load contacts - invalid data", "error");
+    }
   } catch (e) {
-    console.warn("Failed to load contacts:", e);
+    console.error("[Load Contacts] Network error:", e.message);
+    showSnackbar("Failed to load contacts - network error", "error");
   }
 }
 
 function renderContactsList() {
   const list = document.getElementById("contacts-list");
+  if (!list) {
+    console.error("[Render Contacts] contacts-list element not found");
+    return;
+  }
+
   const query = document.getElementById("search-input").value.toLowerCase();
 
   const filtered = contacts.filter((c) => c.toLowerCase().includes(query));
@@ -227,19 +258,20 @@ function renderContactsList() {
     return;
   }
 
-  list.innerHTML = filtered
-    .map((c, i) => {
-      const history = messageHistory[c] || [];
-      const lastMsg = history.length > 0 ? history[history.length - 1] : null;
-      const preview = lastMsg
-        ? truncate(lastMsg.content, 32)
-        : "No messages yet";
-      const timeStr = lastMsg ? formatTime(lastMsg.timestamp) : "";
-      const isActive = currentChatUsid === c ? "active" : "";
-      const avClass = `av-${i % 5}`;
+  try {
+    list.innerHTML = filtered
+      .map((c, i) => {
+        const history = messageHistory[c] || [];
+        const lastMsg = history.length > 0 ? history[history.length - 1] : null;
+        const preview = lastMsg
+          ? truncate(lastMsg.content, 32)
+          : "No messages yet";
+        const timeStr = lastMsg ? formatTime(lastMsg.timestamp) : "";
+        const isActive = currentChatUsid === c ? "active" : "";
+        const avClass = `av-${i % 5}`;
 
-      return `
-        <div class="contact-item ${isActive}" onclick="openChat('${c}')">
+        return `
+        <div class="contact-item ${isActive}" onclick="openChat('${escapeAttr(c)}')">
             <div class="contact-avatar ${avClass}">
                 <span class="material-icons-outlined">person</span>
             </div>
@@ -249,10 +281,20 @@ function renderContactsList() {
             </div>
             <div class="contact-meta">
                 <span class="contact-time">${timeStr}</span>
+                <button class="contact-delete-btn" onclick="event.stopPropagation(); removeContact('${escapeAttr(c)}')" title="Remove contact">
+                    <span class="material-icons-outlined">close</span>
+                </button>
             </div>
         </div>`;
-    })
-    .join("");
+      })
+      .join("");
+    console.log(
+      `[Render Contacts] Successfully rendered ${filtered.length} contacts`,
+    );
+  } catch (e) {
+    console.error("[Render Contacts] Error rendering contact list:", e);
+    showSnackbar("Error displaying contacts", "error");
+  }
 }
 
 function updateContactPreview(usid) {
@@ -260,8 +302,50 @@ function updateContactPreview(usid) {
 }
 
 async function addContact() {
-  const usid = document.getElementById("contact-usid").value.trim();
-  if (!usid) return showSnackbar("Please enter a USID", "warn");
+  const input = document.getElementById("contact-usid");
+  const usid = input.value.trim();
+  const btn = document.getElementById("confirm-add-contact");
+
+  console.log("[Add Contact] Starting add contact flow...");
+
+  // Validation: Empty check
+  if (!usid) {
+    console.warn("[Add Contact] USID is empty");
+    showSnackbar("Please enter a USID", "warn");
+    return;
+  }
+
+  // Validation: Format check (basic hex validation)
+  if (!usid.match(/^0x[a-fA-F0-9]+$/) && !usid.match(/^[a-fA-F0-9]+$/)) {
+    console.warn("[Add Contact] Invalid USID format:", usid);
+    showSnackbar("Invalid USID format. Must be hexadecimal.", "error");
+    return;
+  }
+
+  // Validation: Self-add prevention
+  if (
+    usid.toLowerCase() === myUsid.toLowerCase() ||
+    usid.toLowerCase() === myUsid.toLowerCase().replace("0x", "")
+  ) {
+    console.warn("[Add Contact] User tried to add themselves");
+    showSnackbar("You cannot add yourself as a contact", "error");
+    return;
+  }
+
+  // Note: Frontend no longer checks for duplicates locally
+  // The backend will handle duplicates by refreshing them automatically
+  // This provides better UX - users don't need to know about the refresh
+
+  // Set loading state
+  btn.disabled = true;
+  const originalText = btn.innerHTML;
+  btn.innerHTML =
+    '<span class="material-icons-outlined">hourglass_empty</span>Adding...';
+
+  console.log(
+    "[Add Contact] Sending request with USID:",
+    usid.substring(0, 10) + "...",
+  );
 
   try {
     const res = await fetch("/add-contact", {
@@ -272,17 +356,160 @@ async function addContact() {
       },
       body: JSON.stringify({ usid }),
     });
+
+    console.log("[Add Contact] Response status:", res.status, res.statusText);
+
     if (res.ok) {
-      hideDialog("add-contact-dialog");
-      document.getElementById("contact-usid").value = "";
-      await loadContacts();
-      showSnackbar("Contact added successfully", "success");
+      try {
+        const data = await res.json();
+        console.log(
+          "[Add Contact] Contact added/refreshed:",
+          data.name,
+          "Refreshed:",
+          data.refreshed,
+        );
+        hideDialog("add-contact-dialog");
+        input.value = "";
+        await loadContacts();
+
+        // Check if this was a duplicate that was refreshed
+        if (data.refreshed) {
+          showSnackbar(
+            `${data.name || "Contact"} already in contacts - refreshed`,
+            "info",
+          );
+        } else {
+          showSnackbar(
+            `${data.name || "Contact"} added successfully`,
+            "success",
+          );
+        }
+      } catch (parseErr) {
+        console.error("[Add Contact] Failed to parse response JSON:", parseErr);
+        showSnackbar("Contact added but failed to refresh list", "warn");
+      }
+    } else if (res.status === 400) {
+      try {
+        const d = await res.json();
+        console.warn("[Add Contact] 400 Bad Request:", d.error);
+        showSnackbar(d.error || "Invalid USID", "error");
+      } catch (parseErr) {
+        console.error("[Add Contact] Failed to parse 400 error:", parseErr);
+        showSnackbar("Invalid USID - bad request", "error");
+      }
+    } else if (res.status === 404) {
+      console.warn("[Add Contact] 404 USID not found");
+      showSnackbar("USID not found in the network", "error");
+    } else if (res.status === 409) {
+      try {
+        const d = await res.json();
+        console.warn("[Add Contact] 409 Conflict:", d.error);
+        showSnackbar(d.error || "Contact already exists", "warn");
+      } catch (parseErr) {
+        showSnackbar("Contact already exists", "warn");
+      }
     } else {
-      const d = await res.json();
-      showSnackbar(d.error || "Could not add contact", "error");
+      try {
+        const d = await res.json();
+        console.error(`[Add Contact] Server error ${res.status}:`, d.error);
+        showSnackbar(d.error || `Server error: ${res.statusText}`, "error");
+      } catch (parseErr) {
+        console.error(
+          `[Add Contact] Failed to parse ${res.status} error response:`,
+          parseErr,
+        );
+        showSnackbar(`Server error: ${res.status} ${res.statusText}`, "error");
+      }
     }
   } catch (e) {
-    showSnackbar("Network error", "error");
+    console.error("[Add Contact] Network/fetch error:", e.message, e);
+    showSnackbar("Network error. Please check your connection.", "error");
+  } finally {
+    // Restore button state
+    console.log("[Add Contact] Restoring button state");
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+  }
+}
+
+async function removeContact(usid) {
+  if (!confirm("Are you sure you want to remove this contact?")) {
+    return;
+  }
+
+  try {
+    console.log(
+      "[Remove Contact] Attempting to remove:",
+      usid.substring(0, 10),
+    );
+
+    const res = await fetch("/contacts", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ usid }),
+    });
+
+    console.log(
+      "[Remove Contact] Response status:",
+      res.status,
+      res.statusText,
+    );
+
+    if (res.ok) {
+      try {
+        await loadContacts();
+        showSnackbar("Contact removed successfully", "success");
+        // If the removed contact was the current chat, close the chat
+        if (currentChatUsid === usid) {
+          currentChatUsid = null;
+          document.querySelector(".chat-pane").innerHTML = `
+            <div class="empty-chat">
+              <div class="empty-chat-inner">
+                <div class="empty-hex-grid">
+                  <div class="hex-item"></div>
+                  <div class="hex-item"></div>
+                  <div class="hex-item"></div>
+                  <div class="hex-item"></div>
+                  <div class="hex-item"></div>
+                  <div class="hex-item"></div>
+                  <div class="hex-item"></div>
+                  <div class="hex-item"></div>
+                  <div class="hex-item"></div>
+                </div>
+                <h2>No conversation selected</h2>
+                <p>Choose a contact from the list to start messaging</p>
+              </div>
+            </div>
+          `;
+        }
+      } catch (loadErr) {
+        console.error("[Remove Contact] Error loading contacts:", loadErr);
+        showSnackbar("Contact removed but failed to refresh list", "warn");
+      }
+    } else {
+      try {
+        const errorData = await res.json();
+        console.error("[Remove Contact] Server error:", errorData);
+        showSnackbar(errorData.error || "Failed to remove contact", "error");
+      } catch (parseErr) {
+        console.error(
+          "[Remove Contact] Failed to parse error response:",
+          parseErr,
+          "Status:",
+          res.status,
+        );
+        showSnackbar(
+          "Failed to remove contact. Server error: " + res.status,
+          "error",
+        );
+      }
+    }
+  } catch (e) {
+    console.error("[Remove Contact] Network error:", e.message);
+    showSnackbar("Network error. Please check your connection.", "error");
   }
 }
 
@@ -776,12 +1003,22 @@ function showSnackbar(text, type = "info") {
     warn: "warning",
     error: "error",
   };
+
+  // Remove previous type classes to avoid style conflicts
+  snack.classList.remove("success", "error", "warn", "info");
+
+  // Add the current type class for styling
+  snack.classList.add(type);
+
   iconEl.textContent = icons[type] || "info";
   textEl.textContent = text;
   snack.classList.add("active");
 
   if (snackTimer) clearTimeout(snackTimer);
-  snackTimer = setTimeout(() => snack.classList.remove("active"), 4000);
+  snackTimer = setTimeout(() => {
+    snack.classList.remove("active");
+    snack.classList.remove("success", "error", "warn", "info");
+  }, 4000);
 }
 
 function showEmergencyAlert(content, from) {
@@ -812,6 +1049,18 @@ function sendEmergency() {
 // ─────────────────────────────────────────
 // Event Listeners
 // ─────────────────────────────────────────
+// Helper function: Check if contact already exists locally
+// Note: Backend now handles duplicate detection and removes old duplicates automatically.
+// This function is kept for reference but frontend no longer uses it for validation.
+function isContactAlreadyAdded(usid) {
+  return contacts.some(
+    (contact) =>
+      contact.toLowerCase() === usid.toLowerCase() ||
+      contact.toLowerCase() === usid.toLowerCase().replace("0x", "") ||
+      usid.toLowerCase() === contact.toLowerCase().replace("0x", ""),
+  );
+}
+
 function setupEventListeners() {
   // Signup
   document.getElementById("signup-btn").addEventListener("click", signup);
