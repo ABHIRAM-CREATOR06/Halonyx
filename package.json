@@ -14,7 +14,8 @@
     "nodemailer": "^6.9.7",
     "ws": "^8.14.2",
     "jsonwebtoken": "^9.0.2",
-    "crypto": "^1.0.1"
+    "crypto": "^1.0.1",
+    "webtorrent": "^2.4.3"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

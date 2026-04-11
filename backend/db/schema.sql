@@ -8,5 +8,6 @@ CREATE TABLE IF NOT EXISTS contacts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     contact_hashed_usid TEXT NOT NULL,
+    UNIQUE(user_id, contact_hashed_usid),
     FOREIGN KEY (user_id) REFERENCES users(id)
 );

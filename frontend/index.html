@@ -1,172 +1,459 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Halonyx — Secure Comms</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500;600&display=swap"
+            rel="stylesheet"
+        />
+        <link
+            href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined"
+            rel="stylesheet"
+        />
+        <link rel="stylesheet" href="css/style.css" />
+        <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
+    </head>
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Halonyx - Secure Messaging</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
-    <link rel="stylesheet" href="css/style.css">
-</head>
-
-<body class="m3-theme theme-dark">
-    <!-- Splash Screen & Registration -->
-    <div id="splash-screen" class="splash-screen">
-        <div id="splash-header" class="splash-content">
-            <span class="material-icons-outlined splash-logo">security</span>
-            <h1 class="splash-title">Halonyx</h1>
-            <div class="splash-subtitle">Secura</div>
-        </div>
-
-        <!-- Gmail-style Registration Form -->
-        <div id="registration-form" class="registration-container" style="display:none">
-            <h2>Create your Secure ID</h2>
-            <p>Enter your details to generate your decentralized identifier.</p>
-            <div class="m3-field-group">
-                <input type="text" id="name" placeholder="Full Name" class="m3-text-field" required>
-                <input type="email" id="email" placeholder="Email Address" class="m3-text-field" required>
+    <body class="theme-dark">
+        <!-- Splash Screen -->
+        <div id="splash-screen" class="splash-screen">
+            <div class="splash-bg"></div>
+            <div class="splash-content" id="splash-header">
+                <div class="splash-logo-wrap">
+                    <div class="splash-hex"></div>
+                    <span class="material-icons-outlined splash-icon"
+                        >shield</span
+                    >
+                </div>
+                <h1 class="splash-title">HALONYX</h1>
+                <p class="splash-tagline">
+                    Decentralized · Encrypted · Private
+                </p>
             </div>
-            <button id="signup-btn" class="m3-button m3-button-filled">
-                <span class="m3-button-text">Register & Secure Account</span>
-            </button>
+
+            <div id="registration-form" class="reg-form" style="display: none">
+                <div class="reg-card">
+                    <div class="reg-header">
+                        <span class="material-icons-outlined">fingerprint</span>
+                        <h2>Create Secure Identity</h2>
+                        <p>
+                            Your identity is cryptographically generated and
+                            never stored on any server.
+                        </p>
+                    </div>
+                    <div class="field-stack">
+                        <div class="field-wrap">
+                            <label>Full Name</label>
+                            <input
+                                type="text"
+                                id="name"
+                                placeholder="e.g. Alex Chen"
+                                class="field-input"
+                                autocomplete="off"
+                            />
+                        </div>
+                        <div class="field-wrap">
+                            <label>Email Address</label>
+                            <input
+                                type="email"
+                                id="email"
+                                placeholder="you@example.com"
+                                class="field-input"
+                                autocomplete="off"
+                            />
+                        </div>
+                    </div>
+                    <button id="signup-btn" class="btn-primary">
+                        <span class="material-icons-outlined">lock</span>
+                        Generate Secure ID
+                    </button>
+                    <p class="reg-disclaimer">
+                        <span class="material-icons-outlined">info</span> Your
+                        USID is a cryptographic hash — keep it safe.
+                    </p>
+                </div>
+            </div>
+
+            <div
+                id="splash-loader-container"
+                class="splash-loader-wrap"
+                style="display: none"
+            >
+                <div class="spinner-ring"></div>
+                <div class="loader-status" id="loader-status">
+                    Verifying identity...
+                </div>
+            </div>
         </div>
 
-        <div id="splash-loader-container" class="splash-loader-container" style="display:none">
-            <div class="splash-loader"></div>
-            <div class="loader-status">Generating Secure ID...</div>
-        </div>
-    </div>
-
-    <div id="app" class="app-container">
-        <!-- Auth View (Legacy/Placeholder) -->
-        <main id="auth-view" class="view" role="main">
-            <!-- Content moved to splash screen -->
-        </main>
-
-        <!-- Main View (Dashboard) -->
-        <div id="main-view" class="view">
-            <!-- Top App Bar -->
-            <header class="m3-top-app-bar" role="banner">
-                <div class="m3-top-app-bar-start">
-                    <button id="back-to-contacts" class="m3-icon-button" style="display:none"
-                        aria-label="Back to contacts list">
-                        <span class="material-icons-outlined" aria-hidden="true">arrow_back</span>
-                    </button>
-                    <div class="title-section">
-                        <span id="app-bar-title" class="m3-top-app-bar-title">Halonyx</span>
-                        <span id="user-usid-snippet" class="m3-top-app-bar-subtitle" aria-live="polite"></span>
-                    </div>
-                </div>
-                <div class="m3-top-app-bar-end">
-                    <button id="theme-btn" class="m3-icon-button theme-toggle-btn" aria-label="Toggle Theme">
-                        <span class="material-icons-outlined" aria-hidden="true">light_mode</span>
-                    </button>
-                    <button id="emergency-btn" class="m3-icon-button emergency-broadcast-btn"
-                        aria-label="Broadcast Emergency Message">
-                        <span class="material-icons-outlined" aria-hidden="true">emergency_share</span>
-                    </button>
-                    <button id="show-profile" class="m3-icon-button" aria-label="View your profile and USID">
-                        <span class="material-icons-outlined" aria-hidden="true">account_circle</span>
-                    </button>
-                </div>
-            </header>
-
-            <!-- Contacts View -->
-            <nav id="contacts-screen" class="screen show" role="navigation" aria-label="Contact list">
-                <div class="m3-list" id="contacts-list" role="list">
-                    <!-- Contacts will be injected here -->
-                    <div class="m3-list-item empty-state" role="listitem">
-                        <div class="m3-list-item-text">
-                            <span class="m3-list-item-headline">No contacts yet</span>
-                            <span class="m3-list-item-supporting-text">Add someone to start chatting</span>
+        <!-- Main App -->
+        <div id="app" class="app-container">
+            <!-- Sidebar -->
+            <aside id="contacts-pane" class="sidebar">
+                <div class="sidebar-top">
+                    <div class="brand">
+                        <div class="brand-icon">
+                            <span class="material-icons-outlined">shield</span>
+                        </div>
+                        <div class="brand-text">
+                            <span class="brand-name">HALONYX</span>
+                            <span class="brand-sub">Secura</span>
                         </div>
                     </div>
+                    <button id="show-profile" class="icon-btn" title="Profile">
+                        <span class="material-icons-outlined"
+                            >manage_accounts</span
+                        >
+                    </button>
                 </div>
-                <button id="fab-add-contact" class="m3-fab" aria-label="Add a new contact">
-                    <span class="material-icons-outlined" aria-hidden="true">person_add</span>
-                </button>
-            </nav>
 
-            <!-- Chat View -->
-            <main id="chat-screen" class="screen" role="main" aria-label="Chat conversation">
-                
-                <!-- Key Exchange Overlay -->
-                <div id="key-exchange-overlay" class="hidden">
-                    <div class="exchange-illustration">
-                        <div class="exchange-node" id="node-a">
-                            <span class="material-icons-outlined">lock</span>
-                        </div>
-                        <div class="exchange-line"></div>
-                        <div class="exchange-node" id="node-b">
-                            <span class="material-icons-outlined">lock_open</span>
+                <div class="search-row">
+                    <div class="search-field">
+                        <span class="material-icons-outlined">search</span>
+                        <input
+                            type="text"
+                            id="search-input"
+                            placeholder="Search..."
+                        />
+                    </div>
+                    <button
+                        id="fab-add-contact"
+                        class="add-btn"
+                        title="Add contact"
+                    >
+                        <span class="material-icons-outlined">person_add</span>
+                    </button>
+                </div>
+
+                <div class="contacts-label">CONVERSATIONS</div>
+                <nav id="contacts-screen" class="contacts-scroll">
+                    <div id="contacts-list" role="list">
+                        <div class="empty-contacts">
+                            <span class="material-icons-outlined"
+                                >group_add</span
+                            >
+                            <p>No contacts yet</p>
+                            <small>Add a contact using their USID</small>
                         </div>
                     </div>
-                    <div class="exchange-step-text" id="exchange-status">Initializing Secure Channel</div>
-                    <div class="exchange-subtext" id="exchange-details">Verifying identities...</div>
+                </nav>
+
+                <div class="sidebar-footer">
+                    <button
+                        id="theme-btn"
+                        class="footer-btn"
+                        title="Toggle theme"
+                    >
+                        <span class="material-icons-outlined">light_mode</span>
+                    </button>
+                    <button
+                        id="emergency-btn-sidebar"
+                        class="footer-btn emergency-btn"
+                        title="Emergency Broadcast"
+                    >
+                        <span class="material-icons-outlined"
+                            >emergency_share</span
+                        >
+                    </button>
+                    <div class="status-pill">
+                        <span class="status-dot"></span>
+                        <span id="net-status">Connecting...</span>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Chat Pane -->
+            <main id="chat-pane" class="chat-pane">
+                <div id="no-chat-selected" class="empty-chat">
+                    <div class="empty-chat-inner">
+                        <div class="empty-hex-grid">
+                            <div class="hex-item"></div>
+                            <div class="hex-item"></div>
+                            <div class="hex-item"></div>
+                            <div class="hex-item active"></div>
+                            <div class="hex-item"></div>
+                            <div class="hex-item"></div>
+                            <div class="hex-item"></div>
+                            <div class="hex-item active"></div>
+                            <div class="hex-item"></div>
+                        </div>
+                        <h2>Select a conversation</h2>
+                        <p>End-to-end encrypted · Peer-to-peer · No servers</p>
+                    </div>
                 </div>
 
-                <div id="messages-container" class="messages-area" role="log" aria-live="polite">
-                    <!-- Messages will be injected here -->
-                </div>
-                <div class="m3-bottom-app-bar">
-                    <div class="message-input-container">
-                        <input type="text" id="message-input" class="m3-text-field" placeholder="Type a message..."
-                            aria-label="Message text">
-                        <button id="send-btn" class="m3-icon-button m3-button-primary" aria-label="Send message">
-                            <span class="material-icons-outlined" aria-hidden="true">send</span>
+                <div
+                    id="chat-active-view"
+                    class="chat-active"
+                    style="display: none"
+                >
+                    <header class="chat-header">
+                        <div class="chat-peer">
+                            <div class="peer-avatar" id="active-chat-avatar">
+                                <span class="material-icons-outlined"
+                                    >account_circle</span
+                                >
+                            </div>
+                            <div class="peer-info">
+                                <h3 id="app-bar-title">Contact</h3>
+                                <span id="peer-status" class="peer-status">
+                                    <span class="status-dot-sm online"></span>
+                                    Encrypted Channel
+                                </span>
+                            </div>
+                        </div>
+                        <div class="chat-actions">
+                            <button
+                                id="emergency-btn"
+                                class="icon-btn danger-btn"
+                                title="Emergency"
+                            >
+                                <span class="material-icons-outlined"
+                                    >emergency_share</span
+                                >
+                            </button>
+                            <button
+                                id="toggle-details"
+                                class="icon-btn"
+                                title="Details"
+                            >
+                                <span class="material-icons-outlined"
+                                    >info_outline</span
+                                >
+                            </button>
+                        </div>
+                    </header>
+
+                    <!-- Transfer Status Bar -->
+                    <div id="transfer-bar" class="transfer-bar hidden">
+                        <div class="transfer-info">
+                            <span class="material-icons-outlined"
+                                >swap_vert</span
+                            >
+                            <span id="transfer-label">Seeding...</span>
+                            <span
+                                id="transfer-speed"
+                                class="transfer-speed"
+                            ></span>
+                        </div>
+                        <div class="transfer-progress-wrap">
+                            <div
+                                id="transfer-progress"
+                                class="transfer-progress-inner"
+                                style="width: 0%"
+                            ></div>
+                        </div>
+                        <button id="transfer-close" class="icon-btn-sm">
+                            <span class="material-icons-outlined">close</span>
                         </button>
+                    </div>
+
+                    <div id="chat-screen" class="messages-wrap">
+                        <!-- Key Exchange -->
+                        <div
+                            id="key-exchange-overlay"
+                            class="key-overlay hidden"
+                        >
+                            <div class="key-animation">
+                                <div class="key-node" id="node-a">
+                                    <span class="material-icons-outlined"
+                                        >lock</span
+                                    >
+                                </div>
+                                <div class="key-beam">
+                                    <div class="beam-pulse"></div>
+                                </div>
+                                <div class="key-node" id="node-b">
+                                    <span class="material-icons-outlined"
+                                        >lock_open</span
+                                    >
+                                </div>
+                            </div>
+                            <p id="exchange-status" class="key-status">
+                                Initializing Secure Channel
+                            </p>
+                            <p id="exchange-details" class="key-detail">
+                                Verifying cryptographic identities...
+                            </p>
+                        </div>
+
+                        <div id="messages-container" class="messages-area">
+                            <!-- Messages render here -->
+                        </div>
+                    </div>
+
+                    <div class="composer">
+                        <div class="composer-inner">
+                            <button
+                                id="attach-btn"
+                                class="icon-btn-sm"
+                                title="Attach file"
+                            >
+                                <span class="material-icons-outlined"
+                                    >attach_file</span
+                                >
+                            </button>
+                            <input
+                                type="file"
+                                id="file-input"
+                                style="display: none"
+                            />
+                            <div class="composer-field">
+                                <input
+                                    type="text"
+                                    id="message-input"
+                                    placeholder="Write an encrypted message..."
+                                    autocomplete="off"
+                                />
+                            </div>
+                            <button id="send-btn" class="send-btn">
+                                <span class="material-icons-outlined"
+                                    >arrow_upward</span
+                                >
+                            </button>
+                        </div>
                     </div>
                 </div>
             </main>
-        </div>
 
-        <!-- Add Contact Dialog (Modal) -->
-        <div id="add-contact-dialog" class="m3-dialog-overlay" role="dialog" aria-modal="true"
-            aria-labelledby="add-contact-title">
-            <div class="m3-dialog">
-                <h3 id="add-contact-title" class="m3-dialog-title">Add Contact</h3>
-                <div class="m3-dialog-content">
-                    <p id="add-contact-desc">Enter the recipient's USID to start a secure connection.</p>
-                    <input type="text" id="contact-usid" class="m3-text-field" placeholder="USID (Hex string)"
-                        aria-describedby="add-contact-desc">
+            <!-- Details Pane -->
+            <aside id="details-pane" class="details-pane collapsed">
+                <div class="details-header">
+                    <span class="details-title">Peer Info</span>
+                    <button id="close-details" class="icon-btn">
+                        <span class="material-icons-outlined">close</span>
+                    </button>
                 </div>
-                <div class="m3-dialog-actions">
-                    <button id="cancel-add-contact" class="m3-button m3-button-text">Cancel</button>
-                    <button id="confirm-add-contact" class="m3-button m3-button-filled">Add</button>
-                </div>
-            </div>
-        </div>
+                <div class="details-body">
+                    <div class="details-avatar-wrap">
+                        <div class="details-avatar">
+                            <span class="material-icons-outlined"
+                                >account_circle</span
+                            >
+                        </div>
+                        <h3 id="details-name">Unknown Peer</h3>
+                        <p id="details-status" class="details-sub">Encrypted</p>
+                    </div>
 
-        <!-- Profile Dialog -->
-        <div id="profile-dialog" class="m3-dialog-overlay" role="dialog" aria-modal="true"
-            aria-labelledby="profile-title">
-            <div class="m3-dialog">
-                <h3 id="profile-title" class="m3-dialog-title">Your Profile</h3>
-                <div class="m3-dialog-content">
-                    <div class="usid-display">
-                        <label for="my-usid-code">Your Full USID</label>
-                        <code id="my-usid-code"></code>
-                        <button id="copy-usid" class="m3-button m3-button-text" aria-label="Copy USID to clipboard">
-                            <span class="material-icons-outlined" aria-hidden="true">content_copy</span>
+                    <div class="details-block">
+                        <div class="details-block-label">IDENTITY</div>
+                        <div class="usid-display">
+                            <code id="details-full-usid" class="usid-code"
+                                >...</code
+                            >
+                        </div>
+                    </div>
+
+                    <div class="details-block">
+                        <div class="details-block-label">SECURITY</div>
+                        <div class="security-row">
+                            <span
+                                class="material-icons-outlined security-icon ok"
+                                >verified_user</span
+                            >
+                            <span>Signal Protocol E2E Encryption</span>
+                        </div>
+                        <div class="security-row">
+                            <span
+                                class="material-icons-outlined security-icon ok"
+                                >hub</span
+                            >
+                            <span>WebTorrent P2P File Transfer</span>
+                        </div>
+                        <div class="security-row">
+                            <span
+                                class="material-icons-outlined security-icon ok"
+                                >key</span
+                            >
+                            <span>X3DH Key Agreement</span>
+                        </div>
+                    </div>
+
+                    <!-- Torrent Stats -->
+                    <div
+                        class="details-block"
+                        id="torrent-stats-block"
+                        style="display: none"
+                    >
+                        <div class="details-block-label">ACTIVE TRANSFERS</div>
+                        <div
+                            id="torrent-stats-list"
+                            class="torrent-stats-list"
+                        ></div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Add Contact Dialog -->
+            <div id="add-contact-dialog" class="dialog-overlay">
+                <div class="dialog">
+                    <div class="dialog-icon">
+                        <span class="material-icons-outlined">person_add</span>
+                    </div>
+                    <h3 class="dialog-title">Add Secure Contact</h3>
+                    <p class="dialog-body">
+                        Enter the peer's USID to initiate an encrypted
+                        connection.
+                    </p>
+                    <div class="field-wrap mt-16">
+                        <label>USID (Hex string)</label>
+                        <input
+                            type="text"
+                            id="contact-usid"
+                            class="field-input mono"
+                            placeholder="0x..."
+                        />
+                    </div>
+                    <div class="dialog-actions">
+                        <button id="cancel-add-contact" class="btn-ghost">
+                            Cancel
+                        </button>
+                        <button id="confirm-add-contact" class="btn-primary sm">
+                            Add Contact
                         </button>
                     </div>
                 </div>
-                <div class="m3-dialog-actions">
-                    <button id="close-profile" class="m3-button m3-button-filled">Close</button>
+            </div>
+
+            <!-- Profile Dialog -->
+            <div id="profile-dialog" class="dialog-overlay">
+                <div class="dialog">
+                    <div class="dialog-icon">
+                        <span class="material-icons-outlined">badge</span>
+                    </div>
+                    <h3 class="dialog-title">Your Identity</h3>
+                    <p class="dialog-body">
+                        Share your USID with trusted peers to connect.
+                    </p>
+                    <div class="usid-copy-wrap">
+                        <code id="my-usid-code" class="usid-code full"></code>
+                        <button id="copy-usid" class="icon-btn-sm" title="Copy">
+                            <span class="material-icons-outlined"
+                                >content_copy</span
+                            >
+                        </button>
+                    </div>
+                    <div class="dialog-actions">
+                        <button id="close-profile" class="btn-primary sm">
+                            Done
+                        </button>
+                    </div>
                 </div>
+            </div>
+
+            <!-- Snackbar -->
+            <div id="snackbar" class="snackbar">
+                <span class="material-icons-outlined" id="snackbar-icon"
+                    >info</span
+                >
+                <span id="snackbar-text">Message</span>
             </div>
         </div>
 
-        <!-- Snackbar for status -->
-        <div id="snackbar" class="m3-snackbar" role="status" aria-live="polite">
-            <span class="m3-snackbar-text"></span>
-        </div>
-    </div>
-
-    <script src="js/app.js?v=2.1"></script>
-</body>
-
+        <script src="js/app.js?v=4.0"></script>
+    </body>
 </html>
