@@ -1,11 +1,11 @@
 /* ======================================
-   HALONYX — Premium Dark Terminal UI
-   Version 4.0
+   HALONYX — Premium Adaptive UI
+   Version 4.1
 ====================================== */
 
 /* ---------- Design Tokens ---------- */
 :root {
-    /* Core Palette */
+    /* Core Palette — Dark */
     --ink: #08090c;
     --panel: #0e1117;
     --surface: #161b25;
@@ -27,17 +27,21 @@
     --success: #00e5a0;
     --warn: #ffd32a;
 
-    /* Light theme */
-    --ink-l: #f0f3f7;
+    /* Core Palette — Light (refined) */
+    --ink-l: #eef1f6;
     --panel-l: #ffffff;
-    --surface-l: #f5f7fa;
-    --elevated-l: #eaeff6;
-    --hover-l: #e1e8f2;
-    --text-l: #0e1117;
-    --text-sub-l: #4e5d73;
-    --text-muted-l: #8896ad;
-    --border-l: rgba(0, 0, 0, 0.08);
-    --border-hi-l: rgba(0, 0, 0, 0.14);
+    --surface-l: #f4f6fb;
+    --elevated-l: #e8edf6;
+    --hover-l: #dde4f0;
+    --text-l: #111827;
+    --text-sub-l: #374151;
+    --text-muted-l: #6b7280;
+    --border-l: rgba(17, 24, 39, 0.09);
+    --border-hi-l: rgba(17, 24, 39, 0.16);
+    /* Light-mode accent stays teal but deeper */
+    --accent-l: #00b89e;
+    --accent-dim-l: #007a6a;
+    --accent-glow-l: rgba(0, 184, 158, 0.14);
 
     /* Active theme defaults → dark */
     --bg-ink: var(--ink);
@@ -50,6 +54,9 @@
     --fg-muted: var(--text-muted);
     --bd: var(--border);
     --bd-hi: var(--border-hi);
+    --shadow-card: 0 2px 12px rgba(0,0,0,0.35);
+    --shadow-dialog: 0 12px 48px rgba(0,0,0,0.45);
+    --shadow-panel: none;
 
     /* Geometry */
     --r-sm: 6px;
@@ -79,7 +86,12 @@ body.theme-light {
     --fg-muted: var(--text-muted-l);
     --bd: var(--border-l);
     --bd-hi: var(--border-hi-l);
-    --accent-glow: rgba(0, 229, 195, 0.1);
+    --accent: var(--accent-l);
+    --accent-dim: var(--accent-dim-l);
+    --accent-glow: var(--accent-glow-l);
+    --shadow-card: 0 2px 12px rgba(17,24,39,0.08), 0 1px 3px rgba(17,24,39,0.05);
+    --shadow-dialog: 0 16px 56px rgba(17,24,39,0.18), 0 4px 16px rgba(17,24,39,0.08);
+    --shadow-panel: 2px 0 16px rgba(17,24,39,0.06);
 }
 
 /* ---------- Reset ---------- */
@@ -221,7 +233,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 24px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--shadow-card);
 }
 
 .reg-header {
@@ -500,6 +512,9 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    box-shadow: var(--shadow-panel);
+    position: relative;
+    z-index: 1;
 }
 
 .sidebar-top {
@@ -833,6 +848,15 @@ body {
     flex-direction: column;
     background: var(--bg-ink);
     overflow: hidden;
+    position: relative;
+}
+
+body.theme-light .chat-pane {
+    background: var(--surface-l);
+}
+
+body.theme-light .messages-area {
+    background: var(--surface-l);
 }
 
 .empty-chat {
@@ -895,6 +919,12 @@ body {
     background: var(--bg-panel);
     border-bottom: 1px solid var(--bd);
     height: 60px;
+    position: relative;
+    z-index: 1;
+}
+
+body.theme-light .chat-header {
+    box-shadow: 0 1px 0 var(--bd), 0 2px 8px rgba(17,24,39,0.04);
 }
 .chat-peer {
     display: flex;
@@ -1136,12 +1166,25 @@ body {
     background: var(--accent);
     color: #000;
     border-bottom-right-radius: 4px;
+    box-shadow: 0 2px 8px var(--accent-glow);
 }
 .msg-row.received .msg-bubble {
     background: var(--bg-surface);
     border: 1px solid var(--bd);
     color: var(--fg);
     border-bottom-left-radius: 4px;
+}
+
+body.theme-light .msg-row.sent .msg-bubble {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 2px 10px rgba(0,184,158,0.25);
+}
+
+body.theme-light .msg-row.received .msg-bubble {
+    background: var(--panel-l);
+    border-color: var(--border-hi-l);
+    box-shadow: 0 1px 4px rgba(17,24,39,0.06);
 }
 
 .msg-time {
@@ -1264,6 +1307,18 @@ body {
     border-color: var(--accent-dim);
     box-shadow: 0 0 0 3px var(--accent-glow);
 }
+
+body.theme-light .composer {
+    background: var(--panel-l);
+    border-top: 1px solid var(--border-hi-l);
+    box-shadow: 0 -2px 12px rgba(17,24,39,0.04);
+}
+
+body.theme-light .composer-inner {
+    background: var(--surface-l);
+    border-color: var(--border-hi-l);
+    box-shadow: 0 1px 4px rgba(17,24,39,0.05);
+}
 .composer-field {
     flex: 1;
 }
@@ -1320,12 +1375,18 @@ body {
     transition:
         width var(--t-mid) var(--ease),
         opacity var(--t-mid) var(--ease);
+    position: relative;
+    z-index: 1;
 }
 .details-pane.collapsed {
     width: 0;
     opacity: 0;
     pointer-events: none;
     border-left: none;
+}
+
+body.theme-light .details-pane {
+    box-shadow: -2px 0 16px rgba(17,24,39,0.06);
 }
 
 .details-header {
@@ -1490,6 +1551,10 @@ body {
     }
 }
 
+body.theme-light .dialog-overlay {
+    background: rgba(17, 24, 39, 0.3);
+}
+
 .dialog {
     background: var(--bg-panel);
     border: 1px solid var(--bd-hi);
@@ -1502,7 +1567,7 @@ body {
     gap: 20px;
     transform: scale(0.96);
     transition: transform var(--t-mid);
-    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-dialog);
 }
 .dialog-overlay.active .dialog {
     transform: scale(1);
@@ -1607,8 +1672,13 @@ body {
         transform var(--t-mid);
     z-index: 300;
     pointer-events: none;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-card);
     white-space: nowrap;
+}
+
+body.theme-light .snackbar {
+    background: var(--panel-l);
+    border-color: var(--border-hi-l);
 }
 .snackbar.active {
     opacity: 1;
@@ -1777,4 +1847,272 @@ body {
     .field-stack {
         gap: 14px;
     }
+}
+
+/* ============================
+   LIGHT MODE — GLOBAL POLISH
+============================ */
+
+/* Body background */
+body.theme-light {
+    background: var(--surface-l);
+}
+
+/* Sidebar top bar */
+body.theme-light .sidebar-top {
+    border-bottom-color: var(--border-l);
+    background: var(--panel-l);
+}
+
+/* Search field */
+body.theme-light .search-field {
+    background: var(--surface-l);
+    border-color: var(--border-hi-l);
+}
+body.theme-light .search-field:focus-within {
+    border-color: var(--accent-l);
+    box-shadow: 0 0 0 3px var(--accent-glow-l);
+}
+
+/* Add-contact button */
+body.theme-light .add-btn {
+    background: var(--accent-glow-l);
+    border-color: var(--accent-dim-l);
+}
+body.theme-light .add-btn:hover {
+    background: rgba(0, 184, 158, 0.22);
+}
+
+/* Contacts label */
+body.theme-light .contacts-label {
+    color: var(--text-muted-l);
+    background: var(--surface-l);
+    border-bottom: 1px solid var(--border-l);
+    padding-bottom: 6px;
+    letter-spacing: 0.1em;
+}
+
+/* Contacts scroll — lighter scrollbar */
+body.theme-light .contacts-scroll::-webkit-scrollbar-thumb {
+    background: rgba(17, 24, 39, 0.18);
+}
+
+/* Contact items */
+body.theme-light .contact-item {
+    border-bottom-color: var(--border-l);
+}
+body.theme-light .contact-item:hover {
+    background: var(--hover-l);
+}
+body.theme-light .contact-item.active {
+    background: rgba(0, 184, 158, 0.07);
+}
+body.theme-light .contact-item.active::before {
+    background: var(--accent-l);
+}
+body.theme-light .contact-avatar {
+    background: var(--elevated-l);
+    border-color: var(--border-hi-l);
+}
+
+/* Sidebar footer */
+body.theme-light .sidebar-footer {
+    background: var(--panel-l);
+    border-top-color: var(--border-l);
+}
+body.theme-light .footer-btn {
+    color: var(--text-sub-l);
+}
+body.theme-light .footer-btn:hover {
+    background: var(--hover-l);
+    color: var(--text-l);
+}
+
+/* Status pill */
+body.theme-light .status-pill {
+    color: var(--text-muted-l);
+}
+body.theme-light .status-dot {
+    background: var(--text-muted-l);
+}
+
+/* Empty chat state */
+body.theme-light .empty-chat-inner h2 {
+    color: var(--text-sub-l);
+}
+body.theme-light .empty-chat-inner p {
+    color: var(--text-muted-l);
+}
+body.theme-light .hex-item {
+    background: var(--elevated-l);
+}
+body.theme-light .hex-item.active {
+    background: var(--accent-l);
+}
+
+/* Key exchange overlay */
+body.theme-light .key-overlay {
+    background: var(--surface-l);
+}
+body.theme-light .key-node {
+    background: var(--elevated-l);
+    border-color: var(--accent-dim-l);
+}
+body.theme-light .key-beam {
+    background: var(--border-hi-l);
+}
+
+/* Messages scrollbar */
+body.theme-light .messages-area::-webkit-scrollbar-thumb {
+    background: rgba(17, 24, 39, 0.16);
+}
+
+/* Date divider */
+body.theme-light .date-divider {
+    color: var(--text-muted-l);
+}
+body.theme-light .date-divider::before,
+body.theme-light .date-divider::after {
+    background: var(--border-l);
+}
+
+/* Transfer bar */
+body.theme-light .transfer-bar {
+    background: var(--surface-l);
+    border-bottom-color: var(--border-l);
+}
+body.theme-light .transfer-progress-wrap {
+    background: var(--elevated-l);
+}
+
+/* File bubble */
+body.theme-light .file-bubble {
+    background: var(--panel-l);
+    border-color: var(--border-hi-l);
+    box-shadow: 0 1px 4px rgba(17,24,39,0.06);
+}
+body.theme-light .msg-row.sent .file-bubble {
+    background: rgba(0, 184, 158, 0.09);
+    border-color: rgba(0, 184, 158, 0.28);
+}
+body.theme-light .file-icon {
+    background: var(--elevated-l);
+}
+body.theme-light .file-action-btn {
+    background: var(--elevated-l);
+    border-color: var(--border-hi-l);
+}
+body.theme-light .file-action-btn:hover {
+    background: var(--accent-glow-l);
+}
+
+/* Details pane body */
+body.theme-light .details-pane {
+    background: var(--panel-l);
+}
+body.theme-light .details-header {
+    border-bottom-color: var(--border-l);
+    background: var(--panel-l);
+}
+body.theme-light .details-avatar {
+    background: var(--surface-l);
+    border-color: var(--border-hi-l);
+}
+body.theme-light .usid-display {
+    background: var(--surface-l);
+    border-color: var(--border-l);
+}
+body.theme-light .torrent-stat-item {
+    background: var(--surface-l);
+}
+body.theme-light .torrent-stat-bar {
+    background: var(--elevated-l);
+}
+
+/* Dialog refinements */
+body.theme-light .dialog {
+    background: var(--panel-l);
+    border-color: var(--border-hi-l);
+}
+body.theme-light .dialog-actions {
+    border-top-color: var(--border-l);
+}
+body.theme-light .usid-copy-wrap {
+    background: var(--surface-l);
+    border-color: var(--border-hi-l);
+}
+body.theme-light .usid-copy-wrap:hover {
+    border-color: var(--accent-l);
+    background: rgba(0, 184, 158, 0.05);
+}
+
+/* Field inputs */
+body.theme-light .field-input {
+    background: var(--surface-l);
+    border-color: var(--border-hi-l);
+    color: var(--text-l);
+}
+body.theme-light .field-input:focus {
+    border-color: var(--accent-l);
+    box-shadow: 0 0 0 4px var(--accent-glow-l);
+    background: var(--panel-l);
+}
+body.theme-light .field-input:disabled {
+    background: var(--elevated-l);
+    color: var(--text-muted-l);
+}
+
+/* Reg card in light mode */
+body.theme-light .reg-card {
+    border-color: var(--border-hi-l);
+}
+
+/* Splash screen */
+body.theme-light .splash-bg {
+    background: radial-gradient(
+        ellipse 70% 50% at 50% 30%,
+        rgba(0, 184, 158, 0.08) 0%,
+        transparent 70%
+    );
+}
+
+/* Peer avatar in chat header */
+body.theme-light .peer-avatar {
+    background: var(--elevated-l);
+    border-color: var(--border-hi-l);
+}
+
+/* Icon buttons in light mode */
+body.theme-light .icon-btn:hover {
+    background: var(--hover-l);
+    color: var(--text-l);
+}
+body.theme-light .icon-btn.danger-btn:hover {
+    background: rgba(255, 71, 87, 0.09);
+    color: var(--danger);
+}
+
+/* Ghost button */
+body.theme-light .btn-ghost {
+    border-color: var(--border-hi-l);
+    color: var(--text-sub-l);
+}
+body.theme-light .btn-ghost:hover {
+    background: var(--hover-l);
+    color: var(--text-l);
+    border-color: var(--text-muted-l);
+}
+
+/* Unread badge stays accent */
+body.theme-light .unread-badge {
+    background: var(--accent-l);
+    color: #fff;
+}
+
+/* Contact delete btn */
+body.theme-light .contact-delete-btn {
+    background: rgba(255, 71, 87, 0.07);
+}
+body.theme-light .contact-delete-btn:hover {
+    background: rgba(255, 71, 87, 0.14);
 }

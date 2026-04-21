@@ -14,6 +14,58 @@
  */
 
 // ─────────────────────────────────────────
+// Sound Engine (Web Audio API — no files needed)
+// ─────────────────────────────────────────
+let _audioCtx = null;
+function getAudioCtx() {
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+  }
+  return _audioCtx;
+}
+
+/** Play a short "sent" click/whoosh */
+function playSendSound() {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  try {
+    // Soft high-freq tick
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1200, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.08);
+    gain.gain.setValueAtTime(0.18, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.12);
+  } catch(e) {}
+}
+
+/** Play a pleasant two-tone chime on successful connection */
+function playConnectSound() {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  try {
+    [[523.25, 0, 0.13], [783.99, 0.13, 0.28]].forEach(([freq, start, stop]) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + start);
+      gain.gain.linearRampToValueAtTime(0.20, ctx.currentTime + start + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + stop);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + stop);
+    });
+  } catch(e) {}
+}
+
+// ─────────────────────────────────────────
 // State
 // ─────────────────────────────────────────
 let token = localStorage.getItem("token");
@@ -578,6 +630,7 @@ function sendMessage() {
   saveMessage(currentChatUsid, msg);
   input.value = "";
   renderMessages();
+  playSendSound();
 }
 
 function saveMessage(chatUsid, msg) {
@@ -968,6 +1021,7 @@ setInterval(() => {
 function hideSplashScreen() {
   document.getElementById("splash-screen").classList.add("hidden");
   loadContacts();
+  playConnectSound();
 }
 
 function applyTheme(theme) {
