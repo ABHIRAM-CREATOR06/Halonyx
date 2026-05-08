@@ -82,17 +82,25 @@ const activeTorrents = new Map();
 // Global WebTorrent client
 let btClient = null;
 
+const TRACKERS = [
+  "wss://tracker.openwebtorrent.com",
+  "wss://tracker.webtorrent.dev",
+  "wss://tracker.files.fm:7073/announce",
+  "wss://tracker.btorrent.xyz"
+];
+
 function getBTClient() {
   if (!btClient) {
     try {
       btClient = new WebTorrent({
         tracker: {
-          announce: [
-            "wss://tracker.openwebtorrent.com",
-            "wss://tracker.webtorrent.dev",
-            "wss://tracker.files.fm:7073/announce",
-          ],
-        },
+          rtcConfig: {
+            iceServers: [
+              { urls: "stun:stun.l.google.com:19302" },
+              { urls: "stun:global.stun.twilio.com:3478" }
+            ]
+          }
+        }
       });
       btClient.on("error", (err) => {
         console.warn("[BitTorrent] Client error:", err.message);
@@ -676,6 +684,10 @@ function renderMessages() {
         btoa(msg.timestamp)
           .replace(/[^a-z0-9]/gi, "")
           .substring(0, 8);
+      
+      const nameMatch = msg.content.match(/dn=([^&]+)/);
+      const fileName = nameMatch ? decodeURIComponent(nameMatch[1].replace(/\+/g, ' ')) : "Shared File";
+      
       html += `
                 <div class="msg-row ${rowCls}">
                     <div class="file-bubble">
@@ -683,17 +695,18 @@ function renderMessages() {
                             <span class="material-icons-outlined">folder_zip</span>
                         </div>
                         <div class="file-details">
-                            <div class="file-name" id="fn-${pid}">Shared File</div>
+                            <div class="file-name" id="fn-${pid}">${escapeHTML(fileName)}</div>
                             <div class="file-size" id="fs-${pid}">Ready to download</div>
                             <div class="file-progress-wrap">
                                 <div class="file-progress-inner" id="${pid}"></div>
                             </div>
                             <div class="file-status" id="fst-${pid}"></div>
                         </div>
+                        <div class="file-actions" id="fa-${pid}">
                         ${
                           !isMe
                             ? `
-                        <button class="file-action-btn" onclick="downloadFile('${escapeAttr(msg.content)}', '${pid}')" title="Download">
+                        <button class="file-action-btn" id="btn-${pid}" onclick="downloadFile('${escapeAttr(msg.content)}', '${pid}')" title="Download">
                             <span class="material-icons-outlined">download</span>
                         </button>`
                             : `
@@ -701,6 +714,7 @@ function renderMessages() {
                             <span class="material-icons-outlined">link</span>
                         </button>`
                         }
+                        </div>
                     </div>
                 </div>`;
     } else {
@@ -751,13 +765,12 @@ function handleFileUpload(e) {
   showSnackbar(`Seeding: ${label}`, "info");
   showTransferBar(`Preparing seed: ${label}`, 0);
 
+  const seedInput = fileArray.length === 1 ? fileArray[0] : fileArray;
+
   client.seed(
-    fileArray,
+    seedInput,
     {
-      announce: [
-        "wss://tracker.openwebtorrent.com",
-        "wss://tracker.webtorrent.dev",
-      ],
+      announce: TRACKERS,
     },
     (torrent) => {
       console.log("[BT] Seeding:", torrent.name, torrent.magnetURI);
@@ -851,10 +864,7 @@ function downloadFile(magnetURI, progressId) {
   client.add(
     magnetURI,
     {
-      announce: [
-        "wss://tracker.openwebtorrent.com",
-        "wss://tracker.webtorrent.dev",
-      ],
+      announce: TRACKERS,
     },
     (torrent) => {
       console.log("[BT] Downloading:", torrent.name);
@@ -892,26 +902,23 @@ function downloadFile(magnetURI, progressId) {
         updateTorrentStats();
         showSnackbar(`Downloaded: ${torrent.name}`, "success");
 
-        // Auto-save files
-        torrent.files.forEach((file) => {
-          file.getBlobURL((err, url) => {
-            if (err) return console.error("[BT] getBlobURL error:", err);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = file.name;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(url), 5000);
-          });
-        });
-
-        // Clean up after a while
-        setTimeout(() => {
-          if (btClient && btClient.get(torrent.infoHash)) {
-            btClient.remove(torrent.infoHash);
-          }
-        }, 30000);
+        const actionContainer = document.getElementById(`fa-${progressId}`);
+        if (actionContainer) {
+            actionContainer.innerHTML = '';
+            
+            torrent.files.forEach((file) => {
+              file.getBlobURL((err, url) => {
+                if (err) return console.error("[BT] getBlobURL error:", err);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = file.name;
+                a.className = "file-action-btn";
+                a.title = `Save ${file.name}`;
+                a.innerHTML = '<span class="material-icons-outlined">save</span>';
+                actionContainer.appendChild(a);
+              });
+            });
+        }
       });
 
       torrent.on("error", (err) => {
