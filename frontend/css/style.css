@@ -385,7 +385,7 @@ body {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    background: var(--accent);
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dim) 100%);
     color: #000;
     border: none;
     border-radius: var(--r);
@@ -400,11 +400,12 @@ body {
         box-shadow var(--t-fast);
 }
 .btn-primary:hover {
-    opacity: 0.95;
-    box-shadow: 0 4px 16px rgba(0, 229, 195, 0.3);
+    opacity: 1;
+    box-shadow: 0 6px 20px var(--accent-glow);
+    transform: translateY(-2px);
 }
 .btn-primary:active {
-    transform: scale(0.97);
+    transform: scale(0.97) translateY(0);
 }
 .btn-primary:disabled {
     opacity: 0.5;
@@ -552,7 +553,14 @@ body {
     font-size: 0.85rem;
     font-weight: 700;
     letter-spacing: 0.1em;
-    color: var(--fg);
+    background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+body.theme-light .brand-name {
+    background: linear-gradient(135deg, #000 0%, var(--accent-l) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 .brand-sub {
     font-size: 0.7rem;
@@ -671,29 +679,27 @@ body {
     gap: 10px;
     padding: 10px 14px;
     cursor: pointer;
-    border-radius: 0;
-    transition: background var(--t-fast);
+    border-radius: var(--r);
+    margin: 4px 12px;
+    border: 1px solid transparent;
+    transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast), box-shadow var(--t-fast);
     position: relative;
-    border-bottom: 1px solid var(--bd);
 }
 .contact-item:last-child {
-    border-bottom: none;
+    margin-bottom: 8px;
 }
 .contact-item:hover {
     background: var(--bg-surface);
+    border-color: var(--bd);
+    transform: translateY(-1px);
 }
 .contact-item.active {
     background: var(--bg-surface);
+    border-color: var(--accent-dim);
+    box-shadow: 0 4px 12px var(--accent-glow);
 }
 .contact-item.active::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    background: var(--accent);
-    border-radius: 0 2px 2px 0;
+    display: none;
 }
 
 .contact-avatar {
@@ -916,11 +922,13 @@ body.theme-light .messages-area {
     align-items: center;
     justify-content: space-between;
     padding: 12px 20px;
-    background: var(--bg-panel);
+    background: color-mix(in srgb, var(--bg-panel) 80%, transparent);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
     border-bottom: 1px solid var(--bd);
     height: 60px;
     position: relative;
-    z-index: 1;
+    z-index: 10;
 }
 
 body.theme-light .chat-header {
@@ -1163,10 +1171,10 @@ body.theme-light .chat-header {
     line-height: 1.5;
 }
 .msg-row.sent .msg-bubble {
-    background: var(--accent);
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dim) 100%);
     color: #000;
     border-bottom-right-radius: 4px;
-    box-shadow: 0 2px 8px var(--accent-glow);
+    box-shadow: 0 4px 12px var(--accent-glow);
 }
 .msg-row.received .msg-bubble {
     background: var(--bg-surface);
@@ -1176,9 +1184,9 @@ body.theme-light .chat-header {
 }
 
 body.theme-light .msg-row.sent .msg-bubble {
-    background: var(--accent);
+    background: linear-gradient(135deg, var(--accent-l) 0%, var(--accent-dim-l) 100%);
     color: #fff;
-    box-shadow: 0 2px 10px rgba(0,184,158,0.25);
+    box-shadow: 0 4px 14px rgba(0,184,158,0.3);
 }
 
 body.theme-light .msg-row.received .msg-bubble {
@@ -1209,6 +1217,12 @@ body.theme-light .msg-row.received .msg-bubble {
     align-items: center;
     gap: 12px;
     max-width: 320px;
+    transition: transform var(--t-fast), box-shadow var(--t-fast), border-color var(--t-fast);
+}
+.file-bubble:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+    border-color: var(--accent-dim);
 }
 .msg-row.sent .file-bubble {
     background: rgba(0, 229, 195, 0.12);
@@ -1899,16 +1913,19 @@ body.theme-light .contacts-scroll::-webkit-scrollbar-thumb {
 
 /* Contact items */
 body.theme-light .contact-item {
-    border-bottom-color: var(--border-l);
+    border-color: transparent;
 }
 body.theme-light .contact-item:hover {
     background: var(--hover-l);
+    border-color: var(--border-l);
 }
 body.theme-light .contact-item.active {
     background: rgba(0, 184, 158, 0.07);
+    border-color: var(--accent-dim-l);
+    box-shadow: 0 4px 12px var(--accent-glow-l);
 }
 body.theme-light .contact-item.active::before {
-    background: var(--accent-l);
+    display: none;
 }
 body.theme-light .contact-avatar {
     background: var(--elevated-l);
