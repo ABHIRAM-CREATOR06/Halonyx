@@ -187,6 +187,24 @@ function handleWSMessage(data) {
       }
       break;
     }
+    case "queued": {
+      // Recipient was offline — mark last sent message as queued so the UI
+      // shows a clock icon instead of a plain tick.
+      if (currentChatUsid && messageHistory[currentChatUsid]) {
+        const hist = messageHistory[currentChatUsid];
+        // Walk backwards to find the last message sent by me (not yet delivered)
+        for (let i = hist.length - 1; i >= 0; i--) {
+          if (hist[i].from === "me" && !hist[i].status) {
+            hist[i].status = "queued";
+            break;
+          }
+        }
+        localStorage.setItem("messageHistory", JSON.stringify(messageHistory));
+        renderMessages();
+      }
+      showSnackbar("Peer offline — message queued for delivery", "info");
+      break;
+    }
     case "emergency_broadcast":
       showEmergencyAlert(data.content, data.from);
       break;
@@ -718,11 +736,15 @@ function renderMessages() {
                     </div>
                 </div>`;
     } else {
+      // Status icon: clock = queued (peer offline), nothing = delivered
+      const statusIcon = (isMe && msg.status === "queued")
+        ? `<span class="msg-status-icon material-icons-outlined" title="Queued — peer offline">schedule</span>`
+        : "";
       html += `
                 <div class="msg-row ${rowCls}">
-                    <div class="msg-bubble">
+                    <div class="msg-bubble${msg.status === 'queued' ? ' msg-queued' : ''}">
                         ${escapeHTML(msg.content)}
-                        <span class="msg-time">${time}</span>
+                        <span class="msg-time">${time}${statusIcon}</span>
                     </div>
                 </div>`;
     }

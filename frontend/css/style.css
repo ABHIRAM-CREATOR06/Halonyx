@@ -1207,6 +1207,21 @@ body.theme-light .msg-row.received .msg-bubble {
     text-align: left;
 }
 
+/* Queued message — recipient was offline, stored in mailbox */
+.msg-bubble.msg-queued {
+    /* Slightly muted — not delivered yet */
+    opacity: 0.82;
+    border: 1px dashed rgba(0, 229, 195, 0.45) !important;
+    box-shadow: none !important;
+}
+.msg-status-icon {
+    font-size: 10px !important;
+    vertical-align: middle;
+    margin-left: 4px;
+    opacity: 0.7;
+    display: inline-block;
+}
+
 /* File Message */
 .file-bubble {
     background: var(--bg-surface);

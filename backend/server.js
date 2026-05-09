@@ -211,85 +211,32 @@ app.post("/add-contact", authenticate, (req, res) => {
   );
 });
 
-app.get("/contacts", authenticate, (req, res) => {
-  db.all(
-    "SELECT contact_hashed_usid FROM contacts WHERE user_id = ?",
-    [req.user.userId],
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: "DB error" });
-      res.json(rows.map((r) => r.contact_hashed_usid));
-    },
-  );
+app.get('/contacts', authenticate, (req, res) => {
+    db.all('SELECT contact_hashed_usid FROM contacts WHERE user_id = ?', [req.user.userId], (err, rows) => {
+        if (err) return res.status(500).json({ error: 'DB error' });
+        res.json(rows.map(r => r.contact_hashed_usid));
+    });
 });
 
-/*
-  DELETE /contacts
-  Body or query: { usid: "<USID>" } or /contacts?usid=<USID>
-  Removes a contact for the authenticated user.
-*/
-app.delete("/contacts", authenticate, (req, res) => {
-  // Validate inputs
-  const usid = (req.body && req.body.usid) || req.query.usid;
-  if (!usid || usid.trim() === "") {
-    console.warn(`[Delete Contact] Missing USID from user ${req.user.userId}`);
-    return res.status(400).json({ error: "USID is required" });
-  }
+// Delete contact route — the frontend sends the already-hashed USID (from GET /contacts),
+// so we use it directly without hashing again to avoid a double-hash mismatch.
+app.delete('/contacts', authenticate, (req, res) => {
+    const { usid } = req.body;
+    if (!usid) return res.status(400).json({ error: 'USID is required' });
 
-  if (!req.user || !req.user.userId) {
-    console.error("[Delete Contact] Invalid user context");
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+    // usid here is already a hashed_usid — do NOT call hashUSID() again
+    const hashedUsid = usid;
 
-  const hashed = hashUSID(usid);
-  console.log(
-    `[Delete Contact] User ${req.user.userId} removing contact ${hashed.substring(0, 8)}...`,
-  );
-
-  // Look up the contact entry for this user
-  db.get(
-    "SELECT id FROM contacts WHERE user_id = ? AND contact_hashed_usid = ?",
-    [req.user.userId, hashed],
-    (err, row) => {
-      if (err) {
-        console.error(
-          `[Delete Contact] DB lookup error for user ${req.user.userId}:`,
-          err.message,
-        );
-        return res
-          .status(500)
-          .json({ error: "Database error while looking up contact" });
-      }
-
-      if (!row) {
-        console.warn(
-          `[Delete Contact] Contact not found for user ${req.user.userId}: ${hashed.substring(0, 8)}...`,
-        );
-        return res.status(404).json({ error: "Contact not found" });
-      }
-
-      // Delete the contact by id
-      db.run(
-        "DELETE FROM contacts WHERE id = ? AND user_id = ?",
-        [row.id, req.user.userId],
+    db.run(
+        'DELETE FROM contacts WHERE user_id = ? AND contact_hashed_usid = ?',
+        [req.user.userId, hashedUsid],
         function (err) {
-          if (err) {
-            console.error(
-              `[Delete Contact] Delete error for user ${req.user.userId}, contact ${row.id}:`,
-              err.message,
-            );
-            return res.status(500).json({
-              error: "Failed to remove contact. Please try again.",
-            });
-          }
-
-          console.log(
-            `[Delete Contact] Successfully removed contact ${hashed.substring(0, 8)}... for user ${req.user.userId}`,
-          );
-          return res.json({ message: "Contact removed successfully" });
-        },
-      );
-    },
-  );
+            if (err) return res.status(500).json({ error: 'DB error' });
+            if (this.changes === 0) return res.status(404).json({ error: 'Contact not found' });
+            console.log(`[Contacts] Removed contact ${hashedUsid.substring(0, 8)}... for user ${req.user.userId}`);
+            res.json({ message: 'Contact removed' });
+        }
+    );
 });
 
 /*
@@ -451,36 +398,48 @@ wss.on("connection", (ws) => {
     try {
       const data = JSON.parse(message.toString());
 
-      if (data.type === "register") {
+      if (data.type === 'register') {
         const { usid } = data;
         const hashed = hashUSID(usid);
 
         // VERIFY CONNECTION AGAINST IDENTITY DB
-        idDb.get(
-          "SELECT name FROM users_metadata WHERE hashed_usid = ?",
-          [hashed],
-          (err, row) => {
+        idDb.get('SELECT name FROM users_metadata WHERE hashed_usid = ?', [hashed], (err, row) => {
             if (err || !row) {
-              console.log(
-                `[WS] Registration REJECTED: ${hashed.substring(0, 8)}... (Not in Identity DB)`,
-              );
-              ws.send(
-                JSON.stringify({
-                  type: "error",
-                  message: "Identity not verified",
-                }),
-              );
-              return;
+                console.log(`[WS] Registration REJECTED: ${hashed.substring(0, 8)}... (Not in Identity DB)`);
+                ws.send(JSON.stringify({ type: 'error', message: 'Identity not verified' }));
+                return;
             }
 
             userHashedUsid = hashed;
             clients.set(userHashedUsid, ws);
-            console.log(
-              `[WS] User Registered: ${row.name} (${userHashedUsid.substring(0, 8)}...)`,
+            console.log(`[WS] User Registered: ${row.name} (${userHashedUsid.substring(0, 8)}...)`);
+            ws.send(JSON.stringify({ type: 'registered', success: true }));
+
+            // ── Offline Mailbox Flush ──────────────────────────────────
+            // Deliver any messages that arrived while this user was offline,
+            // then purge them so they are not delivered twice.
+            db.all(
+                'SELECT * FROM mailbox WHERE recipient_hashed_usid = ? ORDER BY timestamp ASC',
+                [hashed],
+                (mbErr, pending) => {
+                    if (mbErr || !pending || pending.length === 0) return;
+                    console.log(`[Mailbox] Flushing ${pending.length} queued message(s) to ${hashed.substring(0, 8)}...`);
+                    pending.forEach((m) => {
+                        ws.send(JSON.stringify({
+                            type: 'message',
+                            from: m.sender_hashed_usid,
+                            content: m.content,
+                            timestamp: m.timestamp
+                        }));
+                    });
+                    db.run('DELETE FROM mailbox WHERE recipient_hashed_usid = ?', [hashed], (delErr) => {
+                        if (delErr) console.error('[Mailbox] Failed to purge mailbox:', delErr);
+                        else console.log(`[Mailbox] Purged ${pending.length} message(s) for ${hashed.substring(0, 8)}...`);
+                    });
+                }
             );
-            ws.send(JSON.stringify({ type: "registered", success: true }));
-          },
-        );
+            // ──────────────────────────────────────────────────────────
+        });
         return;
       }
 
@@ -541,20 +500,29 @@ wss.on("connection", (ws) => {
             `======================================================\n`,
           );
         } else {
-          console.log(`    -> [FAIL] Recipient NOT found (OFFLINE)`);
-          console.log(
-            `    -> Dropping payload (Offline Mailbox not configured)`,
+          // ── Offline Mailbox Store ──────────────────────────────────
+          // Recipient is not connected. Persist the message so it can
+          // be flushed when they reconnect.
+          console.log(`    -> [OFFLINE] Recipient not in active socket map.`);
+          console.log(`    -> Storing message in offline mailbox...`);
+          db.run(
+              'INSERT INTO mailbox (recipient_hashed_usid, sender_hashed_usid, content) VALUES (?, ?, ?)',
+              [to, userHashedUsid, content],
+              (mbErr) => {
+                  if (mbErr) {
+                      console.error('[Mailbox] Failed to store offline message:', mbErr);
+                      ws.send(JSON.stringify({ type: 'error', message: 'Recipient not online and mailbox failed' }));
+                  } else {
+                      console.log(`    -> [QUEUED] Message stored in offline mailbox for ${to.substring(0, 8)}...`);
+                      // Notify sender their message is queued (not dropped)
+                      ws.send(JSON.stringify({ type: 'queued', message: 'Recipient offline — message queued for delivery' }));
+                  }
+              }
           );
-          ws.send(
-            JSON.stringify({ type: "error", message: "Recipient not online" }),
-          );
-          console.log(
-            `\n======================================================`,
-          );
-          console.log(`           MESSAGE FLOW TERMINATED (NO ROUTE)         `);
-          console.log(
-            `======================================================\n`,
-          );
+          console.log(`\n======================================================`);
+          console.log(`           MESSAGE QUEUED (OFFLINE MAILBOX)           `);
+          console.log(`======================================================\n`);
+          // ──────────────────────────────────────────────────────────
         }
       }
 
