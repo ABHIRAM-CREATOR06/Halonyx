@@ -14,7 +14,8 @@ app.use(express.json());
 // Operational Database
 const db = new sqlite3.Database("./backend/db/app.db");
 // Identity Database (Metadata)
-const idDb = new sqlite3.Database("./backend/db/identity.db");
+const idDb  = new sqlite3.Database("./backend/db/identity.db");
+const keyDb = new sqlite3.Database("./backend/db/keys.db");
 
 // Initialize Databases
 function initDb(database, schemaPath) {
@@ -27,14 +28,15 @@ function initDb(database, schemaPath) {
   });
 }
 
-initDb(db, "./backend/db/schema.sql");
-initDb(idDb, "./backend/db/identity_schema.sql");
+initDb(db,    "./backend/db/schema.sql");
+initDb(idDb,  "./backend/db/identity_schema.sql");
+initDb(keyDb, "./backend/db/key_schema.sql");
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 
 // Routes
 app.post("/signup", (req, res) => {
-  const { name, email } = req.body;
+  const { name, email, publicKey } = req.body;
   if (!name || name.trim() === "")
     return res.status(400).json({ error: "Name is required" });
   if (!email || !email.includes("@"))
@@ -43,6 +45,10 @@ app.post("/signup", (req, res) => {
   const emailValue = email.trim();
   const usid = generateUSID();
   const hashed = hashUSID(usid);
+  // Use submitted public key if provided, otherwise fall back to placeholder
+  const publicKeyBundle = JSON.stringify({
+    identityKey: publicKey || "placeholder-public-key",
+  });
 
   // Identity Registry Check
   idDb.get(
@@ -54,28 +60,18 @@ app.post("/signup", (req, res) => {
 
       if (row) {
         console.log(`[Signup] Identity RE-ENTRY: ${emailValue}`);
-        // Update the identity with the NEW USID
         idDb.run(
           "UPDATE users_metadata SET hashed_usid = ?, name = ? WHERE id = ?",
           [hashed, name.trim(), row.id],
           (err) => {
             if (err)
               return res.status(500).json({ error: "Identity update failed" });
-
-            // Sync with Operational DB
-            const publicKeyBundle = JSON.stringify({
-              identityKey: "placeholder-public-key",
-            });
             db.run(
               "INSERT OR IGNORE INTO users (hashed_usid, public_key_bundle) VALUES (?, ?)",
               [hashed, publicKeyBundle],
               () => {
                 const jwtToken = jwt.sign({ userId: row.id, usid }, JWT_SECRET);
-                res.json({
-                  message: "Identity re-verified",
-                  usid,
-                  token: jwtToken,
-                });
+                res.json({ message: "Identity re-verified", usid, token: jwtToken });
               },
             );
           },
@@ -87,14 +83,8 @@ app.post("/signup", (req, res) => {
           [name.trim(), emailValue, hashed],
           function (err) {
             if (err)
-              return res
-                .status(500)
-                .json({ error: "Identity creation failed" });
-
+              return res.status(500).json({ error: "Identity creation failed" });
             const userId = this.lastID;
-            const publicKeyBundle = JSON.stringify({
-              identityKey: "placeholder-public-key",
-            });
             db.run(
               "INSERT INTO users (hashed_usid, public_key_bundle) VALUES (?, ?)",
               [hashed, publicKeyBundle],
@@ -386,6 +376,37 @@ app.post("/cleanup-all-duplicates", authenticate, (req, res) => {
   );
 });
 
+// ── Key Bundle Endpoints (for X3DH) ─────────────────────────────────────────
+
+// POST /keys/upload — store caller's public key bundle
+app.post('/keys/upload', authenticate, (req, res) => {
+    const { bundle } = req.body;
+    if (!bundle) return res.status(400).json({ error: 'Missing bundle' });
+
+    // hashed_usid comes from the verified JWT
+    const hashed = hashUSID(req.user.usid);
+    const now    = Date.now();
+
+    keyDb.run(
+        'INSERT INTO key_bundles (hashed_usid, bundle, updated_at) VALUES (?, ?, ?)'
+        + ' ON CONFLICT(hashed_usid) DO UPDATE SET bundle=excluded.bundle, updated_at=excluded.updated_at',
+        [hashed, JSON.stringify(bundle), now],
+        (err) => {
+            if (err) return res.status(500).json({ error: 'Failed to store key bundle' });
+            res.json({ message: 'Key bundle stored' });
+        }
+    );
+});
+
+// GET /keys/:hashedUsid — fetch a peer's public key bundle
+app.get('/keys/:hashedUsid', (req, res) => {
+    const { hashedUsid } = req.params;
+    keyDb.get('SELECT bundle FROM key_bundles WHERE hashed_usid = ?', [hashedUsid], (err, row) => {
+        if (err || !row) return res.status(404).json({ error: 'Key bundle not found' });
+        res.json({ bundle: JSON.parse(row.bundle) });
+    });
+});
+
 // WebSocket for messaging
 const wss = new WebSocket.Server({ server });
 const clients = new Map(); // hashed_usid -> WebSocket
@@ -444,85 +465,46 @@ wss.on("connection", (ws) => {
       }
 
       if (data.type === "message") {
-        const { to, content } = data; // 'to' is hashed_usid
+        const { to, content, encrypted } = data;
         if (!userHashedUsid) return;
 
-        console.log(`\n======================================================`);
-        console.log(`           SECURE MESSAGE FLOW INITIATED              `);
-        console.log(`======================================================`);
-        console.log(`[Sender]    : ${userHashedUsid.substring(0, 12)}...`);
-        console.log(`[Recipient] : ${to.substring(0, 12)}...`);
-        console.log(`------------------------------------------------------`);
-
-        // Simulate X3DH Key Agreement (Pre-Flight)
-        console.log(`\n[1] X3DH Key Agreement Protocol Initialized`);
-        console.log(
-          `    -> Fetching Recipient Pre-Keys (Identity, Signed Pre-Key, One-Time Pre-Key)`,
-        );
-        console.log(`    -> Computing Shared Secret via ECDH: Curve25519`);
-
-        // Simulate Double Ratchet Protocol
-        console.log(`\n[2] Double Ratchet Session Re-established`);
-        console.log(`    -> Advancing Root Chain and Sender Chain`);
-        console.log(`    -> Deriving Message Key (HKDF-SHA256)`);
-        console.log(`    -> Ratcheting Public Ephemeral Key`);
-
-        console.log(`\n[3] E2EE Payload Verification`);
-        console.log(`    -> Payload Encrypted: AES-256-GCM`);
-        console.log(
-          `    -> Validating MAC (Message Authentication Code)... [OK]`,
-        );
-
-        // Routing
-        console.log(`\n[4] Server Relay & Routing Phase`);
+        console.log(`[WS] Message: ${userHashedUsid.substring(0,8)} → ${to ? to.substring(0,8) : '?'}`);
 
         const recipientWs = clients.get(to);
         if (recipientWs && recipientWs.readyState === WebSocket.OPEN) {
-          console.log(
-            `    -> [SUCCESS] Recipient located in Active Socket Map`,
-          );
-          console.log(
-            `    -> Forwarding Opaque Encrypted Blob to Recipient ->`,
-          );
-          recipientWs.send(
-            JSON.stringify({
-              type: "message",
-              from: userHashedUsid,
-              content: content,
-              timestamp: new Date().toISOString(),
-            }),
-          );
-          console.log(
-            `\n======================================================`,
-          );
-          console.log(`           MESSAGE DELIVERED TO RECIPIENT             `);
-          console.log(
-            `======================================================\n`,
-          );
+          recipientWs.send(JSON.stringify({
+            type: 'message',
+            from: userHashedUsid,
+            content: content || null,
+            encrypted: encrypted || null,
+            timestamp: new Date().toISOString(),
+          }));
+          console.log(`[WS] Message delivered to ${to.substring(0,8)}`);
         } else {
-          // ── Offline Mailbox Store ──────────────────────────────────
-          // Recipient is not connected. Persist the message so it can
-          // be flushed when they reconnect.
-          console.log(`    -> [OFFLINE] Recipient not in active socket map.`);
-          console.log(`    -> Storing message in offline mailbox...`);
+          // Offline mailbox — store plaintext content if present, or a placeholder
+          const storeContent = content || '[encrypted message]';
           db.run(
               'INSERT INTO mailbox (recipient_hashed_usid, sender_hashed_usid, content) VALUES (?, ?, ?)',
-              [to, userHashedUsid, content],
+              [to, userHashedUsid, storeContent],
               (mbErr) => {
                   if (mbErr) {
-                      console.error('[Mailbox] Failed to store offline message:', mbErr);
-                      ws.send(JSON.stringify({ type: 'error', message: 'Recipient not online and mailbox failed' }));
+                      ws.send(JSON.stringify({ type: 'error', message: 'Mailbox store failed' }));
                   } else {
-                      console.log(`    -> [QUEUED] Message stored in offline mailbox for ${to.substring(0, 8)}...`);
-                      // Notify sender their message is queued (not dropped)
-                      ws.send(JSON.stringify({ type: 'queued', message: 'Recipient offline — message queued for delivery' }));
+                      ws.send(JSON.stringify({ type: 'queued', message: 'Recipient offline — message queued' }));
                   }
               }
           );
-          console.log(`\n======================================================`);
-          console.log(`           MESSAGE QUEUED (OFFLINE MAILBOX)           `);
-          console.log(`======================================================\n`);
-          // ──────────────────────────────────────────────────────────
+        }
+      }
+
+      // X3DH handshake relay — forward to recipient so they can set up E2EE
+      if (data.type === 'x3dh_init') {
+        const { to } = data;
+        if (!userHashedUsid || !to) return;
+        const recipientWs = clients.get(to);
+        if (recipientWs && recipientWs.readyState === WebSocket.OPEN) {
+          recipientWs.send(JSON.stringify({ ...data, from: userHashedUsid }));
+          console.log(`[WS] X3DH init relayed: ${userHashedUsid.substring(0,8)} → ${to.substring(0,8)}`);
         }
       }
 
@@ -585,6 +567,9 @@ udpServer.on("listening", () => {
 });
 
 udpServer.bind(UDP_PORT);
+
+// Serve protocol/ files at /protocol/* (before cache middleware so headers apply)
+app.use('/protocol', express.static('protocol', { etag: false, lastModified: false }));
 
 // Disable all caching — must come BEFORE static middleware so Edge (and other browsers)
 // never serve a stale app.js from cache, which would cause identity hash mismatches.

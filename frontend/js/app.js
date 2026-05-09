@@ -77,6 +77,9 @@ let messageHistory = JSON.parse(localStorage.getItem("messageHistory") || "{}");
 let ws;
 let identityRejected = false;
 
+// Signal Protocol instance — created once, persists across the session
+const signalProtocol = new SignalProtocol();
+
 // Active torrents map: magnetURI → torrent object
 const activeTorrents = new Map();
 // Global WebTorrent client
@@ -127,7 +130,10 @@ function checkIdentity() {
 
   if (token && myUsid) {
     loader.style.display = "flex";
-    connectWS();
+    // Init Signal Protocol (restores from IndexedDB) before connecting WS
+    signalProtocol.init(myUsid, token)
+      .then(() => connectWS())
+      .catch((e) => { console.error('[E2EE] Init error', e); connectWS(); });
   } else {
     setTimeout(() => {
       document.getElementById("splash-header").classList.add("shift-up");
@@ -168,7 +174,7 @@ function connectWS() {
   ws.onerror = () => setNetStatus("offline");
 }
 
-function handleWSMessage(data) {
+async function handleWSMessage(data) {
   switch (data.type) {
     case "registered":
       hideSplashScreen();
@@ -177,13 +183,38 @@ function handleWSMessage(data) {
       if (data.message === "Identity not verified") handleAuthError();
       break;
     case "message": {
-      const { from, content, timestamp } = data;
-      saveMessage(from, { from, content, timestamp });
+      const { from, encrypted, content, timestamp } = data;
+      let displayContent = content || '';
+
+      if (encrypted && signalProtocol.hasSession(from)) {
+        try {
+          displayContent = await signalProtocol.decrypt(from, encrypted);
+          console.log(`[E2EE] Decrypted message from ${from.substring(0,12)}`);
+        } catch (e) {
+          console.error('[E2EE] Decryption failed', e);
+          displayContent = '[Encrypted — decryption failed]';
+        }
+      }
+
+      saveMessage(from, { from, content: displayContent, timestamp });
       if (currentChatUsid === from) {
         renderMessages();
       } else {
         showSnackbar(`New message from peer`, "info");
         updateContactPreview(from);
+      }
+      break;
+    }
+    case "x3dh_init": {
+      // Peer initiating E2EE session — run responder path
+      const { from } = data;
+      if (from && !signalProtocol.hasSession(from)) {
+        try {
+          await signalProtocol.acceptSession(from, data);
+          console.log(`[E2EE] Session accepted from ${from.substring(0,12)}`);
+        } catch (e) {
+          console.error('[E2EE] acceptSession failed', e);
+        }
       }
       break;
     }
@@ -261,7 +292,17 @@ async function signup() {
       document.getElementById("registration-form").style.display = "none";
       document.getElementById("splash-loader-container").style.display = "flex";
       document.getElementById("loader-status").textContent =
-        "Identity secured. Connecting...";
+        "Generating cryptographic identity...";
+
+      // Init Signal Protocol and upload public key bundle before connecting
+      try {
+        await signalProtocol.init(myUsid, token);
+        document.getElementById("loader-status").textContent = "Identity secured. Connecting...";
+        console.log('[E2EE] Protocol initialized, key bundle uploaded');
+      } catch (e) {
+        console.error('[E2EE] Protocol init failed:', e);
+        document.getElementById("loader-status").textContent = "Identity secured. Connecting...";
+      }
 
       connectWS();
     } else {
@@ -594,7 +635,7 @@ async function removeContact(usid) {
 // ─────────────────────────────────────────
 // Chat
 // ─────────────────────────────────────────
-function openChat(hashedUsid) {
+async function openChat(hashedUsid) {
   currentChatUsid = hashedUsid;
 
   document.getElementById("no-chat-selected").style.display = "none";
@@ -608,8 +649,41 @@ function openChat(hashedUsid) {
   document.getElementById("details-full-usid").textContent = hashedUsid;
 
   renderContactsList();
-  simulateKeyExchange(() => renderMessages());
   updateTorrentStats();
+
+  // Real X3DH key exchange (replaces simulateKeyExchange)
+  const overlay = document.getElementById("key-exchange-overlay");
+  const msgs    = document.getElementById("messages-container");
+  const status  = document.getElementById("exchange-status");
+  const details = document.getElementById("exchange-details");
+
+  msgs.style.display = "none";
+  overlay.classList.remove("hidden");
+  status.textContent  = "Running X3DH Key Exchange";
+  details.textContent = "Fetching peer key bundle...";
+
+  try {
+    if (!signalProtocol.hasSession(hashedUsid)) {
+      const initMsg = await signalProtocol.openSession(hashedUsid);
+      if (initMsg && ws && ws.readyState === WebSocket.OPEN) {
+        initMsg.to   = hashedUsid;
+        initMsg.from = myUsid;
+        ws.send(JSON.stringify(initMsg));
+      }
+    }
+    status.textContent  = "Secure Channel Ready";
+    details.textContent = "All messages are end-to-end encrypted.";
+  } catch (e) {
+    console.error('[E2EE] openSession failed', e);
+    status.textContent  = "Encryption Warning";
+    details.textContent = "E2EE unavailable — peer bundle missing or offline";
+  }
+
+  setTimeout(() => {
+    overlay.classList.add("hidden");
+    msgs.style.display = "flex";
+    renderMessages();
+  }, 900);
 }
 
 function simulateKeyExchange(onComplete) {
@@ -644,13 +718,27 @@ function simulateKeyExchange(onComplete) {
   advance();
 }
 
-function sendMessage() {
+async function sendMessage() {
   const input = document.getElementById("message-input");
   const content = input.value.trim();
   if (!content || !currentChatUsid || !ws || ws.readyState !== WebSocket.OPEN)
     return;
 
-  ws.send(JSON.stringify({ type: "message", to: currentChatUsid, content }));
+  let payload;
+  if (signalProtocol.hasSession(currentChatUsid)) {
+    try {
+      const encrypted = await signalProtocol.encrypt(currentChatUsid, content);
+      payload = { type: "message", to: currentChatUsid, encrypted };
+      console.log('[E2EE] Message encrypted and sent');
+    } catch (e) {
+      console.error('[E2EE] Encryption failed, falling back to plaintext', e);
+      payload = { type: "message", to: currentChatUsid, content };
+    }
+  } else {
+    payload = { type: "message", to: currentChatUsid, content };
+  }
+
+  ws.send(JSON.stringify(payload));
 
   const msg = { from: "me", content, timestamp: new Date().toISOString() };
   saveMessage(currentChatUsid, msg);

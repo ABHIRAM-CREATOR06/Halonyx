@@ -454,6 +454,14 @@
             </div>
         </div>
 
-        <script src="js/app.js?v=4.3"></script>
+        <!-- Signal Protocol stack — load in dependency order before app.js -->
+        <script src="/protocol/crypto_utils.js"></script>
+        <script src="/protocol/x3dh.js"></script>
+        <script src="/protocol/double_ratchet.js"></script>
+        <script src="/protocol/idb_key_store.js"></script>
+        <script src="/protocol/key_management.js"></script>
+        <script src="/protocol/session.js"></script>
+        <script src="/protocol/signal_protocol.js"></script>
+        <script src="js/app.js?v=5.0"></script>
     </body>
 </html>

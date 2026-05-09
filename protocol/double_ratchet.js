@@ -1,392 +1,181 @@
 /**
- * Double Ratchet Algorithm Implementation
- * 
- * Provides forward secrecy and future secrecy through continuous
- * key ratcheting for secure message exchange.
- * 
- * Reference: https://signal.org/docs/specifications/doubleratchet/doubleratchet/
+ * Double Ratchet Algorithm — Fixed Implementation
+ *
+ * Bug 3 fix: kdfRootKey now uses HKDF (Signal spec) instead of PBKDF2.
+ * Bug 4 fix: kdfRootKey no longer calls exportKey() on a non-extractable key.
+ *            HKDF.deriveBits() returns raw bytes directly — no export needed.
+ *
+ * Private DH keys are CryptoKey objects throughout (never raw Uint8Array).
+ * CryptoKey objects are structured-clone-compatible → stored directly in IndexedDB.
+ *
+ * Reference: https://signal.org/docs/specifications/doubleratchet/
  */
-
 class DoubleRatchet {
   constructor(cryptoUtils) {
     this.crypto = cryptoUtils || new CryptoUtils();
-    this.rootKey = null;
-    this.receivingChainKey = null;
-    this.sendingChainKey = null;
-    this.dhPublicKey = null;
-    this.dhPrivateKey = null;
-    this.maxSkip = 1000; // Maximum messages to skip in ratchet
+
+    // Ratchet state (Uint8Array for chain keys; CryptoKey for DH keys)
+    this.rootKey          = null; // Uint8Array 32 bytes
+    this.sendingChainKey  = null; // Uint8Array 32 bytes
+    this.receivingChainKey = null; // Uint8Array 32 bytes
+    this.dhPublicKeyBytes = null; // Uint8Array — our current ratchet public key (sent in headers)
+    this.dhPrivateKey     = null; // CryptoKey  — our current ratchet private key
+    this.skippedKeys      = new Map(); // hex(dhPub+msgNum) → Uint8Array msgKey
+
+    this._ratchetInfo  = new TextEncoder().encode('HalonyxRatchet');
+    this._chainInfo    = new TextEncoder().encode('HalonyxChain');
   }
 
   /**
-   * Initialize the Double Ratchet with shared secret and peer public key
-   * @param {Uint8Array} sharedSecret - Shared secret from X3DH
-   * @param {Uint8Array} remotePublicKey - Peer's public key
-   * @param {boolean} isInitiator - Whether this party initiated the conversation
+   * Initialize the Double Ratchet from the X3DH shared secret.
+   *
+   * @param {Uint8Array} sharedSecret   32-byte output from X3DH
+   * @param {Uint8Array} remotePublicKeyBytes  Peer's ratchet public key (their SPK public bytes)
+   * @param {boolean}    isInitiator
    */
-  async initialize(sharedSecret, remotePublicKey, isInitiator = true) {
-    // Initialize root key with shared secret
+  async initialize(sharedSecret, remotePublicKeyBytes, isInitiator) {
     this.rootKey = sharedSecret;
-    
-    // Derive initial chain keys
-    const initialKey = await this.crypto.hash(sharedSecret);
-    
+
+    // Generate our first ratchet DH key pair
+    const kp = await this.crypto.generateDhKeyPair();
+    this.dhPrivateKey     = kp.privateKey;     // CryptoKey
+    this.dhPublicKeyBytes = kp.publicKeyBytes; // Uint8Array
+
     if (isInitiator) {
-      // Initiator: send first, then receive
-      const dhKeyPair = await this.crypto.generateIdentityKeyPair();
-      this.dhPrivateKey = dhKeyPair.privateKey;
-      this.dhPublicKey = dhKeyPair.publicKey;
-
-      // Derive sending and receiving chain keys
-      const [sk, rk] = await this.kdfRootKey(
-        this.rootKey,
-        await this.crypto.deriveBits(
-          await this.importPrivateKey(this.dhPrivateKey),
-          remotePublicKey
-        )
-      );
-
-      this.sendingChainKey = sk;
-      this.rootKey = rk;
-      this.receivingChainKey = null;
+      // Initiator performs the first DH ratchet step immediately
+      const dhOut = await this.crypto.deriveBits(this.dhPrivateKey, remotePublicKeyBytes);
+      const [newRoot, sendCK] = await this._kdfRootKey(this.rootKey, dhOut);
+      this.rootKey          = newRoot;
+      this.sendingChainKey  = sendCK;
+      this.receivingChainKey = null; // set when first message arrives
     } else {
-      // Responder: receive first, then send
-      const dhKeyPair = await this.crypto.generateIdentityKeyPair();
-      this.dhPrivateKey = dhKeyPair.privateKey;
-      this.dhPublicKey = dhKeyPair.publicKey;
-
-      // Derive receiving chain key from DH output
-      const [rk, sk] = await this.kdfRootKey(
-        this.rootKey,
-        await this.crypto.deriveBits(
-          await this.importPrivateKey(this.dhPrivateKey),
-          remotePublicKey
-        )
-      );
-
-      this.receivingChainKey = rk;
-      this.sendingChainKey = sk;
+      // Responder waits; initiator's first message will trigger the ratchet
+      this.sendingChainKey  = null;
+      this.receivingChainKey = null;
+      // Store the remote key so we can ratchet when we first need to send
+      this._pendingRemoteKey = remotePublicKeyBytes;
     }
   }
 
+  // ── KDF functions ─────────────────────────────────────────────────────────
+
   /**
-   * Import a private key for DH operations
-   * @param {Uint8Array} privateKeyBytes - Raw private key bytes
-   * @returns {CryptoKey} Imported private key
+   * KDF_RK: derive new (rootKey, chainKey) from current rootKey and DH output.
+   * Bug 3 & 4 fix: uses HKDF, returns raw bytes — no exportKey() call.
    */
-  async importPrivateKey(privateKeyBytes) {
-    return await crypto.subtle.importKey(
-      'raw',
-      privateKeyBytes,
-      {
-        name: 'ECDH',
-        namedCurve: 'X25519'
-      },
-      false,
-      ['deriveBits', 'deriveKey']
-    );
+  async _kdfRootKey(rootKey, dhOutput) {
+    const ikm     = this.crypto.concatArrays(rootKey, dhOutput);
+    const derived = await this.crypto.hkdf(ikm, rootKey, this._ratchetInfo, 64);
+    return [derived.slice(0, 32), derived.slice(32, 64)];
   }
 
   /**
-   * Derive new root key and chain key
-   * @param {Uint8Array} currentRootKey - Current root key
-   * @param {Uint8Array} dhOutput - DH shared secret output
-   * @returns {[Uint8Array, Uint8Array]} New [rootKey, chainKey]
+   * KDF_CK: derive (messageKey, newChainKey) from current chain key.
+   * Uses HMAC-SHA-256 with fixed constants per the Signal spec.
    */
-  async kdfRootKey(currentRootKey, dhOutput) {
-    const inputKeyMaterial = this.crypto.concatArrays(
-      currentRootKey,
-      dhOutput
-    );
-
-    // Derive using HMAC-based KDF
-    const salt = currentRootKey;
-    const derivedKey = await this.crypto.deriveKey(
-      inputKeyMaterial,
-      salt,
-      1, // Single iteration for ratchet
-      64 // Output: 32 bytes for root + 32 bytes for chain
-    );
-
-    // Export and split
-    const exportedKey = await crypto.subtle.exportKey('raw', derivedKey);
-    const keyBytes = new Uint8Array(exportedKey);
-
-    return [
-      this.crypto.sliceArray(keyBytes, 0, 32),   // New root key
-      this.crypto.sliceArray(keyBytes, 32, 64)   // Chain key
-    ];
+  async _kdfChainKey(chainKey) {
+    const msgKey      = await this.crypto.sign(new Uint8Array([1]), chainKey);
+    const newChainKey = await this.crypto.sign(new Uint8Array([2]), chainKey);
+    return [msgKey.slice(0, 32), newChainKey];
   }
 
-  /**
-   * Derive message key from chain key
-   * @param {Uint8Array} chainKey - Current chain key
-   * @returns {[Uint8Array, Uint8Array]} [messageKey, newChainKey]
-   */
-  async kdfChainKey(chainKey) {
-    const one = new Uint8Array([1]);
-    const zero = new Uint8Array([0]);
+  // ── DH Ratchet step ───────────────────────────────────────────────────────
 
-    // Chain key derivation constants
-    const messageKey = await this.crypto.hash(
-      this.crypto.concatArrays(zero, chainKey)
-    );
+  async _dhRatchetReceive(newRemotePublicBytes) {
+    // Step 1: derive new receiving chain key
+    const dhOut1 = await this.crypto.deriveBits(this.dhPrivateKey, newRemotePublicBytes);
+    const [root1, recvCK] = await this._kdfRootKey(this.rootKey, dhOut1);
+    this.rootKey           = root1;
+    this.receivingChainKey = recvCK;
 
-    const newChainKey = await this.crypto.hash(
-      this.crypto.concatArrays(one, chainKey)
-    );
+    // Step 2: generate our new ratchet key pair
+    const kp = await this.crypto.generateDhKeyPair();
+    this.dhPrivateKey     = kp.privateKey;
+    this.dhPublicKeyBytes = kp.publicKeyBytes;
 
-    return [messageKey, newChainKey];
+    // Step 3: derive new sending chain key
+    const dhOut2 = await this.crypto.deriveBits(this.dhPrivateKey, newRemotePublicBytes);
+    const [root2, sendCK] = await this._kdfRootKey(this.rootKey, dhOut2);
+    this.rootKey         = root2;
+    this.sendingChainKey = sendCK;
   }
 
-  /**
-   * Encrypt a message
-   * @param {Uint8Array} plaintext - Message to encrypt
-   * @param {Uint8Array} additionalData - Optional additional authenticated data
-   * @returns {Object} Encrypted message with header
-   */
+  // ── Encrypt ───────────────────────────────────────────────────────────────
+
   async encrypt(plaintext, additionalData = null) {
-    if (!this.sendingChainKey) {
-      throw new Error('Session not initialized for sending');
+    // Responder: perform first send-ratchet lazily on first outbound message
+    if (!this.sendingChainKey && this._pendingRemoteKey) {
+      const dhOut = await this.crypto.deriveBits(this.dhPrivateKey, this._pendingRemoteKey);
+      const [newRoot, sendCK] = await this._kdfRootKey(this.rootKey, dhOut);
+      this.rootKey         = newRoot;
+      this.sendingChainKey = sendCK;
+      this._pendingRemoteKey = null;
     }
 
-    // Derive message key from sending chain
-    const [messageKey, newChainKey] = await this.kdfChainKey(this.sendingChainKey);
-    this.sendingChainKey = newChainKey;
+    if (!this.sendingChainKey) throw new Error('[DR] Not initialized for sending');
 
-    // Generate nonce
-    const nonce = this.crypto.generateNonce(12);
+    const [msgKey, newCK] = await this._kdfChainKey(this.sendingChainKey);
+    this.sendingChainKey = newCK;
 
-    // Encrypt message
-    const ciphertext = await this.crypto.encrypt(
-      plaintext,
-      messageKey,
-      nonce,
-      additionalData
-    );
-
-    // Include nonce in message (can be omitted if using counter-based nonce)
-    const messageHeader = {
-      dhPublicKey: this.dhPublicKey,
-      previousChainLength: 0, // For skipped message handling
-      nonce: nonce
-    };
+    const iv         = this.crypto.generateNonce(12);
+    const data       = typeof plaintext === 'string' ? new TextEncoder().encode(plaintext) : plaintext;
+    const ciphertext = await this.crypto.encrypt(data, msgKey, iv, additionalData);
 
     return {
-      header: messageHeader,
-      ciphertext: ciphertext,
-      messageKey: messageKey // Included for debugging/recovery
+      header: { dhPublicKeyBytes: this.dhPublicKeyBytes, iv },
+      ciphertext,
     };
   }
 
-  /**
-   * Decrypt a message
-   * @param {Object} message - Encrypted message with header
-   * @param {Uint8Array} additionalData - Optional additional authenticated data
-   * @returns {Uint8Array} Decrypted plaintext
-   */
+  // ── Decrypt ───────────────────────────────────────────────────────────────
+
   async decrypt(message, additionalData = null) {
     const { header, ciphertext } = message;
+    const { dhPublicKeyBytes, iv } = header;
 
-    // If peer performed DH ratchet, we need to perform ours
-    if (!this.crypto.constantTimeEquals(header.dhPublicKey || new Uint8Array(0), this.dhPublicKey || new Uint8Array(0))) {
-      // DH ratchet received - perform our DH ratchet
-      await this.dhRatchet(header.dhPublicKey);
+    // Check if this is a new ratchet key from the peer
+    const isDifferentKey = !this.dhPublicKeyBytes ||
+      !this.crypto.constantTimeEquals(dhPublicKeyBytes, this._lastPeerRatchetKey || new Uint8Array(0));
+
+    if (isDifferentKey) {
+      this._lastPeerRatchetKey = dhPublicKeyBytes;
+      await this._dhRatchetReceive(dhPublicKeyBytes);
     }
 
-    // Try to decrypt with current receiving chain
-    try {
-      const plaintext = await this.tryDecryptWithChain(
-        ciphertext,
-        header.nonce,
-        additionalData
-      );
+    if (!this.receivingChainKey) throw new Error('[DR] No receiving chain key');
 
-      if (plaintext) {
-        return plaintext;
-      }
-    } catch (e) {
-      // Chain key mismatch - try skipped message keys
-    }
+    const [msgKey, newCK] = await this._kdfChainKey(this.receivingChainKey);
+    this.receivingChainKey = newCK;
 
-    // Try skipped message keys from previous DH ratchets
-    const skippedKey = this.getSkippedMessageKey(header.dhPublicKey, 0);
-    if (skippedKey) {
-      const nonce = header.nonce || this.crypto.generateNonce(12);
-      const plaintext = await this.crypto.decrypt(
-        ciphertext,
-        skippedKey,
-        nonce,
-        additionalData
-      );
-
-      // Remove used skipped key
-      this.removeSkippedMessageKey(header.dhPublicKey, 0);
-      return plaintext;
-    }
-
-    throw new Error('Failed to decrypt message - key not found');
+    const plaintext = await this.crypto.decrypt(ciphertext, msgKey, iv, additionalData);
+    return new TextDecoder().decode(plaintext);
   }
 
-  /**
-   * Attempt to decrypt using the current receiving chain
-   * @param {Uint8Array} ciphertext - Encrypted message
-   * @param {Uint8Array} nonce - Nonce used for encryption
-   * @param {Uint8Array} additionalData - Optional additional data
-   * @returns {Uint8Array|null} Decrypted message or null
-   */
-  async tryDecryptWithChain(ciphertext, nonce, additionalData) {
-    if (!this.receivingChainKey) {
-      return null;
-    }
+  // ── State serialization for IndexedDB ────────────────────────────────────
+  // CryptoKey objects are structured-clone-compatible — stored as-is in IDB.
 
-    // Derive message key from receiving chain
-    const [messageKey, newChainKey] = await this.kdfChainKey(this.receivingChainKey);
-    this.receivingChainKey = newChainKey;
-
-    try {
-      const plaintext = await this.crypto.decrypt(
-        ciphertext,
-        messageKey,
-        nonce || this.crypto.generateNonce(12),
-        additionalData
-      );
-      return plaintext;
-    } catch (e) {
-      // Decryption failed - restore chain key
-      this.receivingChainKey = newChainKey; // Already updated, but we need previous
-      return null;
-    }
-  }
-
-  /**
-   * Perform DH ratchet with peer's new public key
-   * @param {Uint8Array} newPeerPublicKey - Peer's new DH public key
-   */
-  async dhRatchet(newPeerPublicKey) {
-    // Step 1: Derive new receiving chain key
-    const dhOutput = await this.crypto.deriveBits(
-      await this.importPrivateKey(this.dhPrivateKey),
-      newPeerPublicKey
-    );
-
-    const [newRootKey, newReceivingChainKey] = await this.kdfRootKey(
-      this.rootKey,
-      dhOutput
-    );
-
-    this.rootKey = newRootKey;
-    this.receivingChainKey = newReceivingChainKey;
-
-    // Step 2: Generate new DH key pair
-    const newKeyPair = await this.crypto.generateIdentityKeyPair();
-    this.dhPrivateKey = newKeyPair.privateKey;
-    this.dhPublicKey = newKeyPair.publicKey;
-
-    // Step 3: Derive new sending chain key
-    const dhOutput2 = await this.crypto.deriveBits(
-      await this.importPrivateKey(this.dhPrivateKey),
-      newPeerPublicKey
-    );
-
-    const [, newSendingChainKey] = await this.kdfRootKey(
-      this.rootKey,
-      dhOutput2
-    );
-
-    this.sendingChainKey = newSendingChainKey;
-
-    // Note: Previous receiving chain keys become skipped message keys
-    // Implementation would store these for delayed message decryption
-  }
-
-  /**
-   * Store skipped message key for out-of-order messages
-   * @param {Uint8Array} dhPublicKey - DH public key at time of skip
-   * @param {number} messageNumber - Message number that was skipped
-   * @param {Uint8Array} messageKey - Message key for skipped message
-   */
-  storeSkippedMessageKey(dhPublicKey, messageNumber, messageKey) {
-    // Store in a map indexed by DH public key and message number
-    const key = this.crypto.toHexString(dhPublicKey);
-    if (!this.skippedKeys) {
-      this.skippedKeys = new Map();
-    }
-
-    const keyMap = this.skippedKeys.get(key) || new Map();
-    keyMap.set(messageNumber, messageKey);
-    this.skippedKeys.set(key, keyMap);
-  }
-
-  /**
-   * Get a skipped message key
-   * @param {Uint8Array} dhPublicKey - DH public key
-   * @param {number} messageNumber - Message number
-   * @returns {Uint8Array|null} Message key or null
-   */
-  getSkippedMessageKey(dhPublicKey, messageNumber) {
-    if (!this.skippedKeys) {
-      return null;
-    }
-
-    const key = this.crypto.toHexString(dhPublicKey);
-    const keyMap = this.skippedKeys.get(key);
-    if (!keyMap) {
-      return null;
-    }
-
-    return keyMap.get(messageNumber) || null;
-  }
-
-  /**
-   * Remove a used skipped message key
-   * @param {Uint8Array} dhPublicKey - DH public key
-   * @param {number} messageNumber - Message number
-   */
-  removeSkippedMessageKey(dhPublicKey, messageNumber) {
-    if (!this.skippedKeys) {
-      return;
-    }
-
-    const key = this.crypto.toHexString(dhPublicKey);
-    const keyMap = this.skippedKeys.get(key);
-    if (keyMap) {
-      keyMap.delete(messageNumber);
-    }
-  }
-
-  /**
-   * Get the current state for serialization
-   * @returns {Object} Current state for storage
-   */
   getState() {
     return {
-      rootKey: this.rootKey,
-      sendingChainKey: this.sendingChainKey,
-      receivingChainKey: this.receivingChainKey,
-      dhPublicKey: this.dhPublicKey,
-      dhPrivateKey: this.dhPrivateKey,
-      skippedKeys: this.skippedKeys
+      rootKey:               this.rootKey,
+      sendingChainKey:       this.sendingChainKey,
+      receivingChainKey:     this.receivingChainKey,
+      dhPublicKeyBytes:      this.dhPublicKeyBytes,
+      dhPrivateKey:          this.dhPrivateKey,        // CryptoKey — IDB handles this
+      _lastPeerRatchetKey:   this._lastPeerRatchetKey,
+      _pendingRemoteKey:     this._pendingRemoteKey,
     };
   }
 
-  /**
-   * Restore state from serialized data
-   * @param {Object} state - Previously saved state
-   */
   restoreState(state) {
-    this.rootKey = state.rootKey;
-    this.sendingChainKey = state.sendingChainKey;
-    this.receivingChainKey = state.receivingChainKey;
-    this.dhPublicKey = state.dhPublicKey;
-    this.dhPrivateKey = state.dhPrivateKey;
-    this.skippedKeys = state.skippedKeys;
+    this.rootKey               = state.rootKey;
+    this.sendingChainKey       = state.sendingChainKey;
+    this.receivingChainKey     = state.receivingChainKey;
+    this.dhPublicKeyBytes      = state.dhPublicKeyBytes;
+    this.dhPrivateKey          = state.dhPrivateKey;   // CryptoKey — restored directly
+    this._lastPeerRatchetKey   = state._lastPeerRatchetKey;
+    this._pendingRemoteKey     = state._pendingRemoteKey;
   }
 }
 
-// Export for Node.js and browser environments
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = DoubleRatchet;
-} else if (typeof window !== 'undefined') {
-  window.DoubleRatchet = DoubleRatchet;
-}
+if (typeof module !== 'undefined' && module.exports) module.exports = DoubleRatchet;
+else if (typeof window !== 'undefined') window.DoubleRatchet = DoubleRatchet;

@@ -1,391 +1,322 @@
 /**
- * Signal Protocol - Main Protocol Coordinator
- * 
- * Central coordinator for the Signal Protocol implementation,
- * integrating X3DH key exchange, Double Ratchet encryption,
- * key management, and session state.
+ * SignalProtocol — Main E2EE Coordinator for Halonyx
+ *
+ * Orchestrates:
+ *   - Identity generation & IndexedDB persistence (Plan B)
+ *   - X3DH session initiation (initiator & responder paths)
+ *   - Double Ratchet encrypt / decrypt per session
+ *   - Public key bundle upload to / fetch from server
+ *
+ * Usage:
+ *   const sp = new SignalProtocol();
+ *   await sp.init(myUsid, authToken);        // generates or restores identity
+ *   await sp.openSession(peerUsid);          // X3DH as initiator
+ *   const enc = await sp.encrypt(peerUsid, 'hello');   // → { header, ciphertext }
+ *   const txt = await sp.decrypt(peerUsid, enc);        // → 'hello'
  */
-
 class SignalProtocol {
-  constructor(options = {}) {
-    // Initialize cryptographic utilities
-    this.crypto = options.crypto || new CryptoUtils();
-    
-    // Initialize components
-    this.x3dh = options.x3dh || new X3DH(this.crypto);
-    this.doubleRatchet = options.doubleRatchet || new DoubleRatchet(this.crypto);
-    this.keyManager = options.keyManager || new KeyManager(this.crypto);
-    this.sessionManager = options.sessionManager || new SessionManager(this.crypto);
-    
-    // Protocol state
-    this.isInitialized = false;
-    this.userId = null;
-    this.localAddress = null;
+  constructor() {
+    this.crypto   = new CryptoUtils();
+    this.x3dh     = new X3DH(this.crypto);
+    this.idb      = new IDBKeyStore();
+
+    this.identity     = null;
+    this.sessions     = new Map(); // peerId → DoubleRatchet instance
+    this._sessionMeta = new Map(); // peerId → { peerIdentityPublicBytes }
+    this.userId   = null;
+    this.token    = null;
+    this._ready   = false;
   }
 
-  /**
-   * Initialize the protocol stack for a user
-   * @param {string} userId - User's unique identifier
-   * @returns {Object} Initialization result with keys
-   */
-  async initialize(userId) {
-    if (this.isInitialized) {
-      throw new Error('Protocol already initialized');
-    }
+  // ── Initialization ────────────────────────────────────────────────────────
 
+  /**
+   * Initialize the protocol stack.
+   * Restores identity from IndexedDB if available (Plan B),
+   * otherwise generates a fresh identity and uploads the public bundle.
+   *
+   * @param {string} userId   raw USID stored in localStorage
+   * @param {string} token    JWT auth token
+   */
+  async init(userId, token) {
     this.userId = userId;
-    
-    // Initialize key manager with new identity
-    const keyData = await this.keyManager.initializeIdentity(userId);
-    
-    this.isInitialized = true;
-    
-    return {
-      userId: userId,
-      identityKey: keyData.identityKey,
-      registrationId: keyData.registrationId,
-      preKeyBundle: keyData.preKeyBundles
-    };
-  }
+    this.token  = token;
 
-  /**
-   * Generate a new pre-key bundle
-   * @param {number} count - Number of one-time pre-keys
-   * @returns {Object} New pre-key bundle
-   */
-  async generatePreKeyBundle(count = 100) {
-    this._checkInitialized();
-    return await this.keyManager.generatePreKeyBundle(count);
-  }
+    await this.idb.open();
 
-  /**
-   * Get the current pre-key bundle
-   * @returns {Object} Current pre-key bundle
-   */
-  getPreKeyBundle() {
-    this._checkInitialized();
-    return this.keyManager.exportPublicKeys();
-  }
-
-  /**
-   * Start a new session with a peer
-   * @param {string} peerId - Peer's unique identifier
-   * @param {Object} peerBundle - Peer's pre-key bundle
-   * @returns {Object} Initial message to send to peer
-   */
-  async startSession(peerId, peerBundle) {
-    this._checkInitialized();
-    
-    // Create session
-    await this.sessionManager.createSession(peerId, peerBundle);
-    
-    // Get our key bundle
-    const myKeyBundle = {
-      identityKey: this.keyManager.getIdentityKeyPair().publicKey,
-      ephemeralKeys: peerBundle.preKeys.map(pk => ({
-        publicKey: pk.publicKey,
-        privateKey: null // We don't have the private key for peer's pre-keys
-      }))
-    };
-    
-    // Initialize session with X3DH
-    const result = await this.sessionManager.initializeSession(
-      peerId,
-      myKeyBundle,
-      peerBundle
-    );
-    
-    return result.messageToSend;
-  }
-
-  /**
-   * Process an incoming session initialization message
-   * @param {Object} message - Initial message from peer
-   * @returns {Object} Response message and established session info
-   */
-  async processSessionInit(message) {
-    this._checkInitialized();
-    
-    // Get our key bundle
-    const myKeyBundle = this.keyManager.getIdentityKeyPair();
-    
-    // Process as responder
-    const result = await this.sessionManager.processInitialMessage(
-      message,
-      myKeyBundle
-    );
-    
-    return {
-      response: result.responseMessage,
-      peerId: result.session.peerId,
-      sessionState: result.session
-    };
-  }
-
-  /**
-   * Accept a session response and finalize
-   * @param {string} peerId - Peer's unique identifier
-   * @param {Object} response - Response message from peer
-   */
-  async acceptSessionResponse(peerId, response) {
-    this._checkInitialized();
-    
-    const session = this.sessionManager.getSession(peerId);
-    if (!session) {
-      throw new Error(`No session found for peer: ${peerId}`);
+    // Attempt to restore identity from IDB (Plan B persistence)
+    const stored = await this.idb.loadIdentity();
+    if (stored && stored.identityPrivateKey) {
+      console.log('[Signal] Restored identity from IndexedDB');
+      this.identity = stored;
+    } else {
+      console.log('[Signal] Generating new identity…');
+      const bundle = await this.x3dh.generateKeyBundle();
+      this.identity = bundle;
+      await this.idb.saveIdentity(bundle);
+      await this._uploadPublicBundle();
     }
-    
-    // Finalize the session
-    session.state = 'ESTABLISHED';
-    session.lastActivity = Date.now();
+
+    // Restore any persisted sessions
+    const savedSessions = await this.idb.loadAllSessions();
+    for (const { peerId, ratchetState } of savedSessions) {
+      const dr = new DoubleRatchet(this.crypto);
+      dr.restoreState(ratchetState);
+      this.sessions.set(peerId, dr);
+      console.log(`[Signal] Restored session with ${peerId.substring(0, 12)}…`);
+    }
+
+    this._ready = true;
+    console.log('[Signal] Protocol ready');
+  }
+
+  // ── Key bundle upload / fetch ─────────────────────────────────────────────
+
+  async _uploadPublicBundle() {
+    const encoded = this.x3dh.encodePublicBundle(this.identity);
+    const res = await fetch('/keys/upload', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.token}`,
+      },
+      body: JSON.stringify({ bundle: encoded }),
+    });
+    if (!res.ok) console.error('[Signal] Key bundle upload failed', await res.text());
+    else console.log('[Signal] Public key bundle uploaded');
+  }
+
+  async _fetchPeerBundle(peerUsid) {
+    const res = await fetch(`/keys/${encodeURIComponent(peerUsid)}`);
+    if (!res.ok) throw new Error(`[Signal] No key bundle for peer ${peerUsid.substring(0, 12)}`);
+    const { bundle } = await res.json();
+    return this.x3dh.decodePublicBundle(bundle);
+  }
+
+  // ── Session management ────────────────────────────────────────────────────
+
+  /**
+   * Open a session with a peer as initiator (X3DH → Double Ratchet).
+   * If a session already exists in memory or IDB, returns immediately.
+   *
+   * @param {string} peerUsid   hashed USID of the peer
+   * @returns {{ ephemeralPublicBytes: Uint8Array }}  initial message payload to send over WS
+   */
+  async openSession(peerUsid) {
+    if (this.sessions.has(peerUsid)) {
+      console.log(`[Signal] Session with ${peerUsid.substring(0,12)} already open`);
+      return null;
+    }
+
+    const peerBundle = await this._fetchPeerBundle(peerUsid);
+
+    // X3DH — initiator path
+    const { ephemeralPublicBytes, sharedSecret } = await this.x3dh.createInitialMessage(
+      this.identity.identityPrivateKey,
+      this.identity.identityPublicBytes,
+      peerBundle.identityPublicBytes,
+      peerBundle.signedPreKeyPublicBytes,
+      peerBundle.signedPreKeySignature,
+      peerBundle.signingPublicBytes,
+    );
+
+    // Initialize Double Ratchet (initiator)
+    const dr = new DoubleRatchet(this.crypto);
+    await dr.initialize(sharedSecret, peerBundle.signedPreKeyPublicBytes, true);
+    this.sessions.set(peerUsid, dr);
+    this._sessionMeta.set(peerUsid, { peerIdentityPublicBytes: peerBundle.identityPublicBytes });
+    await this.idb.saveSession(peerUsid, dr.getState());
+
+    console.log(`[Signal] Session opened with ${peerUsid.substring(0,12)}…`);
+
+    // Return the X3DH initial message payload (sent over WS so peer can respond)
+    return {
+      type:                   'x3dh_init',
+      senderIdentityPublic:   this.crypto.bufferToBase64(this.identity.identityPublicBytes),
+      senderSigningPublic:    this.crypto.bufferToBase64(this.identity.signingPublicBytes),
+      senderSpkPublic:        this.crypto.bufferToBase64(this.identity.signedPreKeyPublicBytes),
+      senderSpkSignature:     this.crypto.bufferToBase64(this.identity.signedPreKeySignature),
+      ephemeralPublic:        this.crypto.bufferToBase64(ephemeralPublicBytes),
+    };
   }
 
   /**
-   * Encrypt a message for a peer
-   * @param {string} peerId - Peer's unique identifier
-   * @param {Uint8Array|string} plaintext - Message to encrypt
-   * @returns {Object} Encrypted message
+   * Process an incoming X3DH init message (responder path).
+   * Creates a session and saves it to IDB.
+   *
+   * @param {string} peerUsid
+   * @param {Object} msg   the x3dh_init payload received over WS
    */
-  async encrypt(peerId, plaintext) {
-    this._checkInitialized();
-    
-    // Convert string to Uint8Array if needed
-    const data = typeof plaintext === 'string' 
-      ? new TextEncoder().encode(plaintext) 
-      : plaintext;
-    
-    // Encrypt through session manager
-    const encrypted = await this.sessionManager.encryptMessage(peerId, data);
-    
-    return encrypted;
+  async acceptSession(peerUsid, msg) {
+    if (this.sessions.has(peerUsid)) return;
+
+    const theirIdentityPublicBytes  = this.crypto.base64ToBuffer(msg.senderIdentityPublic);
+    const theirEphemeralPublicBytes = this.crypto.base64ToBuffer(msg.ephemeralPublic);
+
+    // Verify their signed pre-key before using it
+    const theirSpkPublicBytes = this.crypto.base64ToBuffer(msg.senderSpkPublic);
+    const theirSpkSignature   = this.crypto.base64ToBuffer(msg.senderSpkSignature);
+    const theirSigningPublic  = this.crypto.base64ToBuffer(msg.senderSigningPublic);
+    const valid = await this.crypto.verifyEd25519(theirSpkPublicBytes, theirSpkSignature, theirSigningPublic);
+    if (!valid) throw new Error('[Signal] Peer SPK signature invalid — rejecting session');
+
+    // X3DH — responder path
+    const { sharedSecret } = await this.x3dh.processInitialMessage(
+      theirIdentityPublicBytes,
+      theirEphemeralPublicBytes,
+      this.identity.identityPrivateKey,
+      this.identity.signedPreKeyPrivate,
+    );
+
+    // Initialize Double Ratchet (responder)
+    const dr = new DoubleRatchet(this.crypto);
+    await dr.initialize(sharedSecret, theirIdentityPublicBytes, false);
+    this.sessions.set(peerUsid, dr);
+    this._sessionMeta.set(peerUsid, { peerIdentityPublicBytes: theirIdentityPublicBytes });
+    await this.idb.saveSession(peerUsid, dr.getState());
+
+    console.log(`[Signal] Accepted session from ${peerUsid.substring(0,12)}…`);
+  }
+
+  // ── Encrypt / Decrypt ─────────────────────────────────────────────────────
+
+  /**
+   * Encrypt a plaintext string for a peer.
+   * @returns {{ header: { dhPublicKeyBytes, iv }, ciphertext: Uint8Array }}
+   */
+  async encrypt(peerUsid, plaintext) {
+    const dr = this.sessions.get(peerUsid);
+    if (!dr) throw new Error(`[Signal] No session with ${peerUsid}`);
+
+    const result = await dr.encrypt(plaintext);
+
+    // Persist updated ratchet state after every encrypt
+    await this.idb.saveSession(peerUsid, dr.getState());
+
+    // Encode for wire transmission
+    return {
+      header: {
+        dhPublicKeyBytes: this.crypto.bufferToBase64(result.header.dhPublicKeyBytes),
+        iv:               this.crypto.bufferToBase64(result.header.iv),
+      },
+      ciphertext: this.crypto.bufferToBase64(result.ciphertext),
+    };
   }
 
   /**
-   * Decrypt a message from a peer
-   * @param {string} peerId - Peer's unique identifier
-   * @param {Object} message - Encrypted message
-   * @returns {Uint8Array} Decrypted plaintext
+   * Decrypt an incoming encrypted message from a peer.
+   * @param {string} peerUsid
+   * @param {{ header, ciphertext }} wireMsg  encoded payload from WS
+   * @returns {string} plaintext
    */
-  async decrypt(peerId, message) {
-    this._checkInitialized();
-    
-    const plaintext = await this.sessionManager.decryptMessage(peerId, message);
-    
+  async decrypt(peerUsid, wireMsg) {
+    const dr = this.sessions.get(peerUsid);
+    if (!dr) throw new Error(`[Signal] No session with ${peerUsid}`);
+
+    const msg = {
+      header: {
+        dhPublicKeyBytes: this.crypto.base64ToBuffer(wireMsg.header.dhPublicKeyBytes),
+        iv:               this.crypto.base64ToBuffer(wireMsg.header.iv),
+      },
+      ciphertext: this.crypto.base64ToBuffer(wireMsg.ciphertext),
+    };
+
+    const plaintext = await dr.decrypt(msg);
+
+    // Persist updated ratchet state after every decrypt
+    await this.idb.saveSession(peerUsid, dr.getState());
+
     return plaintext;
   }
 
-  /**
-   * Decrypt and decode a message from a peer
-   * @param {string} peerId - Peer's unique identifier
-   * @param {Object} message - Encrypted message
-   * @returns {string} Decoded plaintext string
-   */
-  async decryptToString(peerId, message) {
-    const plaintext = await this.decrypt(peerId, message);
-    return new TextDecoder().decode(plaintext);
+  hasSession(peerUsid) {
+    return this.sessions.has(peerUsid);
   }
 
   /**
-   * Check if a session exists with a peer
-   * @param {string} peerId - Peer's unique identifier
-   * @returns {boolean} True if session exists
+   * Compute a Safety Number for the session with a peer.
+   *
+   * Algorithm (deterministic on both sides):
+   *   1. Sort both identity public key byte arrays lexicographically
+   *      so Alice and Bob use the same ordering regardless of who calls.
+   *   2. HKDF-SHA-256(IKM = concat(keyA, keyB), salt = zeros, info = label)
+   *      → 30 bytes of output.
+   *   3. Split into 12 chunks of 2.5 bytes → each chunk → mod 100 000
+   *      → zero-padded to 5 digits.
+   *
+   * If Alice and Bob see the same number, no key was substituted.
+   *
+   * @param {string} peerUsid
+   * @returns {string}  e.g. "05 123 45 678 901 23 456 78 901 234 567 89"
+   *                    formatted as four rows of three 5-digit groups
    */
-  hasSession(peerId) {
-    return this.sessionManager.hasSession(peerId);
+  async computeSafetyNumber(peerUsid) {
+    if (!this.identity) throw new Error('[Signal] Not initialized');
+
+    const session = this._sessionMeta.get(peerUsid);
+    if (!session || !session.peerIdentityPublicBytes)
+      throw new Error('[Signal] No session or missing peer identity key');
+
+    const myKey   = this.identity.identityPublicBytes;
+    const peerKey = session.peerIdentityPublicBytes;
+
+    // Canonical order: lexicographically smaller key goes first
+    const cmp = this._compareBytes(myKey, peerKey);
+    const [keyA, keyB] = cmp <= 0 ? [myKey, peerKey] : [peerKey, myKey];
+
+    const ikm  = this.crypto.concatArrays(keyA, keyB);
+    const salt = new Uint8Array(32);
+    const info = new TextEncoder().encode('HalonyxSafetyNumber');
+    const out  = await this.crypto.hkdf(ikm, salt, info, 30);
+
+    return this._formatSafetyNumber(out);
   }
 
-  /**
-   * Get session information for a peer
-   * @param {string} peerId - Peer's unique identifier
-   * @returns {Object|null} Session information
-   */
-  getSessionInfo(peerId) {
-    return this.sessionManager.getSession(peerId);
-  }
-
-  /**
-   * Get all active sessions
-   * @returns {Array} List of active sessions
-   */
-  getAllSessions() {
-    return this.sessionManager.getAllSessions();
-  }
-
-  /**
-   * Close a session with a peer
-   * @param {string} peerId - Peer's unique identifier
-   */
-  closeSession(peerId) {
-    this.sessionManager.closeSession(peerId);
-  }
-
-  /**
-   * Close all sessions
-   */
-  closeAllSessions() {
-    this.sessionManager.closeAllSessions();
-  }
-
-  /**
-   * Get the identity fingerprint for verification
-   * @returns {string} Hex-encoded fingerprint
-   */
-  async getIdentityFingerprint() {
-    this._checkInitialized();
-    return await this.keyManager.getIdentityFingerprint();
-  }
-
-  /**
-   * Verify a peer's identity fingerprint
-   * @param {string} peerId - Peer's unique identifier
-   * @param {string} fingerprint - Expected fingerprint
-   * @returns {boolean} True if fingerprints match
-   */
-  async verifyPeerFingerprint(peerId, fingerprint) {
-    this._checkInitialized();
-    
-    const session = this.sessionManager.getSession(peerId);
-    if (!session) {
-      throw new Error(`No session found for peer: ${peerId}`);
+  /** Lexicographic byte comparison. Returns negative, 0, or positive. */
+  _compareBytes(a, b) {
+    const len = Math.min(a.length, b.length);
+    for (let i = 0; i < len; i++) {
+      if (a[i] !== b[i]) return a[i] - b[i];
     }
-    
-    if (!session.peerIdentityKey) {
-      throw new Error('No peer identity key in session');
+    return a.length - b.length;
+  }
+
+  /**
+   * Convert 30 raw bytes to 12 groups of 5 digits.
+   * Each group: 5 bytes → interpret as big-endian uint40 → mod 100 000.
+   */
+  _formatSafetyNumber(bytes) {
+    const groups = [];
+    for (let i = 0; i < 30; i += 5) {
+      let val = 0;
+      for (let j = i; j < i + 5; j++) val = val * 256 + bytes[j];
+      groups.push(String(Math.abs(val % 100000)).padStart(5, '0'));
     }
-    
-    const peerFingerprint = await this.keyManager.getPublicKeyFingerprint(
-      session.peerIdentityKey
-    );
-    
-    return peerFingerprint === fingerprint;
+    // Return as 4 rows of 3 groups for display
+    return [
+      groups.slice(0, 3).join(' '),
+      groups.slice(3, 6).join(' '),
+      groups.slice(6, 9).join(' '),
+      groups.slice(9, 12).join(' '),
+    ].join('\n');
   }
 
-  /**
-   * Get count of available pre-keys
-   * @returns {number} Number of available pre-keys
-   */
-  getPreKeyCount() {
-    return this.keyManager.getPreKeyCount();
+
+  async closeSession(peerUsid) {
+    this.sessions.delete(peerUsid);
+    await this.idb.deleteSession(peerUsid);
   }
 
-  /**
-   * Check if pre-key rotation is needed
-   * @param {number} threshold - Minimum pre-keys before rotation
-   * @returns {boolean} True if rotation needed
-   */
-  needsPreKeyRotation(threshold = 20) {
-    return this.keyManager.getPreKeyCount() < threshold;
+  /** Full logout — wipes all keys and sessions from IDB */
+  async clear() {
+    this.sessions.clear();
+    this.identity = null;
+    this._ready   = false;
+    await this.idb.clearAll();
   }
 
-  /**
-   * Rotate signed pre-key (for key update)
-   * @returns {Object} New signed pre-key
-   */
-  async rotateSignedPreKey() {
-    this._checkInitialized();
-    return await this.keyManager.rotateSignedPreKey();
-  }
-
-  /**
-   * Generate new one-time pre-keys
-   * @param {number} count - Number of pre-keys to generate
-   * @returns {Array} New pre-keys
-   */
-  async generateNewPreKeys(count = 100) {
-    this._checkInitialized();
-    return await this.keyManager.generateNewPreKeys(count);
-  }
-
-  /**
-   * Serialize the protocol state for storage
-   * @param {string} passphrase - Optional passphrase for encryption
-   * @returns {Object} Serialized state
-   */
-  async serialize(passphrase = null) {
-    this._checkInitialized();
-    
-    const keyState = await this.keyManager.serialize(passphrase);
-    const sessions = [];
-    
-    for (const session of this.sessionManager.getAllSessions()) {
-      sessions.push({
-        peerId: session.peerId,
-        state: this.sessionManager.getSessionState(session.peerId)
-      });
-    }
-    
-    return {
-      userId: this.userId,
-      isInitialized: this.isInitialized,
-      keyState: keyState,
-      sessions: sessions,
-      serializedAt: Date.now()
-    };
-  }
-
-  /**
-   * Restore protocol state from storage
-   * @param {Object} state - Serialized state
-   * @param {string} passphrase - Optional passphrase for decryption
-   */
-  async restore(state, passphrase = null) {
-    // Restore key manager state
-    await this.keyManager.restore(state.keyState, passphrase);
-    
-    // Restore sessions
-    for (const sessionData of state.sessions) {
-      const dr = new DoubleRatchet(this.crypto);
-      dr.restoreState(sessionData.state.doubleRatchetState);
-      
-      this.sessionManager.restoreSession(sessionData.state, dr);
-    }
-    
-    this.userId = state.userId;
-    this.isInitialized = state.isInitialized;
-  }
-
-  /**
-   * Clear all local data (logout)
-   */
-  clear() {
-    this.sessionManager.closeAllSessions();
-    this.keyManager.clear();
-    this.isInitialized = false;
-    this.userId = null;
-  }
-
-  /**
-   * Get protocol version information
-   * @returns {Object} Version info
-   */
-  getVersion() {
-    return {
-      protocol: 'Signal',
-      version: '1.0.0',
-      implementation: 'Halonyx',
-      features: [
-        'X3DH key exchange',
-        'Double Ratchet encryption',
-        'Forward secrecy',
-        'Future secrecy'
-      ]
-    };
-  }
-
-  /**
-   * Check if protocol is initialized
-   * @throws {Error} If not initialized
-   */
-  _checkInitialized() {
-    if (!this.isInitialized) {
-      throw new Error('Signal Protocol not initialized. Call initialize() first.');
-    }
-  }
+  get isReady() { return this._ready; }
 }
 
-// Export for Node.js and browser environments
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = SignalProtocol;
-} else if (typeof window !== 'undefined') {
-  window.SignalProtocol = SignalProtocol;
-}
+if (typeof module !== 'undefined' && module.exports) module.exports = SignalProtocol;
+else if (typeof window !== 'undefined') window.SignalProtocol = SignalProtocol;
