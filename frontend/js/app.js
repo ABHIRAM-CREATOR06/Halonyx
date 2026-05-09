@@ -19,7 +19,9 @@
 let _audioCtx = null;
 function getAudioCtx() {
   if (!_audioCtx) {
-    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+    try {
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (e) {}
   }
   return _audioCtx;
 }
@@ -34,14 +36,14 @@ function playSendSound() {
     const gain = ctx.createGain();
     osc.connect(gain);
     gain.connect(ctx.destination);
-    osc.type = 'sine';
+    osc.type = "sine";
     osc.frequency.setValueAtTime(1200, ctx.currentTime);
     osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.08);
     gain.gain.setValueAtTime(0.18, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.12);
-  } catch(e) {}
+  } catch (e) {}
 }
 
 /** Play a pleasant two-tone chime on successful connection */
@@ -49,20 +51,23 @@ function playConnectSound() {
   const ctx = getAudioCtx();
   if (!ctx) return;
   try {
-    [[523.25, 0, 0.13], [783.99, 0.13, 0.28]].forEach(([freq, start, stop]) => {
+    [
+      [523.25, 0, 0.13],
+      [783.99, 0.13, 0.28],
+    ].forEach(([freq, start, stop]) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
       gain.connect(ctx.destination);
-      osc.type = 'sine';
+      osc.type = "sine";
       osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
       gain.gain.setValueAtTime(0.0001, ctx.currentTime + start);
-      gain.gain.linearRampToValueAtTime(0.20, ctx.currentTime + start + 0.04);
+      gain.gain.linearRampToValueAtTime(0.2, ctx.currentTime + start + 0.04);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + stop);
       osc.start(ctx.currentTime + start);
       osc.stop(ctx.currentTime + stop);
     });
-  } catch(e) {}
+  } catch (e) {}
 }
 
 // ─────────────────────────────────────────
@@ -80,6 +85,10 @@ let identityRejected = false;
 // Signal Protocol instance — created once, persists across the session
 const signalProtocol = new SignalProtocol();
 
+// Safety Numbers — identity key for verification
+let myIdentityPublicKeyHex = null; // our P-256 public key hex, populated after init
+let currentSafetyNumber = null; // safety number for the currently open chat
+
 // Active torrents map: magnetURI → torrent object
 const activeTorrents = new Map();
 // Global WebTorrent client
@@ -89,7 +98,7 @@ const TRACKERS = [
   "wss://tracker.openwebtorrent.com",
   "wss://tracker.webtorrent.dev",
   "wss://tracker.files.fm:7073/announce",
-  "wss://tracker.btorrent.xyz"
+  "wss://tracker.btorrent.xyz",
 ];
 
 function getBTClient() {
@@ -100,10 +109,10 @@ function getBTClient() {
           rtcConfig: {
             iceServers: [
               { urls: "stun:stun.l.google.com:19302" },
-              { urls: "stun:global.stun.twilio.com:3478" }
-            ]
-          }
-        }
+              { urls: "stun:global.stun.twilio.com:3478" },
+            ],
+          },
+        },
       });
       btClient.on("error", (err) => {
         console.warn("[BitTorrent] Client error:", err.message);
@@ -130,10 +139,16 @@ function checkIdentity() {
 
   if (token && myUsid) {
     loader.style.display = "flex";
+    // Generate/load identity key pair for safety numbers
+    generateOrLoadIdentityKeyPair().catch(console.error);
     // Init Signal Protocol (restores from IndexedDB) before connecting WS
-    signalProtocol.init(myUsid, token)
+    signalProtocol
+      .init(myUsid, token)
       .then(() => connectWS())
-      .catch((e) => { console.error('[E2EE] Init error', e); connectWS(); });
+      .catch((e) => {
+        console.error("[E2EE] Init error", e);
+        connectWS();
+      });
   } else {
     setTimeout(() => {
       document.getElementById("splash-header").classList.add("shift-up");
@@ -184,15 +199,15 @@ async function handleWSMessage(data) {
       break;
     case "message": {
       const { from, encrypted, content, timestamp } = data;
-      let displayContent = content || '';
+      let displayContent = content || "";
 
       if (encrypted && signalProtocol.hasSession(from)) {
         try {
           displayContent = await signalProtocol.decrypt(from, encrypted);
-          console.log(`[E2EE] Decrypted message from ${from.substring(0,12)}`);
+          console.log(`[E2EE] Decrypted message from ${from.substring(0, 12)}`);
         } catch (e) {
-          console.error('[E2EE] Decryption failed', e);
-          displayContent = '[Encrypted — decryption failed]';
+          console.error("[E2EE] Decryption failed", e);
+          displayContent = "[Encrypted — decryption failed]";
         }
       }
 
@@ -211,9 +226,9 @@ async function handleWSMessage(data) {
       if (from && !signalProtocol.hasSession(from)) {
         try {
           await signalProtocol.acceptSession(from, data);
-          console.log(`[E2EE] Session accepted from ${from.substring(0,12)}`);
+          console.log(`[E2EE] Session accepted from ${from.substring(0, 12)}`);
         } catch (e) {
-          console.error('[E2EE] acceptSession failed', e);
+          console.error("[E2EE] acceptSession failed", e);
         }
       }
       break;
@@ -296,12 +311,16 @@ async function signup() {
 
       // Init Signal Protocol and upload public key bundle before connecting
       try {
+        // Generate identity key pair for safety numbers
+        await generateOrLoadIdentityKeyPair();
         await signalProtocol.init(myUsid, token);
-        document.getElementById("loader-status").textContent = "Identity secured. Connecting...";
-        console.log('[E2EE] Protocol initialized, key bundle uploaded');
+        document.getElementById("loader-status").textContent =
+          "Identity secured. Connecting...";
+        console.log("[E2EE] Protocol initialized, key bundle uploaded");
       } catch (e) {
-        console.error('[E2EE] Protocol init failed:', e);
-        document.getElementById("loader-status").textContent = "Identity secured. Connecting...";
+        console.error("[E2EE] Protocol init failed:", e);
+        document.getElementById("loader-status").textContent =
+          "Identity secured. Connecting...";
       }
 
       connectWS();
@@ -650,32 +669,33 @@ async function openChat(hashedUsid) {
 
   renderContactsList();
   updateTorrentStats();
+  updateVerifiedBadge(); // refresh verification status for this peer
 
   // Real X3DH key exchange (replaces simulateKeyExchange)
   const overlay = document.getElementById("key-exchange-overlay");
-  const msgs    = document.getElementById("messages-container");
-  const status  = document.getElementById("exchange-status");
+  const msgs = document.getElementById("messages-container");
+  const status = document.getElementById("exchange-status");
   const details = document.getElementById("exchange-details");
 
   msgs.style.display = "none";
   overlay.classList.remove("hidden");
-  status.textContent  = "Running X3DH Key Exchange";
+  status.textContent = "Running X3DH Key Exchange";
   details.textContent = "Fetching peer key bundle...";
 
   try {
     if (!signalProtocol.hasSession(hashedUsid)) {
       const initMsg = await signalProtocol.openSession(hashedUsid);
       if (initMsg && ws && ws.readyState === WebSocket.OPEN) {
-        initMsg.to   = hashedUsid;
+        initMsg.to = hashedUsid;
         initMsg.from = myUsid;
         ws.send(JSON.stringify(initMsg));
       }
     }
-    status.textContent  = "Secure Channel Ready";
+    status.textContent = "Secure Channel Ready";
     details.textContent = "All messages are end-to-end encrypted.";
   } catch (e) {
-    console.error('[E2EE] openSession failed', e);
-    status.textContent  = "Encryption Warning";
+    console.error("[E2EE] openSession failed", e);
+    status.textContent = "Encryption Warning";
     details.textContent = "E2EE unavailable — peer bundle missing or offline";
   }
 
@@ -729,9 +749,9 @@ async function sendMessage() {
     try {
       const encrypted = await signalProtocol.encrypt(currentChatUsid, content);
       payload = { type: "message", to: currentChatUsid, encrypted };
-      console.log('[E2EE] Message encrypted and sent');
+      console.log("[E2EE] Message encrypted and sent");
     } catch (e) {
-      console.error('[E2EE] Encryption failed, falling back to plaintext', e);
+      console.error("[E2EE] Encryption failed, falling back to plaintext", e);
       payload = { type: "message", to: currentChatUsid, content };
     }
   } else {
@@ -790,10 +810,12 @@ function renderMessages() {
         btoa(msg.timestamp)
           .replace(/[^a-z0-9]/gi, "")
           .substring(0, 8);
-      
+
       const nameMatch = msg.content.match(/dn=([^&]+)/);
-      const fileName = nameMatch ? decodeURIComponent(nameMatch[1].replace(/\+/g, ' ')) : "Shared File";
-      
+      const fileName = nameMatch
+        ? decodeURIComponent(nameMatch[1].replace(/\+/g, " "))
+        : "Shared File";
+
       html += `
                 <div class="msg-row ${rowCls}">
                     <div class="file-bubble">
@@ -825,12 +847,13 @@ function renderMessages() {
                 </div>`;
     } else {
       // Status icon: clock = queued (peer offline), nothing = delivered
-      const statusIcon = (isMe && msg.status === "queued")
-        ? `<span class="msg-status-icon material-icons-outlined" title="Queued — peer offline">schedule</span>`
-        : "";
+      const statusIcon =
+        isMe && msg.status === "queued"
+          ? `<span class="msg-status-icon material-icons-outlined" title="Queued — peer offline">schedule</span>`
+          : "";
       html += `
                 <div class="msg-row ${rowCls}">
-                    <div class="msg-bubble${msg.status === 'queued' ? ' msg-queued' : ''}">
+                    <div class="msg-bubble${msg.status === "queued" ? " msg-queued" : ""}">
                         ${escapeHTML(msg.content)}
                         <span class="msg-time">${time}${statusIcon}</span>
                     </div>
@@ -1014,20 +1037,20 @@ function downloadFile(magnetURI, progressId) {
 
         const actionContainer = document.getElementById(`fa-${progressId}`);
         if (actionContainer) {
-            actionContainer.innerHTML = '';
-            
-            torrent.files.forEach((file) => {
-              file.getBlobURL((err, url) => {
-                if (err) return console.error("[BT] getBlobURL error:", err);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = file.name;
-                a.className = "file-action-btn";
-                a.title = `Save ${file.name}`;
-                a.innerHTML = '<span class="material-icons-outlined">save</span>';
-                actionContainer.appendChild(a);
-              });
+          actionContainer.innerHTML = "";
+
+          torrent.files.forEach((file) => {
+            file.getBlobURL((err, url) => {
+              if (err) return console.error("[BT] getBlobURL error:", err);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = file.name;
+              a.className = "file-action-btn";
+              a.title = `Save ${file.name}`;
+              a.innerHTML = '<span class="material-icons-outlined">save</span>';
+              actionContainer.appendChild(a);
             });
+          });
         }
       });
 
@@ -1139,6 +1162,8 @@ function hideSplashScreen() {
   document.getElementById("splash-screen").classList.add("hidden");
   loadContacts();
   playConnectSound();
+  // Push identity public key to server so peers can fetch it for safety numbers
+  uploadIdentityPublicKey().catch(console.error);
 }
 
 function applyTheme(theme) {
@@ -1215,6 +1240,233 @@ function sendEmergency() {
   } else {
     showSnackbar("Not connected — cannot send emergency", "error");
   }
+}
+
+// ─────────────────────────────────────────
+// Safety Numbers — Key Verification
+// ─────────────────────────────────────────
+
+/**
+ * Generate or load the local P-256 identity key pair for safety numbers.
+ * Public key hex is stored in localStorage (public — safe).
+ * Private key is kept as a non-exportable CryptoKey in memory only;
+ * we only need the public key for safety number computation.
+ */
+async function generateOrLoadIdentityKeyPair() {
+  const stored = localStorage.getItem("sn_identity_pub");
+  if (stored) {
+    myIdentityPublicKeyHex = stored;
+    console.log("[SafetyNum] Loaded existing identity public key");
+    return;
+  }
+
+  try {
+    const keyPair = await crypto.subtle.generateKey(
+      { name: "ECDH", namedCurve: "P-256" },
+      true, // exportable so we can store the public key hex
+      ["deriveKey", "deriveBits"],
+    );
+
+    // Export public key as raw bytes → hex string
+    const rawPub = await crypto.subtle.exportKey("raw", keyPair.publicKey);
+    const pubHex = Array.from(new Uint8Array(rawPub))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    myIdentityPublicKeyHex = pubHex;
+    localStorage.setItem("sn_identity_pub", pubHex);
+    console.log("[SafetyNum] Generated new identity key pair");
+  } catch (e) {
+    console.error("[SafetyNum] Key generation failed:", e);
+  }
+}
+
+/**
+ * Push our identity public key to the server so peers can fetch it.
+ * Called after WS registration and after signup.
+ */
+async function uploadIdentityPublicKey() {
+  if (!myIdentityPublicKeyHex || !token) return;
+  try {
+    await fetch("/update-pubkey", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ publicKey: myIdentityPublicKeyHex }),
+    });
+    console.log("[SafetyNum] Identity public key uploaded");
+  } catch (e) {
+    console.warn("[SafetyNum] Failed to upload public key:", e);
+  }
+}
+
+/**
+ * Compute a 60-digit safety number (12 groups of 5 digits) from two identity keys.
+ * Deterministic and commutative — both parties get the same number.
+ *
+ * @param {string} usidA      - First  USID  (hashed)
+ * @param {string} pubKeyHexA - First  party's identity public key hex
+ * @param {string} usidB      - Second USID  (hashed)
+ * @param {string} pubKeyHexB - Second party's identity public key hex
+ * @returns {string} Formatted safety number e.g. "12345 67890 11111  22222 ..."
+ */
+async function computeSafetyNumber(usidA, pubKeyHexA, usidB, pubKeyHexB) {
+  // Sort lexicographically by USID so both parties compute in the same order
+  const [firstUsid, firstKey, secondUsid, secondKey] =
+    usidA < usidB
+      ? [usidA, pubKeyHexA, usidB, pubKeyHexB]
+      : [usidB, pubKeyHexB, usidA, pubKeyHexA];
+
+  // Concatenate: usid_hex + pubkey_hex for each party
+  const combined = firstUsid + firstKey + secondUsid + secondKey;
+
+  const encoder = new TextEncoder();
+  const hashBuf = await crypto.subtle.digest(
+    "SHA-256",
+    encoder.encode(combined),
+  );
+  const hashBytes = new Uint8Array(hashBuf);
+
+  return formatSafetyNumber(hashBytes);
+}
+
+/**
+ * Format 32 hash bytes as 12 groups of 5 digits (Signal standard).
+ * Uses 30 of the 32 bytes (6 chunks × 5 bytes).
+ */
+function formatSafetyNumber(hashBytes) {
+  const groups = [];
+  for (let i = 0; i < 30; i += 5) {
+    // Combine 5 bytes into a big number, take last 5 decimal digits
+    const chunk =
+      hashBytes[i] * 0x100000000 +
+      hashBytes[i + 1] * 0x1000000 +
+      hashBytes[i + 2] * 0x10000 +
+      hashBytes[i + 3] * 0x100 +
+      hashBytes[i + 4];
+    groups.push(String(chunk % 100000).padStart(5, "0"));
+  }
+  // Four rows of three groups, rows separated by double-space
+  return [
+    groups.slice(0, 3).join(" "),
+    groups.slice(3, 6).join(" "),
+    groups.slice(6, 9).join(" "),
+    groups.slice(9, 12).join(" "),
+  ].join("\n");
+}
+
+/**
+ * Open the Safety Numbers dialog for the current chat peer.
+ * Fetches their public key, computes the number, detects key changes.
+ */
+async function showSafetyNumbers() {
+  if (!currentChatUsid) return;
+  if (!myIdentityPublicKeyHex) {
+    showSnackbar("Your identity key is not ready yet", "warn");
+    return;
+  }
+
+  const btn = document.getElementById("verify-safety-btn");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Loading...";
+  }
+
+  try {
+    const res = await fetch(`/public-key/${currentChatUsid}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok) {
+      showSnackbar("Peer has not uploaded their identity key yet", "warn");
+      return;
+    }
+
+    const { publicKey: theirPubKeyHex } = await res.json();
+
+    if (!theirPubKeyHex || theirPubKeyHex === "placeholder-public-key") {
+      showSnackbar("Peer has not uploaded their identity key yet", "warn");
+      return;
+    }
+
+    const safetyNumber = await computeSafetyNumber(
+      myUsid,
+      myIdentityPublicKeyHex,
+      currentChatUsid,
+      theirPubKeyHex,
+    );
+
+    currentSafetyNumber = safetyNumber;
+
+    // Render into dialog
+    const grid = document.getElementById("sn-grid");
+    if (grid) {
+      grid.innerHTML = safetyNumber
+        .split("\n")
+        .map(
+          (row) =>
+            `<div class="sn-row">${row
+              .split(" ")
+              .map((g) => `<span class="sn-group">${g}</span>`)
+              .join("")}</div>`,
+        )
+        .join("");
+    }
+
+    // Key-change detection
+    const storedSN = localStorage.getItem(`sn:${currentChatUsid}`);
+    const changeWarning = document.getElementById("sn-change-warning");
+
+    if (storedSN && storedSN !== safetyNumber) {
+      // Keys changed since last verification — warn loudly
+      if (changeWarning) changeWarning.classList.remove("hidden");
+      showSnackbar("⚠️ Safety number changed — re-verify identity", "warn");
+    } else {
+      if (changeWarning) changeWarning.classList.add("hidden");
+    }
+
+    // Persist current safety number for future change detection
+    localStorage.setItem(`sn:${currentChatUsid}`, safetyNumber);
+
+    // Update verified badge state
+    updateVerifiedBadge();
+
+    showDialog("safety-numbers-dialog");
+  } catch (e) {
+    console.error("[SafetyNum] Error:", e);
+    showSnackbar("Could not load safety numbers", "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Verify Safety Numbers";
+    }
+  }
+}
+
+/** Mark the current peer as verified (user confirmed numbers match out-of-band) */
+function markPeerVerified() {
+  if (!currentChatUsid || !currentSafetyNumber) return;
+  localStorage.setItem(`sn_verified:${currentChatUsid}`, currentSafetyNumber);
+  updateVerifiedBadge();
+  showSnackbar("Identity verified ✓", "success");
+}
+
+/** Update the verified/unverified badge in the details pane */
+function updateVerifiedBadge() {
+  const verifiedEl = document.getElementById("sn-verified-badge");
+  const unverifiedEl = document.getElementById("sn-unverified-badge");
+  if (!verifiedEl || !unverifiedEl || !currentChatUsid) return;
+
+  const storedVerified = localStorage.getItem(`sn_verified:${currentChatUsid}`);
+  const storedCurrent = localStorage.getItem(`sn:${currentChatUsid}`);
+
+  const isVerified =
+    storedVerified && storedCurrent && storedVerified === storedCurrent;
+
+  verifiedEl.classList.toggle("hidden", !isVerified);
+  unverifiedEl.classList.toggle("hidden", !!isVerified);
 }
 
 // ─────────────────────────────────────────
@@ -1323,6 +1575,25 @@ function setupEventListeners() {
       if (e.target === overlay) overlay.classList.remove("active");
     });
   });
+
+  // Safety Numbers dialog
+  document
+    .getElementById("verify-safety-btn")
+    ?.addEventListener("click", showSafetyNumbers);
+  document.getElementById("sn-mark-verified")?.addEventListener("click", () => {
+    markPeerVerified();
+    hideDialog("safety-numbers-dialog");
+  });
+  document.getElementById("sn-copy-btn")?.addEventListener("click", () => {
+    if (currentSafetyNumber) {
+      navigator.clipboard
+        .writeText(currentSafetyNumber.replace(/\n/g, "  "))
+        .then(() => showSnackbar("Safety number copied", "success"));
+    }
+  });
+  document
+    .getElementById("sn-close-btn")
+    ?.addEventListener("click", () => hideDialog("safety-numbers-dialog"));
 }
 
 // ─────────────────────────────────────────

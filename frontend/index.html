@@ -373,6 +373,44 @@
                         </div>
                     </div>
 
+                    <!-- Key Verification -->
+                    <div class="details-block">
+                        <div class="details-block-label">VERIFICATION</div>
+                        <!-- Verified state -->
+                        <div
+                            id="sn-verified-badge"
+                            class="sn-badge verified hidden"
+                        >
+                            <span class="material-icons-outlined"
+                                >verified</span
+                            >
+                            <span>Identity Verified</span>
+                        </div>
+                        <!-- Unverified state -->
+                        <div
+                            id="sn-unverified-badge"
+                            class="sn-badge unverified"
+                        >
+                            <span class="material-icons-outlined"
+                                >gpp_maybe</span
+                            >
+                            <span>Not yet verified</span>
+                        </div>
+                        <p class="sn-hint">
+                            Compare safety numbers with your contact to confirm
+                            no one is intercepting your messages.
+                        </p>
+                        <button
+                            id="verify-safety-btn"
+                            class="btn-verify-safety"
+                        >
+                            <span class="material-icons-outlined"
+                                >fact_check</span
+                            >
+                            Verify Safety Numbers
+                        </button>
+                    </div>
+
                     <!-- Torrent Stats -->
                     <div
                         class="details-block"
@@ -439,6 +477,63 @@
                     </div>
                     <div class="dialog-actions">
                         <button id="close-profile" class="btn-primary sm">
+                            Done
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Safety Numbers Dialog -->
+            <div id="safety-numbers-dialog" class="dialog-overlay">
+                <div class="dialog sn-dialog">
+                    <div class="sn-dialog-header">
+                        <div class="dialog-icon">
+                            <span class="material-icons-outlined"
+                                >security</span
+                            >
+                        </div>
+                        <div>
+                            <h3 class="dialog-title">Safety Numbers</h3>
+                            <p class="dialog-body">
+                                Compare this number with your contact over a
+                                voice call or in person. If it matches on both
+                                sides, your conversation is secure and private.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Key change warning — hidden by default -->
+                    <div
+                        id="sn-change-warning"
+                        class="sn-change-warning hidden"
+                    >
+                        <span class="material-icons-outlined">warning</span>
+                        Safety number changed since last verification. Your
+                        contact may have re-registered — verify again before
+                        continuing.
+                    </div>
+
+                    <!-- The 60-digit safety number grid -->
+                    <div class="sn-number-wrap">
+                        <div id="sn-grid" class="sn-grid">
+                            <!-- Rows of 3 five-digit groups rendered by JS -->
+                        </div>
+                    </div>
+
+                    <div class="dialog-actions sn-actions">
+                        <button id="sn-copy-btn" class="btn-ghost">
+                            <span class="material-icons-outlined"
+                                >content_copy</span
+                            >
+                            Copy
+                        </button>
+                        <button id="sn-mark-verified" class="btn-primary sm">
+                            <span class="material-icons-outlined"
+                                >check_circle</span
+                            >
+                            Mark as Verified
+                        </button>
+                        <button id="sn-close-btn" class="btn-ghost">
                             Done
                         </button>
                     </div>

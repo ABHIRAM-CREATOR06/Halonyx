@@ -14,7 +14,7 @@ app.use(express.json());
 // Operational Database
 const db = new sqlite3.Database("./backend/db/app.db");
 // Identity Database (Metadata)
-const idDb  = new sqlite3.Database("./backend/db/identity.db");
+const idDb = new sqlite3.Database("./backend/db/identity.db");
 const keyDb = new sqlite3.Database("./backend/db/keys.db");
 
 // Initialize Databases
@@ -28,8 +28,8 @@ function initDb(database, schemaPath) {
   });
 }
 
-initDb(db,    "./backend/db/schema.sql");
-initDb(idDb,  "./backend/db/identity_schema.sql");
+initDb(db, "./backend/db/schema.sql");
+initDb(idDb, "./backend/db/identity_schema.sql");
 initDb(keyDb, "./backend/db/key_schema.sql");
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
@@ -71,7 +71,11 @@ app.post("/signup", (req, res) => {
               [hashed, publicKeyBundle],
               () => {
                 const jwtToken = jwt.sign({ userId: row.id, usid }, JWT_SECRET);
-                res.json({ message: "Identity re-verified", usid, token: jwtToken });
+                res.json({
+                  message: "Identity re-verified",
+                  usid,
+                  token: jwtToken,
+                });
               },
             );
           },
@@ -83,7 +87,9 @@ app.post("/signup", (req, res) => {
           [name.trim(), emailValue, hashed],
           function (err) {
             if (err)
-              return res.status(500).json({ error: "Identity creation failed" });
+              return res
+                .status(500)
+                .json({ error: "Identity creation failed" });
             const userId = this.lastID;
             db.run(
               "INSERT INTO users (hashed_usid, public_key_bundle) VALUES (?, ?)",
@@ -201,32 +207,39 @@ app.post("/add-contact", authenticate, (req, res) => {
   );
 });
 
-app.get('/contacts', authenticate, (req, res) => {
-    db.all('SELECT contact_hashed_usid FROM contacts WHERE user_id = ?', [req.user.userId], (err, rows) => {
-        if (err) return res.status(500).json({ error: 'DB error' });
-        res.json(rows.map(r => r.contact_hashed_usid));
-    });
+app.get("/contacts", authenticate, (req, res) => {
+  db.all(
+    "SELECT contact_hashed_usid FROM contacts WHERE user_id = ?",
+    [req.user.userId],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: "DB error" });
+      res.json(rows.map((r) => r.contact_hashed_usid));
+    },
+  );
 });
 
 // Delete contact route — the frontend sends the already-hashed USID (from GET /contacts),
 // so we use it directly without hashing again to avoid a double-hash mismatch.
-app.delete('/contacts', authenticate, (req, res) => {
-    const { usid } = req.body;
-    if (!usid) return res.status(400).json({ error: 'USID is required' });
+app.delete("/contacts", authenticate, (req, res) => {
+  const { usid } = req.body;
+  if (!usid) return res.status(400).json({ error: "USID is required" });
 
-    // usid here is already a hashed_usid — do NOT call hashUSID() again
-    const hashedUsid = usid;
+  // usid here is already a hashed_usid — do NOT call hashUSID() again
+  const hashedUsid = usid;
 
-    db.run(
-        'DELETE FROM contacts WHERE user_id = ? AND contact_hashed_usid = ?',
-        [req.user.userId, hashedUsid],
-        function (err) {
-            if (err) return res.status(500).json({ error: 'DB error' });
-            if (this.changes === 0) return res.status(404).json({ error: 'Contact not found' });
-            console.log(`[Contacts] Removed contact ${hashedUsid.substring(0, 8)}... for user ${req.user.userId}`);
-            res.json({ message: 'Contact removed' });
-        }
-    );
+  db.run(
+    "DELETE FROM contacts WHERE user_id = ? AND contact_hashed_usid = ?",
+    [req.user.userId, hashedUsid],
+    function (err) {
+      if (err) return res.status(500).json({ error: "DB error" });
+      if (this.changes === 0)
+        return res.status(404).json({ error: "Contact not found" });
+      console.log(
+        `[Contacts] Removed contact ${hashedUsid.substring(0, 8)}... for user ${req.user.userId}`,
+      );
+      res.json({ message: "Contact removed" });
+    },
+  );
 });
 
 /*
@@ -379,32 +392,136 @@ app.post("/cleanup-all-duplicates", authenticate, (req, res) => {
 // ── Key Bundle Endpoints (for X3DH) ─────────────────────────────────────────
 
 // POST /keys/upload — store caller's public key bundle
-app.post('/keys/upload', authenticate, (req, res) => {
-    const { bundle } = req.body;
-    if (!bundle) return res.status(400).json({ error: 'Missing bundle' });
+app.post("/keys/upload", authenticate, (req, res) => {
+  const { bundle } = req.body;
+  if (!bundle) return res.status(400).json({ error: "Missing bundle" });
 
-    // hashed_usid comes from the verified JWT
-    const hashed = hashUSID(req.user.usid);
-    const now    = Date.now();
+  // hashed_usid comes from the verified JWT
+  const hashed = hashUSID(req.user.usid);
+  const now = Date.now();
 
-    keyDb.run(
-        'INSERT INTO key_bundles (hashed_usid, bundle, updated_at) VALUES (?, ?, ?)'
-        + ' ON CONFLICT(hashed_usid) DO UPDATE SET bundle=excluded.bundle, updated_at=excluded.updated_at',
-        [hashed, JSON.stringify(bundle), now],
-        (err) => {
-            if (err) return res.status(500).json({ error: 'Failed to store key bundle' });
-            res.json({ message: 'Key bundle stored' });
-        }
-    );
+  keyDb.run(
+    "INSERT INTO key_bundles (hashed_usid, bundle, updated_at) VALUES (?, ?, ?)" +
+      " ON CONFLICT(hashed_usid) DO UPDATE SET bundle=excluded.bundle, updated_at=excluded.updated_at",
+    [hashed, JSON.stringify(bundle), now],
+    (err) => {
+      if (err)
+        return res.status(500).json({ error: "Failed to store key bundle" });
+      res.json({ message: "Key bundle stored" });
+    },
+  );
 });
 
 // GET /keys/:hashedUsid — fetch a peer's public key bundle
-app.get('/keys/:hashedUsid', (req, res) => {
-    const { hashedUsid } = req.params;
-    keyDb.get('SELECT bundle FROM key_bundles WHERE hashed_usid = ?', [hashedUsid], (err, row) => {
-        if (err || !row) return res.status(404).json({ error: 'Key bundle not found' });
-        res.json({ bundle: JSON.parse(row.bundle) });
-    });
+app.get("/keys/:hashedUsid", (req, res) => {
+  const { hashedUsid } = req.params;
+  keyDb.get(
+    "SELECT bundle FROM key_bundles WHERE hashed_usid = ?",
+    [hashedUsid],
+    (err, row) => {
+      if (err || !row)
+        return res.status(404).json({ error: "Key bundle not found" });
+      res.json({ bundle: JSON.parse(row.bundle) });
+    },
+  );
+});
+
+// ── Safety Number / Identity Verification Endpoints ─────────────────────────
+
+// GET /public-key/:hashedUsid — return only the identity public key (hex) for
+// safety-number computation. Authenticated so random crawlers can't harvest keys.
+app.get("/public-key/:hashedUsid", authenticate, (req, res) => {
+  const { hashedUsid } = req.params;
+
+  // First try the key_bundles table (users who have uploaded a full bundle)
+  keyDb.get(
+    "SELECT bundle FROM key_bundles WHERE hashed_usid = ?",
+    [hashedUsid],
+    (err, row) => {
+      if (!err && row) {
+        try {
+          const bundle = JSON.parse(row.bundle);
+          // bundle.identityKey is the hex public key stored during signup/upload
+          if (
+            bundle.identityKey &&
+            bundle.identityKey !== "placeholder-public-key"
+          ) {
+            return res.json({
+              publicKey: bundle.identityKey,
+              source: "bundle",
+            });
+          }
+        } catch (_) {
+          /* fall through */
+        }
+      }
+
+      // Fall back to the users table (public_key_bundle column in app.db)
+      db.get(
+        "SELECT public_key_bundle FROM users WHERE hashed_usid = ?",
+        [hashedUsid],
+        (err2, row2) => {
+          if (err2 || !row2)
+            return res.status(404).json({ error: "Public key not found" });
+          try {
+            const pkb = JSON.parse(row2.public_key_bundle);
+            if (
+              !pkb.identityKey ||
+              pkb.identityKey === "placeholder-public-key"
+            ) {
+              return res
+                .status(404)
+                .json({ error: "No real public key registered yet" });
+            }
+            res.json({ publicKey: pkb.identityKey, source: "users" });
+          } catch (_) {
+            res.status(500).json({ error: "Failed to parse key bundle" });
+          }
+        },
+      );
+    },
+  );
+});
+
+// POST /update-pubkey — lets existing users push their P-256 identity public key
+// without re-registering. Called automatically on reconnect by app.js.
+app.post("/update-pubkey", authenticate, (req, res) => {
+  const { publicKey } = req.body;
+  if (!publicKey || typeof publicKey !== "string" || publicKey.length < 10) {
+    return res.status(400).json({ error: "Invalid publicKey" });
+  }
+
+  const hashed = hashUSID(req.user.usid);
+  const publicKeyBundle = JSON.stringify({ identityKey: publicKey });
+
+  // Update app.db users table
+  db.run(
+    "UPDATE users SET public_key_bundle = ? WHERE hashed_usid = ?",
+    [publicKeyBundle, hashed],
+    function (err) {
+      if (err) return res.status(500).json({ error: "DB update failed" });
+      if (this.changes === 0) {
+        // User row might not exist yet (edge case) — insert it
+        db.run(
+          "INSERT OR IGNORE INTO users (hashed_usid, public_key_bundle) VALUES (?, ?)",
+          [hashed, publicKeyBundle],
+          (err2) => {
+            if (err2)
+              return res.status(500).json({ error: "DB insert failed" });
+            console.log(
+              `[PubKey] Inserted public key for ${hashed.substring(0, 8)}...`,
+            );
+            res.json({ message: "Public key stored" });
+          },
+        );
+      } else {
+        console.log(
+          `[PubKey] Updated public key for ${hashed.substring(0, 8)}...`,
+        );
+        res.json({ message: "Public key updated" });
+      }
+    },
+  );
 });
 
 // WebSocket for messaging
@@ -419,48 +536,76 @@ wss.on("connection", (ws) => {
     try {
       const data = JSON.parse(message.toString());
 
-      if (data.type === 'register') {
+      if (data.type === "register") {
         const { usid } = data;
         const hashed = hashUSID(usid);
 
         // VERIFY CONNECTION AGAINST IDENTITY DB
-        idDb.get('SELECT name FROM users_metadata WHERE hashed_usid = ?', [hashed], (err, row) => {
+        idDb.get(
+          "SELECT name FROM users_metadata WHERE hashed_usid = ?",
+          [hashed],
+          (err, row) => {
             if (err || !row) {
-                console.log(`[WS] Registration REJECTED: ${hashed.substring(0, 8)}... (Not in Identity DB)`);
-                ws.send(JSON.stringify({ type: 'error', message: 'Identity not verified' }));
-                return;
+              console.log(
+                `[WS] Registration REJECTED: ${hashed.substring(0, 8)}... (Not in Identity DB)`,
+              );
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: "Identity not verified",
+                }),
+              );
+              return;
             }
 
             userHashedUsid = hashed;
             clients.set(userHashedUsid, ws);
-            console.log(`[WS] User Registered: ${row.name} (${userHashedUsid.substring(0, 8)}...)`);
-            ws.send(JSON.stringify({ type: 'registered', success: true }));
+            console.log(
+              `[WS] User Registered: ${row.name} (${userHashedUsid.substring(0, 8)}...)`,
+            );
+            ws.send(JSON.stringify({ type: "registered", success: true }));
 
             // ── Offline Mailbox Flush ──────────────────────────────────
             // Deliver any messages that arrived while this user was offline,
             // then purge them so they are not delivered twice.
             db.all(
-                'SELECT * FROM mailbox WHERE recipient_hashed_usid = ? ORDER BY timestamp ASC',
-                [hashed],
-                (mbErr, pending) => {
-                    if (mbErr || !pending || pending.length === 0) return;
-                    console.log(`[Mailbox] Flushing ${pending.length} queued message(s) to ${hashed.substring(0, 8)}...`);
-                    pending.forEach((m) => {
-                        ws.send(JSON.stringify({
-                            type: 'message',
-                            from: m.sender_hashed_usid,
-                            content: m.content,
-                            timestamp: m.timestamp
-                        }));
-                    });
-                    db.run('DELETE FROM mailbox WHERE recipient_hashed_usid = ?', [hashed], (delErr) => {
-                        if (delErr) console.error('[Mailbox] Failed to purge mailbox:', delErr);
-                        else console.log(`[Mailbox] Purged ${pending.length} message(s) for ${hashed.substring(0, 8)}...`);
-                    });
-                }
+              "SELECT * FROM mailbox WHERE recipient_hashed_usid = ? ORDER BY timestamp ASC",
+              [hashed],
+              (mbErr, pending) => {
+                if (mbErr || !pending || pending.length === 0) return;
+                console.log(
+                  `[Mailbox] Flushing ${pending.length} queued message(s) to ${hashed.substring(0, 8)}...`,
+                );
+                pending.forEach((m) => {
+                  ws.send(
+                    JSON.stringify({
+                      type: "message",
+                      from: m.sender_hashed_usid,
+                      content: m.content,
+                      timestamp: m.timestamp,
+                    }),
+                  );
+                });
+                db.run(
+                  "DELETE FROM mailbox WHERE recipient_hashed_usid = ?",
+                  [hashed],
+                  (delErr) => {
+                    if (delErr)
+                      console.error(
+                        "[Mailbox] Failed to purge mailbox:",
+                        delErr,
+                      );
+                    else
+                      console.log(
+                        `[Mailbox] Purged ${pending.length} message(s) for ${hashed.substring(0, 8)}...`,
+                      );
+                  },
+                );
+              },
             );
             // ──────────────────────────────────────────────────────────
-        });
+          },
+        );
         return;
       }
 
@@ -468,43 +613,59 @@ wss.on("connection", (ws) => {
         const { to, content, encrypted } = data;
         if (!userHashedUsid) return;
 
-        console.log(`[WS] Message: ${userHashedUsid.substring(0,8)} → ${to ? to.substring(0,8) : '?'}`);
+        console.log(
+          `[WS] Message: ${userHashedUsid.substring(0, 8)} → ${to ? to.substring(0, 8) : "?"}`,
+        );
 
         const recipientWs = clients.get(to);
         if (recipientWs && recipientWs.readyState === WebSocket.OPEN) {
-          recipientWs.send(JSON.stringify({
-            type: 'message',
-            from: userHashedUsid,
-            content: content || null,
-            encrypted: encrypted || null,
-            timestamp: new Date().toISOString(),
-          }));
-          console.log(`[WS] Message delivered to ${to.substring(0,8)}`);
+          recipientWs.send(
+            JSON.stringify({
+              type: "message",
+              from: userHashedUsid,
+              content: content || null,
+              encrypted: encrypted || null,
+              timestamp: new Date().toISOString(),
+            }),
+          );
+          console.log(`[WS] Message delivered to ${to.substring(0, 8)}`);
         } else {
           // Offline mailbox — store plaintext content if present, or a placeholder
-          const storeContent = content || '[encrypted message]';
+          const storeContent = content || "[encrypted message]";
           db.run(
-              'INSERT INTO mailbox (recipient_hashed_usid, sender_hashed_usid, content) VALUES (?, ?, ?)',
-              [to, userHashedUsid, storeContent],
-              (mbErr) => {
-                  if (mbErr) {
-                      ws.send(JSON.stringify({ type: 'error', message: 'Mailbox store failed' }));
-                  } else {
-                      ws.send(JSON.stringify({ type: 'queued', message: 'Recipient offline — message queued' }));
-                  }
+            "INSERT INTO mailbox (recipient_hashed_usid, sender_hashed_usid, content) VALUES (?, ?, ?)",
+            [to, userHashedUsid, storeContent],
+            (mbErr) => {
+              if (mbErr) {
+                ws.send(
+                  JSON.stringify({
+                    type: "error",
+                    message: "Mailbox store failed",
+                  }),
+                );
+              } else {
+                ws.send(
+                  JSON.stringify({
+                    type: "queued",
+                    message: "Recipient offline — message queued",
+                  }),
+                );
               }
+            },
           );
         }
       }
 
       // X3DH handshake relay — forward to recipient so they can set up E2EE
-      if (data.type === 'x3dh_init') {
+      if (data.type === "x3dh_init") {
         const { to } = data;
         if (!userHashedUsid || !to) return;
         const recipientWs = clients.get(to);
         if (recipientWs && recipientWs.readyState === WebSocket.OPEN) {
           recipientWs.send(JSON.stringify({ ...data, from: userHashedUsid }));
-          console.log(`[WS] X3DH init relayed: ${userHashedUsid.substring(0,8)} → ${to.substring(0,8)}`);
+          console.log(
+            `[WS] X3DH init relayed: ${userHashedUsid.substring(0, 8)} → ${to.substring(0, 8)}`,
+          );
         }
       }
 
@@ -569,7 +730,10 @@ udpServer.on("listening", () => {
 udpServer.bind(UDP_PORT);
 
 // Serve protocol/ files at /protocol/* (before cache middleware so headers apply)
-app.use('/protocol', express.static('protocol', { etag: false, lastModified: false }));
+app.use(
+  "/protocol",
+  express.static("protocol", { etag: false, lastModified: false }),
+);
 
 // Disable all caching — must come BEFORE static middleware so Edge (and other browsers)
 // never serve a stale app.js from cache, which would cause identity hash mismatches.
