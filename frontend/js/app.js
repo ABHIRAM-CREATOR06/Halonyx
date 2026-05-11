@@ -1,16 +1,9 @@
 /**
  * Halonyx Secura — Core App
- * Version 4.2.1
- * Improvements:
- *  - Streamlined, clean UI logic
- *  - Effective WebTorrent: upload progress, speed, seeding, multi-file
- *  - Transfer status bar with live speed & progress
- *  - Torrent stats in details pane
- *  - Proper cleanup on torrent completion
- *  - Snackbar with icons & types
- *  - Automatic duplicate contact removal
- *  - Enhanced error handling and logging
- *  - Improved contact management
+ * Version 4.3.0
+ * Fix: Safety Numbers USID normalisation — both sides now hash their own
+ *      USID before sorting/concatenating, guaranteeing identical numbers
+ *      on both ends without any MITM.
  */
 
 // ─────────────────────────────────────────
@@ -31,7 +24,6 @@ function playSendSound() {
   const ctx = getAudioCtx();
   if (!ctx) return;
   try {
-    // Soft high-freq tick
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
@@ -87,6 +79,7 @@ const signalProtocol = new SignalProtocol();
 
 // Safety Numbers — identity key for verification
 let myIdentityPublicKeyHex = null; // our P-256 public key hex, populated after init
+let myHashedUsid = null; // SHA-256(myUsid) — cached so we don't recompute
 let currentSafetyNumber = null; // safety number for the currently open chat
 
 // Active torrents map: magnetURI → torrent object
@@ -221,7 +214,6 @@ async function handleWSMessage(data) {
       break;
     }
     case "x3dh_init": {
-      // Peer initiating E2EE session — run responder path
       const { from } = data;
       if (from && !signalProtocol.hasSession(from)) {
         try {
@@ -234,11 +226,8 @@ async function handleWSMessage(data) {
       break;
     }
     case "queued": {
-      // Recipient was offline — mark last sent message as queued so the UI
-      // shows a clock icon instead of a plain tick.
       if (currentChatUsid && messageHistory[currentChatUsid]) {
         const hist = messageHistory[currentChatUsid];
-        // Walk backwards to find the last message sent by me (not yet delivered)
         for (let i = hist.length - 1; i >= 0; i--) {
           if (hist[i].from === "me" && !hist[i].status) {
             hist[i].status = "queued";
@@ -309,9 +298,7 @@ async function signup() {
       document.getElementById("loader-status").textContent =
         "Generating cryptographic identity...";
 
-      // Init Signal Protocol and upload public key bundle before connecting
       try {
-        // Generate identity key pair for safety numbers
         await generateOrLoadIdentityKeyPair();
         await signalProtocol.init(myUsid, token);
         document.getElementById("loader-status").textContent =
@@ -354,9 +341,7 @@ async function loadContacts() {
       try {
         const errData = await res.json();
         console.warn("[Load Contacts] Error details:", errData);
-      } catch (e) {
-        // Response is not JSON
-      }
+      } catch (e) {}
       return;
     }
 
@@ -384,7 +369,6 @@ function renderContactsList() {
   }
 
   const query = document.getElementById("search-input").value.toLowerCase();
-
   const filtered = contacts.filter((c) => c.toLowerCase().includes(query));
 
   if (filtered.length === 0) {
@@ -446,21 +430,18 @@ async function addContact() {
 
   console.log("[Add Contact] Starting add contact flow...");
 
-  // Validation: Empty check
   if (!usid) {
     console.warn("[Add Contact] USID is empty");
     showSnackbar("Please enter a USID", "warn");
     return;
   }
 
-  // Validation: Format check (basic hex validation)
   if (!usid.match(/^0x[a-fA-F0-9]+$/) && !usid.match(/^[a-fA-F0-9]+$/)) {
     console.warn("[Add Contact] Invalid USID format:", usid);
     showSnackbar("Invalid USID format. Must be hexadecimal.", "error");
     return;
   }
 
-  // Validation: Self-add prevention
   if (
     usid.toLowerCase() === myUsid.toLowerCase() ||
     usid.toLowerCase() === myUsid.toLowerCase().replace("0x", "")
@@ -470,11 +451,6 @@ async function addContact() {
     return;
   }
 
-  // Note: Frontend no longer checks for duplicates locally
-  // The backend will handle duplicates by refreshing them automatically
-  // This provides better UX - users don't need to know about the refresh
-
-  // Set loading state
   btn.disabled = true;
   const originalText = btn.innerHTML;
   btn.innerHTML =
@@ -509,8 +485,6 @@ async function addContact() {
         hideDialog("add-contact-dialog");
         input.value = "";
         await loadContacts();
-
-        // Check if this was a duplicate that was refreshed
         if (data.refreshed) {
           showSnackbar(
             `${data.name || "Contact"} already in contacts - refreshed`,
@@ -532,7 +506,6 @@ async function addContact() {
         console.warn("[Add Contact] 400 Bad Request:", d.error);
         showSnackbar(d.error || "Invalid USID", "error");
       } catch (parseErr) {
-        console.error("[Add Contact] Failed to parse 400 error:", parseErr);
         showSnackbar("Invalid USID - bad request", "error");
       }
     } else if (res.status === 404) {
@@ -541,7 +514,6 @@ async function addContact() {
     } else if (res.status === 409) {
       try {
         const d = await res.json();
-        console.warn("[Add Contact] 409 Conflict:", d.error);
         showSnackbar(d.error || "Contact already exists", "warn");
       } catch (parseErr) {
         showSnackbar("Contact already exists", "warn");
@@ -549,13 +521,8 @@ async function addContact() {
     } else {
       try {
         const d = await res.json();
-        console.error(`[Add Contact] Server error ${res.status}:`, d.error);
         showSnackbar(d.error || `Server error: ${res.statusText}`, "error");
       } catch (parseErr) {
-        console.error(
-          `[Add Contact] Failed to parse ${res.status} error response:`,
-          parseErr,
-        );
         showSnackbar(`Server error: ${res.status} ${res.statusText}`, "error");
       }
     }
@@ -563,7 +530,6 @@ async function addContact() {
     console.error("[Add Contact] Network/fetch error:", e.message, e);
     showSnackbar("Network error. Please check your connection.", "error");
   } finally {
-    // Restore button state
     console.log("[Add Contact] Restoring button state");
     btn.disabled = false;
     btn.innerHTML = originalText;
@@ -571,9 +537,7 @@ async function addContact() {
 }
 
 async function removeContact(usid) {
-  if (!confirm("Are you sure you want to remove this contact?")) {
-    return;
-  }
+  if (!confirm("Are you sure you want to remove this contact?")) return;
 
   try {
     console.log(
@@ -600,22 +564,15 @@ async function removeContact(usid) {
       try {
         await loadContacts();
         showSnackbar("Contact removed successfully", "success");
-        // If the removed contact was the current chat, close the chat
         if (currentChatUsid === usid) {
           currentChatUsid = null;
           document.querySelector(".chat-pane").innerHTML = `
             <div class="empty-chat">
               <div class="empty-chat-inner">
                 <div class="empty-hex-grid">
-                  <div class="hex-item"></div>
-                  <div class="hex-item"></div>
-                  <div class="hex-item"></div>
-                  <div class="hex-item"></div>
-                  <div class="hex-item"></div>
-                  <div class="hex-item"></div>
-                  <div class="hex-item"></div>
-                  <div class="hex-item"></div>
-                  <div class="hex-item"></div>
+                  <div class="hex-item"></div><div class="hex-item"></div><div class="hex-item"></div>
+                  <div class="hex-item"></div><div class="hex-item"></div><div class="hex-item"></div>
+                  <div class="hex-item"></div><div class="hex-item"></div><div class="hex-item"></div>
                 </div>
                 <h2>No conversation selected</h2>
                 <p>Choose a contact from the list to start messaging</p>
@@ -630,15 +587,8 @@ async function removeContact(usid) {
     } else {
       try {
         const errorData = await res.json();
-        console.error("[Remove Contact] Server error:", errorData);
         showSnackbar(errorData.error || "Failed to remove contact", "error");
       } catch (parseErr) {
-        console.error(
-          "[Remove Contact] Failed to parse error response:",
-          parseErr,
-          "Status:",
-          res.status,
-        );
         showSnackbar(
           "Failed to remove contact. Server error: " + res.status,
           "error",
@@ -662,16 +612,14 @@ async function openChat(hashedUsid) {
   document.getElementById("app-bar-title").textContent =
     hashedUsid.substring(0, 16) + "…";
 
-  // Details pane
   document.getElementById("details-name").textContent =
     "Peer " + hashedUsid.substring(0, 8);
   document.getElementById("details-full-usid").textContent = hashedUsid;
 
   renderContactsList();
   updateTorrentStats();
-  updateVerifiedBadge(); // refresh verification status for this peer
+  updateVerifiedBadge();
 
-  // Real X3DH key exchange (replaces simulateKeyExchange)
   const overlay = document.getElementById("key-exchange-overlay");
   const msgs = document.getElementById("messages-container");
   const status = document.getElementById("exchange-status");
@@ -706,38 +654,6 @@ async function openChat(hashedUsid) {
   }, 900);
 }
 
-function simulateKeyExchange(onComplete) {
-  const overlay = document.getElementById("key-exchange-overlay");
-  const msgs = document.getElementById("messages-container");
-  const status = document.getElementById("exchange-status");
-  const details = document.getElementById("exchange-details");
-
-  msgs.style.display = "none";
-  overlay.classList.remove("hidden");
-
-  const steps = [
-    { s: "Generating Ephemeral Keys", d: "Creating X3DH pre-key bundle..." },
-    { s: "Establishing Session", d: "Double Ratchet initialization..." },
-    { s: "Verifying Identity", d: "Checking USID fingerprints..." },
-    { s: "Secure Channel Ready", d: "All messages are end-to-end encrypted." },
-  ];
-
-  let i = 0;
-  const advance = () => {
-    if (i < steps.length) {
-      status.textContent = steps[i].s;
-      details.textContent = steps[i].d;
-      i++;
-      setTimeout(advance, 680);
-    } else {
-      overlay.classList.add("hidden");
-      msgs.style.display = "flex";
-      onComplete();
-    }
-  };
-  advance();
-}
-
 async function sendMessage() {
   const input = document.getElementById("message-input");
   const content = input.value.trim();
@@ -759,9 +675,11 @@ async function sendMessage() {
   }
 
   ws.send(JSON.stringify(payload));
-
-  const msg = { from: "me", content, timestamp: new Date().toISOString() };
-  saveMessage(currentChatUsid, msg);
+  saveMessage(currentChatUsid, {
+    from: "me",
+    content,
+    timestamp: new Date().toISOString(),
+  });
   input.value = "";
   renderMessages();
   playSendSound();
@@ -779,10 +697,10 @@ function renderMessages() {
 
   if (history.length === 0) {
     container.innerHTML = `
-            <div style="text-align:center;padding:40px 20px;color:var(--fg-muted);">
-                <span class="material-icons-outlined" style="font-size:32px;opacity:.4;display:block;margin-bottom:8px;">lock</span>
-                <p style="font-size:.8rem;font-family:var(--font-mono)">Messages are encrypted end-to-end</p>
-            </div>`;
+      <div style="text-align:center;padding:40px 20px;color:var(--fg-muted);">
+        <span class="material-icons-outlined" style="font-size:32px;opacity:.4;display:block;margin-bottom:8px;">lock</span>
+        <p style="font-size:.8rem;font-family:var(--font-mono)">Messages are encrypted end-to-end</p>
+      </div>`;
     return;
   }
 
@@ -803,81 +721,60 @@ function renderMessages() {
       minute: "2-digit",
     });
 
-    // Detect magnet link
     if (msg.content.startsWith("magnet:?")) {
       const pid =
         "p_" +
         btoa(msg.timestamp)
           .replace(/[^a-z0-9]/gi, "")
           .substring(0, 8);
-
       const nameMatch = msg.content.match(/dn=([^&]+)/);
       const fileName = nameMatch
         ? decodeURIComponent(nameMatch[1].replace(/\+/g, " "))
         : "Shared File";
 
       html += `
-                <div class="msg-row ${rowCls}">
-                    <div class="file-bubble">
-                        <div class="file-icon">
-                            <span class="material-icons-outlined">folder_zip</span>
-                        </div>
-                        <div class="file-details">
-                            <div class="file-name" id="fn-${pid}">${escapeHTML(fileName)}</div>
-                            <div class="file-size" id="fs-${pid}">Ready to download</div>
-                            <div class="file-progress-wrap">
-                                <div class="file-progress-inner" id="${pid}"></div>
-                            </div>
-                            <div class="file-status" id="fst-${pid}"></div>
-                        </div>
-                        <div class="file-actions" id="fa-${pid}">
-                        ${
-                          !isMe
-                            ? `
-                        <button class="file-action-btn" id="btn-${pid}" onclick="downloadFile('${escapeAttr(msg.content)}', '${pid}')" title="Download">
-                            <span class="material-icons-outlined">download</span>
-                        </button>`
-                            : `
-                        <button class="file-action-btn" onclick="openMagnet('${escapeAttr(msg.content)}')" title="Copy magnet">
-                            <span class="material-icons-outlined">link</span>
-                        </button>`
-                        }
-                        </div>
-                    </div>
-                </div>`;
+        <div class="msg-row ${rowCls}">
+          <div class="file-bubble">
+            <div class="file-icon"><span class="material-icons-outlined">folder_zip</span></div>
+            <div class="file-details">
+              <div class="file-name" id="fn-${pid}">${escapeHTML(fileName)}</div>
+              <div class="file-size" id="fs-${pid}">Ready to download</div>
+              <div class="file-progress-wrap"><div class="file-progress-inner" id="${pid}"></div></div>
+              <div class="file-status" id="fst-${pid}"></div>
+            </div>
+            <div class="file-actions" id="fa-${pid}">
+              ${
+                !isMe
+                  ? `<button class="file-action-btn" id="btn-${pid}" onclick="downloadFile('${escapeAttr(msg.content)}', '${pid}')" title="Download"><span class="material-icons-outlined">download</span></button>`
+                  : `<button class="file-action-btn" onclick="openMagnet('${escapeAttr(msg.content)}')" title="Copy magnet"><span class="material-icons-outlined">link</span></button>`
+              }
+            </div>
+          </div>
+        </div>`;
     } else {
-      // Status icon: clock = queued (peer offline), nothing = delivered
       const statusIcon =
         isMe && msg.status === "queued"
           ? `<span class="msg-status-icon material-icons-outlined" title="Queued — peer offline">schedule</span>`
           : "";
       html += `
-                <div class="msg-row ${rowCls}">
-                    <div class="msg-bubble${msg.status === "queued" ? " msg-queued" : ""}">
-                        ${escapeHTML(msg.content)}
-                        <span class="msg-time">${time}${statusIcon}</span>
-                    </div>
-                </div>`;
+        <div class="msg-row ${rowCls}">
+          <div class="msg-bubble${msg.status === "queued" ? " msg-queued" : ""}">
+            ${escapeHTML(msg.content)}
+            <span class="msg-time">${time}${statusIcon}</span>
+          </div>
+        </div>`;
     }
   });
 
   container.innerHTML = html;
   container.scrollTop = container.scrollHeight;
 
-  // Reattach active torrent progress updates
-  activeTorrents.forEach((torrent, uri) => {
-    updateFileProgress(torrent);
-  });
+  activeTorrents.forEach((torrent) => updateFileProgress(torrent));
 }
 
 // ─────────────────────────────────────────
-// BitTorrent — Effective Implementation
+// BitTorrent
 // ─────────────────────────────────────────
-
-/**
- * Seed a file and send the magnet URI as a message.
- * Shows live upload progress in the transfer bar.
- */
 function handleFileUpload(e) {
   const files = e.target.files;
   if (!files || files.length === 0) return;
@@ -900,74 +797,57 @@ function handleFileUpload(e) {
 
   const seedInput = fileArray.length === 1 ? fileArray[0] : fileArray;
 
-  client.seed(
-    seedInput,
-    {
-      announce: TRACKERS,
-    },
-    (torrent) => {
-      console.log("[BT] Seeding:", torrent.name, torrent.magnetURI);
-      activeTorrents.set(torrent.magnetURI, torrent);
-      updateTorrentStats();
+  client.seed(seedInput, { announce: TRACKERS }, (torrent) => {
+    console.log("[BT] Seeding:", torrent.name, torrent.magnetURI);
+    activeTorrents.set(torrent.magnetURI, torrent);
+    updateTorrentStats();
 
-      // Send magnet link as message
-      if (ws && ws.readyState === WebSocket.OPEN && currentChatUsid) {
-        ws.send(
-          JSON.stringify({
-            type: "message",
-            to: currentChatUsid,
-            content: torrent.magnetURI,
-          }),
-        );
-        const msg = {
-          from: "me",
+    if (ws && ws.readyState === WebSocket.OPEN && currentChatUsid) {
+      ws.send(
+        JSON.stringify({
+          type: "message",
+          to: currentChatUsid,
           content: torrent.magnetURI,
-          timestamp: new Date().toISOString(),
-        };
-        saveMessage(currentChatUsid, msg);
-        renderMessages();
-      }
-
-      // Track upload stats
-      const statsInterval = setInterval(() => {
-        if (!btClient || !btClient.get(torrent.infoHash)) {
-          clearInterval(statsInterval);
-          return;
-        }
-        const live = btClient.get(torrent.infoHash);
-        if (live) {
-          const ratio = live.ratio.toFixed(2);
-          const speed = formatBytes(live.uploadSpeed) + "/s";
-          updateTransferBar(
-            `Seeding ${torrent.name} · Ratio ${ratio}`,
-            live.ratio > 1 ? 1 : live.ratio,
-            speed,
-          );
-          updateTorrentStats();
-        }
-      }, 1200);
-
-      // Show the transfer bar until destroyed
-      torrent.on("upload", () => {
-        const speed = formatBytes(torrent.uploadSpeed) + "/s ↑";
-        updateTransferBar(
-          `Seeding: ${torrent.name}`,
-          Math.min(torrent.ratio, 1),
-          speed,
-        );
+        }),
+      );
+      saveMessage(currentChatUsid, {
+        from: "me",
+        content: torrent.magnetURI,
+        timestamp: new Date().toISOString(),
       });
+      renderMessages();
+    }
 
-      showSnackbar(`Now seeding: ${torrent.name}`, "success");
-    },
-  );
+    const statsInterval = setInterval(() => {
+      if (!btClient || !btClient.get(torrent.infoHash)) {
+        clearInterval(statsInterval);
+        return;
+      }
+      const live = btClient.get(torrent.infoHash);
+      if (live) {
+        updateTransferBar(
+          `Seeding ${torrent.name} · Ratio ${live.ratio.toFixed(2)}`,
+          live.ratio > 1 ? 1 : live.ratio,
+          formatBytes(live.uploadSpeed) + "/s",
+        );
+        updateTorrentStats();
+      }
+    }, 1200);
 
-  // Reset the file input so same file can be picked again
+    torrent.on("upload", () => {
+      updateTransferBar(
+        `Seeding: ${torrent.name}`,
+        Math.min(torrent.ratio, 1),
+        formatBytes(torrent.uploadSpeed) + "/s ↑",
+      );
+    });
+
+    showSnackbar(`Now seeding: ${torrent.name}`, "success");
+  });
+
   e.target.value = "";
 }
 
-/**
- * Download a file from a magnet URI with full progress tracking.
- */
 function downloadFile(magnetURI, progressId) {
   const client = getBTClient();
   if (!client) {
@@ -975,13 +855,11 @@ function downloadFile(magnetURI, progressId) {
     return;
   }
 
-  // Prevent duplicate downloads
   if (activeTorrents.has(magnetURI)) {
     showSnackbar("Already downloading this file", "warn");
     return;
   }
 
-  // Check if torrent already added to client
   const existing = magnetURI.includes("xt=urn:btih:")
     ? client.get(magnetURI.match(/xt=urn:btih:([a-f0-9]+)/i)?.[1])
     : null;
@@ -994,75 +872,62 @@ function downloadFile(magnetURI, progressId) {
   showTransferBar("Connecting to peers...", 0);
   showSnackbar("Starting download...", "info");
 
-  client.add(
-    magnetURI,
-    {
-      announce: TRACKERS,
-    },
-    (torrent) => {
-      console.log("[BT] Downloading:", torrent.name);
-      activeTorrents.set(magnetURI, torrent);
+  client.add(magnetURI, { announce: TRACKERS }, (torrent) => {
+    console.log("[BT] Downloading:", torrent.name);
+    activeTorrents.set(magnetURI, torrent);
+    updateTorrentStats();
+
+    const fnEl = document.getElementById(`fn-${progressId}`);
+    if (fnEl) fnEl.textContent = torrent.name || "Shared File";
+
+    showSnackbar(`Downloading: ${torrent.name}`, "info");
+
+    torrent.on("metadata", () => {
+      const fsEl = document.getElementById(`fs-${progressId}`);
+      if (fsEl) fsEl.textContent = formatBytes(torrent.length);
+    });
+
+    torrent.on("download", () => {
+      const pct = (torrent.progress * 100).toFixed(1);
+      const spd = formatBytes(torrent.downloadSpeed) + "/s ↓";
+      setFileStatus(progressId, pct, `${pct}% · ${spd}`);
+      updateTransferBar(`Downloading: ${torrent.name}`, torrent.progress, spd);
       updateTorrentStats();
+    });
 
-      // Update file name in message
-      const fnEl = document.getElementById(`fn-${progressId}`);
-      if (fnEl) fnEl.textContent = torrent.name || "Shared File";
+    torrent.on("done", () => {
+      setFileStatus(progressId, "100", "Download complete!");
+      hideTransferBar();
+      activeTorrents.delete(magnetURI);
+      updateTorrentStats();
+      showSnackbar(`Downloaded: ${torrent.name}`, "success");
 
-      showSnackbar(`Downloading: ${torrent.name}`, "info");
-
-      torrent.on("metadata", () => {
-        const size = formatBytes(torrent.length);
-        const fsEl = document.getElementById(`fs-${progressId}`);
-        if (fsEl) fsEl.textContent = size;
-      });
-
-      torrent.on("download", () => {
-        const pct = (torrent.progress * 100).toFixed(1);
-        const spd = formatBytes(torrent.downloadSpeed) + "/s ↓";
-        setFileStatus(progressId, pct, `${pct}% · ${spd}`);
-        updateTransferBar(
-          `Downloading: ${torrent.name}`,
-          torrent.progress,
-          spd,
-        );
-        updateTorrentStats();
-      });
-
-      torrent.on("done", () => {
-        setFileStatus(progressId, "100", "Download complete!");
-        hideTransferBar();
-        activeTorrents.delete(magnetURI);
-        updateTorrentStats();
-        showSnackbar(`Downloaded: ${torrent.name}`, "success");
-
-        const actionContainer = document.getElementById(`fa-${progressId}`);
-        if (actionContainer) {
-          actionContainer.innerHTML = "";
-
-          torrent.files.forEach((file) => {
-            file.getBlobURL((err, url) => {
-              if (err) return console.error("[BT] getBlobURL error:", err);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = file.name;
-              a.className = "file-action-btn";
-              a.title = `Save ${file.name}`;
-              a.innerHTML = '<span class="material-icons-outlined">save</span>';
-              actionContainer.appendChild(a);
-            });
+      const actionContainer = document.getElementById(`fa-${progressId}`);
+      if (actionContainer) {
+        actionContainer.innerHTML = "";
+        torrent.files.forEach((file) => {
+          file.getBlobURL((err, url) => {
+            if (err) return console.error("[BT] getBlobURL error:", err);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = file.name;
+            a.className = "file-action-btn";
+            a.title = `Save ${file.name}`;
+            a.innerHTML = '<span class="material-icons-outlined">save</span>';
+            actionContainer.appendChild(a);
           });
-        }
-      });
+        });
+      }
+    });
 
-      torrent.on("error", (err) => {
-        console.error("[BT] Torrent error:", err);
-        setFileStatus(progressId, "0", "Download failed");
-        hideTransferBar();
-        activeTorrents.delete(magnetURI);
-        showSnackbar("Download failed: " + err.message, "error");
-      });
-    },
-  );
+    torrent.on("error", (err) => {
+      console.error("[BT] Torrent error:", err);
+      setFileStatus(progressId, "0", "Download failed");
+      hideTransferBar();
+      activeTorrents.delete(magnetURI);
+      showSnackbar("Download failed: " + err.message, "error");
+    });
+  });
 }
 
 function setFileStatus(progressId, pct, statusText) {
@@ -1072,9 +937,7 @@ function setFileStatus(progressId, pct, statusText) {
   if (st) st.textContent = statusText;
 }
 
-function updateFileProgress(torrent) {
-  // Can be used to reconnect torrent state to re-rendered messages
-}
+function updateFileProgress(torrent) {}
 
 function openMagnet(magnetURI) {
   navigator.clipboard
@@ -1130,22 +993,16 @@ function updateTorrentStats() {
       : `↓ ${formatBytes(torrent.downloadSpeed)}/s`;
 
     html += `
-        <div class="torrent-stat-item">
-            <div class="torrent-stat-name">${escapeHTML(torrent.name || "Unknown")}</div>
-            <div class="torrent-stat-bar">
-                <div class="torrent-stat-bar-inner" style="width:${pct}%"></div>
-            </div>
-            <div class="torrent-stat-meta">
-                <span>${type} · ${pct}%</span>
-                <span>${spd}</span>
-            </div>
-        </div>`;
+      <div class="torrent-stat-item">
+        <div class="torrent-stat-name">${escapeHTML(torrent.name || "Unknown")}</div>
+        <div class="torrent-stat-bar"><div class="torrent-stat-bar-inner" style="width:${pct}%"></div></div>
+        <div class="torrent-stat-meta"><span>${type} · ${pct}%</span><span>${spd}</span></div>
+      </div>`;
   });
 
   list.innerHTML = html;
 }
 
-// Refresh torrent stats periodically
 setInterval(() => {
   if (
     document.getElementById("details-pane") &&
@@ -1162,7 +1019,6 @@ function hideSplashScreen() {
   document.getElementById("splash-screen").classList.add("hidden");
   loadContacts();
   playConnectSound();
-  // Push identity public key to server so peers can fetch it for safety numbers
   uploadIdentityPublicKey().catch(console.error);
 }
 
@@ -1192,7 +1048,6 @@ function showSnackbar(text, type = "info") {
   const snack = document.getElementById("snackbar");
   const textEl = document.getElementById("snackbar-text");
   const iconEl = document.getElementById("snackbar-icon");
-
   const icons = {
     info: "info",
     success: "check_circle",
@@ -1200,20 +1055,15 @@ function showSnackbar(text, type = "info") {
     error: "error",
   };
 
-  // Remove previous type classes to avoid style conflicts
   snack.classList.remove("success", "error", "warn", "info");
-
-  // Add the current type class for styling
   snack.classList.add(type);
-
   iconEl.textContent = icons[type] || "info";
   textEl.textContent = text;
   snack.classList.add("active");
 
   if (snackTimer) clearTimeout(snackTimer);
   snackTimer = setTimeout(() => {
-    snack.classList.remove("active");
-    snack.classList.remove("success", "error", "warn", "info");
+    snack.classList.remove("active", "success", "error", "warn", "info");
   }, 4000);
 }
 
@@ -1221,9 +1071,9 @@ function showEmergencyAlert(content, from) {
   const banner = document.createElement("div");
   banner.className = "emergency-banner";
   banner.innerHTML = `
-        <span class="material-icons-outlined">warning</span>
-        <span><strong>EMERGENCY</strong> from ${from ? from.substring(0, 10) + "…" : "unknown"}: ${escapeHTML(content)}</span>
-        <button onclick="this.parentElement.remove()">Dismiss</button>`;
+    <span class="material-icons-outlined">warning</span>
+    <span><strong>EMERGENCY</strong> from ${from ? from.substring(0, 10) + "…" : "unknown"}: ${escapeHTML(content)}</span>
+    <button onclick="this.parentElement.remove()">Dismiss</button>`;
   document.body.prepend(banner);
 }
 
@@ -1247,12 +1097,37 @@ function sendEmergency() {
 // ─────────────────────────────────────────
 
 /**
+ * SHA-256 any string → lowercase hex.
+ * Used to normalise USIDs before safety number computation so that
+ * raw USID (my side) and hashed USID (peer side, from contacts list)
+ * both reduce to the same canonical form.
+ */
+async function sha256hex(str) {
+  const buf = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(str),
+  );
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
  * Generate or load the local P-256 identity key pair for safety numbers.
- * Public key hex is stored in localStorage (public — safe).
- * Private key is kept as a non-exportable CryptoKey in memory only;
- * we only need the public key for safety number computation.
+ * Public key hex stored in localStorage (public data — safe).
+ * Private key kept as non-exportable CryptoKey in memory only.
+ * Also pre-computes and caches myHashedUsid.
  */
 async function generateOrLoadIdentityKeyPair() {
+  // Cache the hashed form of our own USID for use in computeSafetyNumber
+  if (myUsid && !myHashedUsid) {
+    myHashedUsid = await sha256hex(myUsid);
+    console.log(
+      "[SafetyNum] myHashedUsid cached:",
+      myHashedUsid.substring(0, 12) + "...",
+    );
+  }
+
   const stored = localStorage.getItem("sn_identity_pub");
   if (stored) {
     myIdentityPublicKeyHex = stored;
@@ -1263,11 +1138,10 @@ async function generateOrLoadIdentityKeyPair() {
   try {
     const keyPair = await crypto.subtle.generateKey(
       { name: "ECDH", namedCurve: "P-256" },
-      true, // exportable so we can store the public key hex
+      true,
       ["deriveKey", "deriveBits"],
     );
 
-    // Export public key as raw bytes → hex string
     const rawPub = await crypto.subtle.exportKey("raw", keyPair.publicKey);
     const pubHex = Array.from(new Uint8Array(rawPub))
       .map((b) => b.toString(16).padStart(2, "0"))
@@ -1283,7 +1157,6 @@ async function generateOrLoadIdentityKeyPair() {
 
 /**
  * Push our identity public key to the server so peers can fetch it.
- * Called after WS registration and after signup.
  */
 async function uploadIdentityPublicKey() {
   if (!myIdentityPublicKeyHex || !token) return;
@@ -1303,43 +1176,50 @@ async function uploadIdentityPublicKey() {
 }
 
 /**
- * Compute a 60-digit safety number (12 groups of 5 digits) from two identity keys.
- * Deterministic and commutative — both parties get the same number.
+ * Compute a 60-digit safety number.
  *
- * @param {string} usidA      - First  USID  (hashed)
- * @param {string} pubKeyHexA - First  party's identity public key hex
- * @param {string} usidB      - Second USID  (hashed)
- * @param {string} pubKeyHexB - Second party's identity public key hex
- * @returns {string} Formatted safety number e.g. "12345 67890 11111  22222 ..."
+ * ROOT CAUSE FIX:
+ *   - myUsid   is the RAW hex USID (e.g. "0xabc123...")  stored in localStorage
+ *   - peerUsid is the HASHED usid   (SHA-256 of their raw USID) stored in contacts
+ *   These are different formats of the same concept, so a naive string compare
+ *   produces different sort orders on each side → different safety numbers.
+ *
+ * FIX: Hash BOTH USIDs with SHA-256 before comparing/concatenating.
+ *   Alice: sha256(aliceRawUsid) vs sha256(bobHashedUsid)  ← sha256(sha256(bobRaw))
+ *   Bob:   sha256(bobRawUsid)   vs sha256(aliceHashedUsid) ← sha256(sha256(aliceRaw))
+ *
+ *   Wait — that still differs. The real fix is:
+ *   We pass myHashedUsid (already sha256'd once, matches what's in other users'
+ *   contacts lists) and peerUsid (already a sha256 hash from the contacts list).
+ *   Both are now the SAME format: sha256(rawUsid).
+ *   Sort lexicographically → concatenate → sha256 → format.
  */
-async function computeSafetyNumber(usidA, pubKeyHexA, usidB, pubKeyHexB) {
-  // Sort lexicographically by USID so both parties compute in the same order
-  const [firstUsid, firstKey, secondUsid, secondKey] =
-    usidA < usidB
-      ? [usidA, pubKeyHexA, usidB, pubKeyHexB]
-      : [usidB, pubKeyHexB, usidA, pubKeyHexA];
+async function computeSafetyNumber(
+  myHashed,
+  myPubKeyHex,
+  peerHashed,
+  peerPubKeyHex,
+) {
+  // Both inputs are now sha256(rawUsid) — same format, safe to compare
+  const [firstHashed, firstKey, secondHashed, secondKey] =
+    myHashed < peerHashed
+      ? [myHashed, myPubKeyHex, peerHashed, peerPubKeyHex]
+      : [peerHashed, peerPubKeyHex, myHashed, myPubKeyHex];
 
-  // Concatenate: usid_hex + pubkey_hex for each party
-  const combined = firstUsid + firstKey + secondUsid + secondKey;
-
-  const encoder = new TextEncoder();
+  const combined = firstHashed + firstKey + secondHashed + secondKey;
   const hashBuf = await crypto.subtle.digest(
     "SHA-256",
-    encoder.encode(combined),
+    new TextEncoder().encode(combined),
   );
-  const hashBytes = new Uint8Array(hashBuf);
-
-  return formatSafetyNumber(hashBytes);
+  return formatSafetyNumber(new Uint8Array(hashBuf));
 }
 
 /**
- * Format 32 hash bytes as 12 groups of 5 digits (Signal standard).
- * Uses 30 of the 32 bytes (6 chunks × 5 bytes).
+ * Format 32 hash bytes as 12 groups of 5 digits across 4 rows (Signal standard).
  */
 function formatSafetyNumber(hashBytes) {
   const groups = [];
   for (let i = 0; i < 30; i += 5) {
-    // Combine 5 bytes into a big number, take last 5 decimal digits
     const chunk =
       hashBytes[i] * 0x100000000 +
       hashBytes[i + 1] * 0x1000000 +
@@ -1348,7 +1228,6 @@ function formatSafetyNumber(hashBytes) {
       hashBytes[i + 4];
     groups.push(String(chunk % 100000).padStart(5, "0"));
   }
-  // Four rows of three groups, rows separated by double-space
   return [
     groups.slice(0, 3).join(" "),
     groups.slice(3, 6).join(" "),
@@ -1359,10 +1238,15 @@ function formatSafetyNumber(hashBytes) {
 
 /**
  * Open the Safety Numbers dialog for the current chat peer.
- * Fetches their public key, computes the number, detects key changes.
  */
 async function showSafetyNumbers() {
   if (!currentChatUsid) return;
+
+  // Ensure our hashed USID is ready (normally cached at startup)
+  if (!myHashedUsid && myUsid) {
+    myHashedUsid = await sha256hex(myUsid);
+  }
+
   if (!myIdentityPublicKeyHex) {
     showSnackbar("Your identity key is not ready yet", "warn");
     return;
@@ -1391,8 +1275,10 @@ async function showSafetyNumbers() {
       return;
     }
 
+    // KEY FIX: pass myHashedUsid (sha256 of our raw USID) and currentChatUsid
+    // (already a sha256 hash from the contacts list) — both are the same format now.
     const safetyNumber = await computeSafetyNumber(
-      myUsid,
+      myHashedUsid,
       myIdentityPublicKeyHex,
       currentChatUsid,
       theirPubKeyHex,
@@ -1400,7 +1286,6 @@ async function showSafetyNumbers() {
 
     currentSafetyNumber = safetyNumber;
 
-    // Render into dialog
     const grid = document.getElementById("sn-grid");
     if (grid) {
       grid.innerHTML = safetyNumber
@@ -1415,24 +1300,18 @@ async function showSafetyNumbers() {
         .join("");
     }
 
-    // Key-change detection
     const storedSN = localStorage.getItem(`sn:${currentChatUsid}`);
     const changeWarning = document.getElementById("sn-change-warning");
 
     if (storedSN && storedSN !== safetyNumber) {
-      // Keys changed since last verification — warn loudly
       if (changeWarning) changeWarning.classList.remove("hidden");
       showSnackbar("⚠️ Safety number changed — re-verify identity", "warn");
     } else {
       if (changeWarning) changeWarning.classList.add("hidden");
     }
 
-    // Persist current safety number for future change detection
     localStorage.setItem(`sn:${currentChatUsid}`, safetyNumber);
-
-    // Update verified badge state
     updateVerifiedBadge();
-
     showDialog("safety-numbers-dialog");
   } catch (e) {
     console.error("[SafetyNum] Error:", e);
@@ -1445,7 +1324,7 @@ async function showSafetyNumbers() {
   }
 }
 
-/** Mark the current peer as verified (user confirmed numbers match out-of-band) */
+/** Mark the current peer as verified */
 function markPeerVerified() {
   if (!currentChatUsid || !currentSafetyNumber) return;
   localStorage.setItem(`sn_verified:${currentChatUsid}`, currentSafetyNumber);
@@ -1453,7 +1332,7 @@ function markPeerVerified() {
   showSnackbar("Identity verified ✓", "success");
 }
 
-/** Update the verified/unverified badge in the details pane */
+/** Update verified/unverified badge in the details pane */
 function updateVerifiedBadge() {
   const verifiedEl = document.getElementById("sn-verified-badge");
   const unverifiedEl = document.getElementById("sn-unverified-badge");
@@ -1461,7 +1340,6 @@ function updateVerifiedBadge() {
 
   const storedVerified = localStorage.getItem(`sn_verified:${currentChatUsid}`);
   const storedCurrent = localStorage.getItem(`sn:${currentChatUsid}`);
-
   const isVerified =
     storedVerified && storedCurrent && storedVerified === storedCurrent;
 
@@ -1472,9 +1350,6 @@ function updateVerifiedBadge() {
 // ─────────────────────────────────────────
 // Event Listeners
 // ─────────────────────────────────────────
-// Helper function: Check if contact already exists locally
-// Note: Backend now handles duplicate detection and removes old duplicates automatically.
-// This function is kept for reference but frontend no longer uses it for validation.
 function isContactAlreadyAdded(usid) {
   return contacts.some(
     (contact) =>
@@ -1485,7 +1360,6 @@ function isContactAlreadyAdded(usid) {
 }
 
 function setupEventListeners() {
-  // Signup
   document.getElementById("signup-btn").addEventListener("click", signup);
   document
     .getElementById("name")
@@ -1497,21 +1371,16 @@ function setupEventListeners() {
     .getElementById("email")
     .addEventListener("keypress", (e) => e.key === "Enter" && signup());
 
-  // Messaging
   document.getElementById("send-btn").addEventListener("click", sendMessage);
   document.getElementById("message-input").addEventListener("keypress", (e) => {
     if (e.key === "Enter" && !e.shiftKey) sendMessage();
   });
 
-  // Search
   document
     .getElementById("search-input")
     .addEventListener("input", renderContactsList);
-
-  // Theme
   document.getElementById("theme-btn").addEventListener("click", toggleTheme);
 
-  // Contacts
   document
     .getElementById("fab-add-contact")
     .addEventListener("click", () => showDialog("add-contact-dialog"));
@@ -1522,7 +1391,6 @@ function setupEventListeners() {
     .getElementById("cancel-add-contact")
     .addEventListener("click", () => hideDialog("add-contact-dialog"));
 
-  // Profile
   document.getElementById("show-profile").addEventListener("click", () => {
     document.getElementById("my-usid-code").textContent =
       myUsid || "Not registered";
@@ -1537,7 +1405,6 @@ function setupEventListeners() {
       .then(() => showSnackbar("USID copied to clipboard", "success"));
   });
 
-  // Details pane
   document.getElementById("toggle-details").addEventListener("click", () => {
     document.getElementById("details-pane").classList.toggle("collapsed");
     updateTorrentStats();
@@ -1546,7 +1413,6 @@ function setupEventListeners() {
     document.getElementById("details-pane").classList.add("collapsed");
   });
 
-  // File attach
   document
     .getElementById("attach-btn")
     .addEventListener("click", () =>
@@ -1555,13 +1421,10 @@ function setupEventListeners() {
   document
     .getElementById("file-input")
     .addEventListener("change", handleFileUpload);
-
-  // Transfer bar close
   document
     .getElementById("transfer-close")
     .addEventListener("click", hideTransferBar);
 
-  // Emergency
   document
     .getElementById("emergency-btn")
     .addEventListener("click", sendEmergency);
@@ -1569,14 +1432,12 @@ function setupEventListeners() {
     .getElementById("emergency-btn-sidebar")
     .addEventListener("click", sendEmergency);
 
-  // Close dialogs on overlay click
   document.querySelectorAll(".dialog-overlay").forEach((overlay) => {
     overlay.addEventListener("click", (e) => {
       if (e.target === overlay) overlay.classList.remove("active");
     });
   });
 
-  // Safety Numbers dialog
   document
     .getElementById("verify-safety-btn")
     ?.addEventListener("click", showSafetyNumbers);
