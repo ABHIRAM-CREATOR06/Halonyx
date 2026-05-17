@@ -141,7 +141,8 @@ Files are never uploaded to the Halonyx server. Instead:
 2. A **magnet URI** is sent to the recipient through the encrypted message channel
 3. Recipient's browser **leeches** directly from the sender over WebRTC data channels
 4. Public trackers (`openwebtorrent.com`, `webtorrent.dev`) handle peer discovery only — they never see file contents
-5. Live upload speed, download speed, progress percentage, and seeding ratio are displayed in real time
+5. NAT Traversal is supported via **STUN** and **TURN** servers (e.g., `openrelay.metered.ca`), ensuring P2P connections succeed even for users behind strict firewalls or symmetric NATs
+6. Live upload speed, download speed, progress percentage, and seeding ratio are displayed in real time
 
 ```
 Sender Browser                        Recipient Browser
@@ -283,6 +284,15 @@ All authenticated routes require `Authorization: Bearer <token>`.
 | Pre-Key Signing | Ed25519 | 256 bits |
 
 **Guarantees:** forward secrecy · post-compromise security · HMAC authentication · deniability · pseudonymity · MITM detection via safety numbers
+
+---
+
+## Documentation & Analysis
+
+For deep technical dives into Halonyx's security model and system performance, refer to the following documents:
+
+- **[Data Threat Model (`datathreat/datathreat.md`)](datathreat/datathreat.md):** A comprehensive STRIDE analysis of the system, covering 16 potential threats, vulnerabilities, and their mitigations (including WebRTC IP leaks, JWT exposure, and offline mailbox security).
+- **[Performance Benchmarks (`benchmark/benchmark.md`)](benchmark/benchmark.md):** Detailed latency and throughput metrics for cryptographic operations (X3DH, Double Ratchet), WebSocket messaging, SQLite operations, and WebTorrent P2P file transfers over STUN/TURN.
 
 ---
 
