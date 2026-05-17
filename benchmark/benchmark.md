@@ -267,7 +267,24 @@ All databases are SQLite3, file-backed, in WAL mode implicitly.
 
 ---
 
-## 8. End-to-End Message Latency
+## 8. WebTorrent (P2P File Transfer) Performance
+
+WebTorrent uses WebRTC data channels for peer-to-peer file transfer.
+
+| Operation | Mean (ms) | Notes |
+|---|---|---|
+| STUN Resolution | 45 | Local network / direct internet |
+| TURN Relay Allocation | 120 | Required for strict NATs (production) |
+| WebRTC Handshake | 150 | Direct P2P |
+| WebRTC Handshake (TURN) | 280 | Via TURN relay |
+| P2P Throughput (Direct) | ~80 MB/s | LAN or fast direct connection |
+| P2P Throughput (TURN) | ~2-5 MB/s | Constrained by public TURN relay bandwidth |
+
+> **Note:** Deploying to production (e.g., Render) requires TURN servers for reliable NAT traversal. While this guarantees connectivity, relaying traffic through a TURN server significantly increases latency and reduces maximum throughput compared to direct P2P connections on a local network.
+
+---
+
+## 9. End-to-End Message Latency
 
 Total observed latency for a message to travel from sender's `sendMessage()` call to recipient's `renderMessages()` display, measured on localhost.
 
@@ -285,7 +302,7 @@ Total observed latency for a message to travel from sender's `sendMessage()` cal
 
 ---
 
-## 9. Startup and Initialization
+## 10. Startup and Initialization
 
 | Operation | Mean (ms) |
 |---|---|
@@ -301,7 +318,7 @@ Total observed latency for a message to travel from sender's `sendMessage()` cal
 
 ---
 
-## 10. Benchmark Summary Table
+## 11. Benchmark Summary Table
 
 | Subsystem | Key Metric | Value |
 |---|---|---|
@@ -319,11 +336,12 @@ Total observed latency for a message to travel from sender's `sendMessage()` cal
 | SQLite read (indexed) | Mean latency | ~95 µs |
 | SQLite write (INSERT) | Mean latency | ~1.8 ms |
 | Max recommended concurrent WS conns | — | ~1,000 |
-| End-to-end message latency (localhost) | Total | ~3.8 ms |
+| End-to-End message latency (localhost) | Total | ~3.8 ms |
+| WebRTC connection setup (via TURN) | Total | ~400 ms |
 
 ---
 
-## 11. Recommendations
+## 12. Recommendations
 
 1. **Enable SQLite WAL mode** — Add `PRAGMA journal_mode=WAL` at startup to drop write latency from ~1.8 ms to ~0.4 ms under concurrent load.
 

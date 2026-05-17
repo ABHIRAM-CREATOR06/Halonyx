@@ -414,6 +414,28 @@ When Alice fetches Bob's public key to initiate X3DH, she calls `GET /pubkey/:ha
 
 ---
 
+### 3.16 Threat T-16 — WebRTC / WebTorrent IP Leak & Public STUN/TURN Metadata Exposure
+
+**Category:** Privacy / Information Disclosure  
+**STRIDE:** Information Disclosure  
+**Severity:** 🟠 High  
+
+**Description:**  
+WebTorrent uses WebRTC for peer-to-peer data channels. This requires STUN/TURN servers for NAT traversal and public trackers (e.g., `openwebtorrent.com`) for peer discovery. Connecting to public trackers and third-party TURN servers (e.g., `openrelay.metered.ca`) leaks user IP addresses and metadata to those providers. Additionally, establishing a direct P2P connection exposes the user's public IP address to the peer they are communicating with, bypassing the privacy guarantees of the central server.
+
+**Attack Vector:** Network observation by peer or third-party infrastructure providers.
+
+**Affected Components:** `frontend/js/app.js` (WebTorrent initialization and tracker config).
+
+**Impact:** Deanonymization. An attacker communicating with a victim can discover their real IP address. Third-party STUN/TURN/Tracker providers can log when users are online and potentially their metadata.
+
+**Mitigation:**
+- Host a private, self-hosted TURN server (e.g., Coturn) to prevent metadata leaks to third parties.
+- Host a private WebTorrent tracker.
+- Warn users via UI that P2P file transfers expose their IP address to the recipient.
+
+---
+
 ## 4. Threat Summary Matrix
 
 | ID | Threat | Severity | Component | Status |
@@ -433,6 +455,7 @@ When Alice fetches Bob's public key to initiate X3DH, she calls `GET /pubkey/:ha
 | T-13 | No audit trail for abuse | 🟡 Medium | WS / UDP handlers | ⚠️ Unmitigated |
 | T-14 | Mailbox flooding (DoS) | 🟡 Medium | `mailbox` table | ⚠️ Unmitigated |
 | T-15 | Public key tampering (MITM E2EE) | 🟠 High | `GET /pubkey`, X3DH | ⚠️ Unmitigated |
+| T-16 | WebRTC / WebTorrent IP Leak | 🟠 High | WebTorrent / TURN | ⚠️ Unmitigated |
 
 ---
 
