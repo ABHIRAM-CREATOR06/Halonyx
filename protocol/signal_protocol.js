@@ -68,6 +68,7 @@ class SignalProtocol {
 
     this._ready = true;
     console.log('[Signal] Protocol ready');
+    this.replenishPreKeysIfNecessary();
   }
 
   // ── Key bundle upload / fetch ─────────────────────────────────────────────
@@ -84,6 +85,43 @@ class SignalProtocol {
     });
     if (!res.ok) console.error('[Signal] Key bundle upload failed', await res.text());
     else console.log('[Signal] Public key bundle uploaded');
+  }
+
+  async replenishPreKeysIfNecessary() {
+    let opkState = await this.idb.loadOpkState() || { count: 0, keys: [], lastKeyId: 0 };
+    if (opkState.count < 20) {
+      console.log(`[Signal] OPK count low (${opkState.count}), generating fresh batch…`);
+      const newPreKeys = [];
+      const newPrivateKeys = [];
+      
+      let currentId = opkState.lastKeyId;
+      for (let i = 0; i < 100; i++) {
+        const ek = await this.crypto.generateDhKeyPair();
+        currentId++;
+        const id = currentId;
+        newPreKeys.push({ id, publicKey: this.crypto.bufferToBase64(ek.publicKeyBytes) });
+        newPrivateKeys.push({ id, privateKey: ek.privateKey });
+      }
+      
+      const res = await fetch('/keys/replenish', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`,
+        },
+        body: JSON.stringify({ preKeys: newPreKeys }),
+      });
+      
+      if (res.ok) {
+        opkState.keys = opkState.keys.concat(newPrivateKeys);
+        opkState.count = opkState.keys.length;
+        opkState.lastKeyId = currentId;
+        await this.idb.saveOpkState(opkState);
+        console.log(`[Signal] Pre-keys replenished successfully. New count: ${opkState.count}`);
+      } else {
+        console.error('[Signal] Failed to replenish pre-keys');
+      }
+    }
   }
 
   async _fetchPeerBundle(peerUsid) {
@@ -174,6 +212,15 @@ class SignalProtocol {
     this.sessions.set(peerUsid, dr);
     this._sessionMeta.set(peerUsid, { peerIdentityPublicBytes: theirIdentityPublicBytes });
     await this.idb.saveSession(peerUsid, dr.getState());
+
+    // Deduct one OPK to simulate usage and trigger replenishment if needed
+    const opkState = await this.idb.loadOpkState() || { count: 0, keys: [], lastKeyId: 0 };
+    if (opkState.count > 0) {
+       opkState.keys.shift();
+       opkState.count = opkState.keys.length;
+       await this.idb.saveOpkState(opkState);
+       this.replenishPreKeysIfNecessary();
+    }
 
     console.log(`[Signal] Accepted session from ${peerUsid.substring(0,12)}…`);
   }

@@ -6,10 +6,12 @@ const { hashUSID, generateUSID } = require("./utils");
 const WebSocket = require("ws");
 const dgram = require("dgram");
 const http = require("http");
+const rateLimit = require("express-rate-limit");
 
 const app = express();
 const server = http.createServer(app);
 app.use(express.json());
+app.set('trust proxy', 1);
 
 // Operational Database
 const db = new sqlite3.Database("./backend/db/app.db");
@@ -32,10 +34,29 @@ initDb(db, "./backend/db/schema.sql");
 initDb(idDb, "./backend/db/identity_schema.sql");
 initDb(keyDb, "./backend/db/key_schema.sql");
 
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+  console.error("FATAL ERROR: JWT_SECRET environment variable is required in production.");
+  process.exit(1);
+}
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
+if (!process.env.JWT_SECRET) {
+  console.warn("WARNING: Using insecure default JWT_SECRET. Do not use this in production!");
+}
+
+const signupLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 5,
+  message: { error: "Too many accounts created from this IP, please try again after 5 minutes" }
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 10,
+  message: { error: "Too many key uploads from this IP, please try again later" }
+});
 
 // Routes
-app.post("/signup", (req, res) => {
+app.post("/signup", signupLimiter, (req, res) => {
   const { name, email, publicKey } = req.body;
   if (!name || name.trim() === "")
     return res.status(400).json({ error: "Name is required" });
@@ -392,7 +413,7 @@ app.post("/cleanup-all-duplicates", authenticate, (req, res) => {
 // ── Key Bundle Endpoints (for X3DH) ─────────────────────────────────────────
 
 // POST /keys/upload — store caller's public key bundle
-app.post("/keys/upload", authenticate, (req, res) => {
+app.post("/keys/upload", authenticate, uploadLimiter, (req, res) => {
   const { bundle } = req.body;
   if (!bundle) return res.status(400).json({ error: "Missing bundle" });
 
@@ -402,7 +423,7 @@ app.post("/keys/upload", authenticate, (req, res) => {
 
   keyDb.run(
     "INSERT INTO key_bundles (hashed_usid, bundle, updated_at) VALUES (?, ?, ?)" +
-      " ON CONFLICT(hashed_usid) DO UPDATE SET bundle=excluded.bundle, updated_at=excluded.updated_at",
+    " ON CONFLICT(hashed_usid) DO UPDATE SET bundle=excluded.bundle, updated_at=excluded.updated_at",
     [hashed, JSON.stringify(bundle), now],
     (err) => {
       if (err)
@@ -410,6 +431,33 @@ app.post("/keys/upload", authenticate, (req, res) => {
       res.json({ message: "Key bundle stored" });
     },
   );
+});
+
+// POST /keys/replenish — append one-time pre-keys to the user's bundle
+app.post("/keys/replenish", authenticate, uploadLimiter, (req, res) => {
+  const { preKeys } = req.body;
+  if (!preKeys || !Array.isArray(preKeys)) return res.status(400).json({ error: "Missing preKeys array" });
+
+  const hashed = hashUSID(req.user.usid);
+
+  keyDb.get("SELECT bundle FROM key_bundles WHERE hashed_usid = ?", [hashed], (err, row) => {
+    if (err || !row) return res.status(404).json({ error: "Key bundle not found" });
+    try {
+      const bundle = JSON.parse(row.bundle);
+      bundle.preKeys = (bundle.preKeys || []).concat(preKeys);
+      const now = Date.now();
+
+      keyDb.run("UPDATE key_bundles SET bundle = ?, updated_at = ? WHERE hashed_usid = ?",
+        [JSON.stringify(bundle), now, hashed],
+        (updateErr) => {
+          if (updateErr) return res.status(500).json({ error: "Failed to update key bundle" });
+          res.json({ message: "Pre-keys replenished", count: bundle.preKeys.length });
+        }
+      );
+    } catch (e) {
+      res.status(500).json({ error: "Failed to parse key bundle" });
+    }
+  });
 });
 
 // GET /keys/:hashedUsid — fetch a peer's public key bundle

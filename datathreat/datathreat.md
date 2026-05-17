@@ -280,6 +280,7 @@ The server is configured to listen on HTTP (`http.createServer(app)`) on port 30
 - Terminate TLS with a reverse proxy (Nginx / Caddy) in front of the Node.js server.
 - Redirect all HTTP to HTTPS and all WS to WSS.
 - Set `Strict-Transport-Security` (HSTS) header.
+- **Note:** Mitigated in production deployment (Render terminates TLS at edge). Unmitigated for self-hosted deployments without a reverse proxy.
 
 ---
 
@@ -302,6 +303,7 @@ The frontend uses `localStorage` for the JWT token and USID (`localStorage.getIt
 - Store JWT in an `HttpOnly` cookie to prevent JavaScript access.
 - Store private key material in the non-extractable Web Crypto API (`extractable: false`) and never serialize it to localStorage.
 - Implement an idle timeout that clears sensitive state from memory.
+- **Note:** Partially mitigated. Signal Protocol private keys are stored as non-exportable `CryptoKey` objects in IndexedDB. JWT and USID in `localStorage` remain an issue.
 
 ---
 
@@ -411,6 +413,7 @@ When Alice fetches Bob's public key to initiate X3DH, she calls `GET /pubkey/:ha
 - Implement safety number / key fingerprint display for out-of-band verification (as done in Signal).
 - Have users sign their public key with their identity key and verify the signature client-side before using the bundle.
 - Use a transparency log (key server with append-only audit) to detect key substitution.
+- **Note:** Safety Numbers UI implemented — allows out-of-band fingerprint verification. Formal pre-key signature verification (Ed25519) not yet wired into X3DH verification step.
 
 ---
 
@@ -436,26 +439,48 @@ WebTorrent uses WebRTC for peer-to-peer data channels. This requires STUN/TURN s
 
 ---
 
+### 3.17 Threat T-17 — OPK Exhaustion / X3DH Fallback
+
+**Category:** Cryptographic Weakness / Forward Secrecy  
+**STRIDE:** Information Disclosure  
+**Severity:** 🟠 High  
+
+**Description:**  
+One-time pre-keys (OPKs) are consumed every time a new peer initiates a session. If a user receives many first-messages without coming online to replenish their OPK pool, the pool drains. Once empty, the X3DH protocol falls back to a weaker 3-DH initialization that lacks full forward secrecy if the signed pre-key is compromised.
+
+**Attack Vector:** An attacker deliberately opens many sessions to exhaust the OPK pool, or normal heavy usage drains the pool, leaving the user vulnerable to forward-secrecy degradation on subsequent connections.
+
+**Affected Components:** `protocol/signal_protocol.js`, `backend/server.js` (Key bundle storage).
+
+**Impact:** Loss of optimal forward secrecy for new sessions established after OPKs run out.
+
+**Mitigation:**
+- Implemented client-side OPK count monitoring via IndexedDB.
+- Added automated OPK replenishment (`POST /keys/replenish`) when the pool drops below a safe threshold (e.g., 20 keys).
+
+---
+
 ## 4. Threat Summary Matrix
 
 | ID | Threat | Severity | Component | Status |
 |---|---|---|---|---|
-| T-01 | Hardcoded JWT secret fallback | 🔴 Critical | `server.js` | ⚠️ Unmitigated |
+| T-01 | Hardcoded JWT secret fallback | 🔴 Critical | `server.js` | ✅ Mitigated |
 | T-02 | Plaintext USID in JWT payload | 🔴 Critical | `server.js`, `app.js` | ⚠️ Unmitigated |
 | T-03 | Mailbox stores plaintext messages | 🔴 Critical | `mailbox` table | ⚠️ Unmitigated |
 | T-04 | Unauthenticated UDP broadcast | 🔴 Critical | UDP server | ⚠️ Unmitigated |
-| T-05 | No rate limiting | 🟠 High | All endpoints | ⚠️ Unmitigated |
+| T-05 | No rate limiting | 🟠 High | All endpoints | ✅ Mitigated |
 | T-06 | Email enumeration via signup | 🟠 High | `POST /signup` | ⚠️ Unmitigated |
 | T-07 | SQL injection / weak input validation | 🟠 High | All DB queries | ⚡ Partially mitigated |
 | T-08 | WebSocket unauthenticated registration | 🟠 High | WS `register` handler | ⚠️ Unmitigated |
-| T-09 | Missing HTTPS / TLS | 🟠 High | Full stack | ⚠️ Unmitigated |
-| T-10 | Private keys in localStorage | 🟠 High | `app.js` | ⚠️ Unmitigated |
+| T-09 | Missing HTTPS / TLS | 🟠 High | Full stack | ⚡ Partially mitigated |
+| T-10 | Private keys in localStorage | 🟠 High | `app.js` | ⚡ Partially mitigated |
 | T-11 | Missing CSP / XSS risk | 🟠 High | Frontend | ⚠️ Unmitigated |
 | T-12 | Hashed USID metadata leakage | 🟡 Medium | WS wire, DB | ⚡ Partially mitigated |
 | T-13 | No audit trail for abuse | 🟡 Medium | WS / UDP handlers | ⚠️ Unmitigated |
 | T-14 | Mailbox flooding (DoS) | 🟡 Medium | `mailbox` table | ⚠️ Unmitigated |
-| T-15 | Public key tampering (MITM E2EE) | 🟠 High | `GET /pubkey`, X3DH | ⚠️ Unmitigated |
+| T-15 | Public key tampering (MITM E2EE) | 🟠 High | `GET /pubkey`, X3DH | ⚡ Partially mitigated |
 | T-16 | WebRTC / WebTorrent IP Leak | 🟠 High | WebTorrent / TURN | ⚠️ Unmitigated |
+| T-17 | OPK Exhaustion / X3DH Fallback | 🟠 High | `signal_protocol.js` | ✅ Mitigated |
 
 ---
 

@@ -93,6 +93,16 @@ class IDBKeyStore {
     await this._delete('identity', 'self');
   }
 
+  // ── One-Time Pre-Keys (OPK) ───────────────────────────────────────────────
+
+  async saveOpkState(opkState) {
+    await this._put('identity', { id: 'opkState', ...opkState });
+  }
+
+  async loadOpkState() {
+    return this._get('identity', 'opkState');
+  }
+
   // ── Sessions (Double Ratchet state per peer) ──────────────────────────────
 
   /**

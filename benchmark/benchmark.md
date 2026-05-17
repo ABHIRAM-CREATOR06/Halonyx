@@ -338,6 +338,8 @@ Total observed latency for a message to travel from sender's `sendMessage()` cal
 | Max recommended concurrent WS conns | — | ~1,000 |
 | End-to-End message latency (localhost) | Total | ~3.8 ms |
 | WebRTC connection setup (via TURN) | Total | ~400 ms |
+| POST /keys/replenish | Mean latency | ~6.4 ms |
+| Client: OPK batch generation (×100) | Mean latency | ~112 ms |
 
 ---
 
