@@ -44,6 +44,7 @@ Halonyx is an end-to-end encrypted messaging application built on the **Signal P
 - **Web Audio Notifications** — send and receive sounds synthesized via Web Audio API; no audio files required
 - **Dark / Light Theme** — fully adaptive UI with smooth transitions
 - **Contact Management** — add by USID, remove, search, duplicate auto-cleanup
+- **Rate Limiting** — per-IP rate limits on signup and key upload endpoints (express-rate-limit v8)
 
 ---
 
@@ -55,17 +56,6 @@ Halonyx is an end-to-end encrypted messaging application built on the **Signal P
 git clone https://github.com/ABHIRAM-CREATOR06/Halonyx.git
 cd halonyx
 npm install
-```
-
-Create a `.env` file:
-
-```env
-JWT_SECRET=your-secret-key-here
-GMAIL_USER=your-gmail@gmail.com
-GMAIL_PASS=your-app-password
-```
-
-```bash
 npm start        # production
 npm run dev      # development (auto-reload)
 ```
@@ -245,17 +235,19 @@ With Safety Numbers (protected):
 
 | Endpoint | Method | Auth | Description |
 |---|---|---|---|
-| `/signup` | POST | — | Register — returns `usid` + JWT |
+| `/signup` | POST | — | Register — returns `usid` + JWT (rate limited) |
 | `/add-contact` | POST | ✓ | Add a contact by USID |
 | `/contacts` | GET | ✓ | Fetch contact list (hashed USIDs) |
 | `/contacts` | DELETE | ✓ | Remove a contact by hashed USID |
 | `/cleanup-duplicates` | POST | ✓ | Remove duplicate contacts for current user |
-| `/keys/upload` | POST | ✓ | Upload full X3DH public key bundle |
+| `/cleanup-all-duplicates` | POST | ✓ | Remove duplicate contacts for all users |
+| `/keys/upload` | POST | ✓ | Upload full X3DH public key bundle (rate limited) |
+| `/keys/replenish` | POST | ✓ | Append one-time pre-keys to existing bundle (rate limited) |
 | `/keys/:hashedUsid` | GET | — | Fetch peer's X3DH key bundle |
 | `/public-key/:hashedUsid` | GET | ✓ | Fetch peer's identity public key (for safety numbers) |
 | `/update-pubkey` | POST | ✓ | Push identity public key without re-registering |
 
-All authenticated routes require `Authorization: Bearer <token>`.
+All authenticated routes require `Authorization: Bearer <token>`. Rate-limited endpoints use `express-rate-limit` v8 with draft-7 standard headers.
 
 ### WebSocket
 
@@ -291,7 +283,7 @@ All authenticated routes require `Authorization: Bearer <token>`.
 
 For deep technical dives into Halonyx's security model and system performance, refer to the following documents:
 
-- **[Data Threat Model (`datathreat/datathreat.md`)](datathreat/datathreat.md):** A comprehensive STRIDE analysis of the system, covering 16 potential threats, vulnerabilities, and their mitigations (including WebRTC IP leaks, JWT exposure, and offline mailbox security).
+- **[Data Threat Model (`datathreat/datathreat.md`)](datathreat/datathreat.md):** A comprehensive STRIDE analysis of the system, covering 17 potential threats, vulnerabilities, and their mitigations (including WebRTC IP leaks, JWT exposure, OPK exhaustion, and offline mailbox security).
 - **[Performance Benchmarks (`benchmark/benchmark.md`)](benchmark/benchmark.md):** Detailed latency and throughput metrics for cryptographic operations (X3DH, Double Ratchet), WebSocket messaging, SQLite operations, and WebTorrent P2P file transfers over STUN/TURN.
 
 ---
@@ -341,7 +333,7 @@ Halonyx/
 - [x] Web Audio notification sounds
 - [x] Dark / light theme
 - [x] Contact remove + duplicate cleanup
-- [ ] OPK replenishment monitoring
+- [x] OPK replenishment monitoring
 - [ ] Safety number QR code scan
 - [ ] Post-quantum cryptography (CRYSTALS-Dilithium / SPHINCS+)
 - [ ] Multi-device session sync

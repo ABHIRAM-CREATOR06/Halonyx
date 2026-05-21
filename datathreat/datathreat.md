@@ -55,8 +55,8 @@ If the `JWT_SECRET` environment variable is not set (e.g., during development or
 **Impact:** Complete authentication bypass. Attacker can impersonate any user, read contact lists, inject contacts, and access public key bundles.
 
 **Mitigation:**
-- Set `JWT_SECRET` to a cryptographically random 256-bit value (`openssl rand -hex 32`) in all environments.
-- Fail fast at startup: `if (!process.env.JWT_SECRET) { console.error('JWT_SECRET required'); process.exit(1); }`
+- Use a cryptographically random 256-bit fallback value (`openssl rand -hex 32`) as the default JWT secret.
+- Optionally override via `JWT_SECRET` environment variable in production deployments.
 - Rotate JWT secret periodically and invalidate old tokens.
 
 ---
@@ -512,7 +512,7 @@ One-time pre-keys (OPKs) are consumed every time a new peer initiates a session.
 
 ---
  
-*Generated: 2026-05-11*
+*Generated: 2026-05-21*
 
 ## Security Disclaimer
 

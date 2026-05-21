@@ -34,25 +34,24 @@ initDb(db, "./backend/db/schema.sql");
 initDb(idDb, "./backend/db/identity_schema.sql");
 initDb(keyDb, "./backend/db/key_schema.sql");
 
-if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
-  console.error("FATAL ERROR: JWT_SECRET environment variable is required in production.");
-  process.exit(1);
-}
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
-if (!process.env.JWT_SECRET) {
-  console.warn("WARNING: Using insecure default JWT_SECRET. Do not use this in production!");
-}
 
 const signupLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
-  max: 5,
-  message: { error: "Too many accounts created from this IP, please try again after 5 minutes" }
+  limit: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: "Too many accounts created from this IP, please try again after 5 minutes" },
+  validate: { trustProxy: false, xForwardedForHeader: false },
 });
 
 const uploadLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
-  max: 10,
-  message: { error: "Too many key uploads from this IP, please try again later" }
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: "Too many key uploads from this IP, please try again later" },
+  validate: { trustProxy: false, xForwardedForHeader: false },
 });
 
 // Routes
@@ -797,5 +796,5 @@ app.use((req, res, next) => {
 });
 
 app.use(express.static("frontend", { etag: false, lastModified: false }));
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

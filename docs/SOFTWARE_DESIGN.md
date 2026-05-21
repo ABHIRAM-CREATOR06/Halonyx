@@ -816,15 +816,7 @@ Detailed security analysis is provided in [`protocol/SECURITY_ANALYSIS.md`](prot
 }
 ```
 
-### 8.2 Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `JWT_SECRET` | Secret key for JWT signing | `your-secret-key` |
-| `GMAIL_USER` | Gmail account for notifications | — |
-| `GMAIL_PASS` | App password for Gmail | — |
-
-### 8.3 Running the Application
+### 8.2 Running the Application
 
 ```bash
 # Install dependencies
@@ -909,6 +901,6 @@ The following enhancements are planned for future versions:
 
 ---
 
-*Document Version: 1.0*  
-*Last Updated: 2026-02-23*  
+*Document Version: 1.4*  
+*Last Updated: 2026-05-21*  
 *Classification: Internal Use Only*
