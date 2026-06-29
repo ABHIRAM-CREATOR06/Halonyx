@@ -347,6 +347,8 @@ Halonyx/
 
 Built at **SNGCE, Kerala** · APJ Abdul Kalam Technological University · 2026
 
+---
+
 | Name | Role |
 |---|---|
 | Abhiram P | Backend · Signal Protocol · Safety Numbers |
@@ -355,5 +357,6 @@ Built at **SNGCE, Kerala** · APJ Abdul Kalam Technological University · 2026
 | Antony S Kannampuzha | Database · Infrastructure · Key Storage |
 
 ---
-
+> Built as a deep exploration of applied cryptography and secure 
+> Not intended for production deployment.
 <div align="center"><sub>Connect Securely. Leave No Trace.</sub></div>
