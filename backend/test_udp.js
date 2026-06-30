@@ -3,7 +3,8 @@ const dgram = require('dgram');
 const client = dgram.createSocket('udp4');
 const message = Buffer.from(JSON.stringify({
     content: "UDP TEST ALERT: System check in progress.",
-    from: "UDP_TEST_PROBE"
+    from: "UDP_TEST_PROBE",
+    token: "INTERNAL_UDP_SECRET"
 }));
 
 client.send(message, 9000, 'localhost', (err) => {

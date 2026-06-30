@@ -34,7 +34,8 @@ initDb(db, "./backend/db/schema.sql");
 initDb(idDb, "./backend/db/identity_schema.sql");
 initDb(keyDb, "./backend/db/key_schema.sql");
 
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
+const crypto = require("crypto");
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString("hex");
 
 const signupLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
@@ -90,7 +91,7 @@ app.post("/signup", signupLimiter, (req, res) => {
               "INSERT OR IGNORE INTO users (hashed_usid, public_key_bundle) VALUES (?, ?)",
               [hashed, publicKeyBundle],
               () => {
-                const jwtToken = jwt.sign({ userId: row.id, usid }, JWT_SECRET);
+                const jwtToken = jwt.sign({ userId: row.id, hashedUsid: hashed }, JWT_SECRET);
                 res.json({
                   message: "Identity re-verified",
                   usid,
@@ -115,7 +116,7 @@ app.post("/signup", signupLimiter, (req, res) => {
               "INSERT INTO users (hashed_usid, public_key_bundle) VALUES (?, ?)",
               [hashed, publicKeyBundle],
               function () {
-                const jwtToken = jwt.sign({ userId, usid }, JWT_SECRET);
+                const jwtToken = jwt.sign({ userId, hashedUsid: hashed }, JWT_SECRET);
                 res.json({ message: "Account created", usid, token: jwtToken });
               },
             );
@@ -144,8 +145,7 @@ app.post("/add-contact", authenticate, (req, res) => {
   }
 
   const hashed = hashUSID(usid);
-  const userUsid = req.user.usid;
-  const userHashedUsid = hashUSID(userUsid);
+  const userHashedUsid = req.user.hashedUsid;
 
   // Check if trying to add themselves
   if (hashed === userHashedUsid) {
@@ -416,8 +416,8 @@ app.post("/keys/upload", authenticate, uploadLimiter, (req, res) => {
   const { bundle } = req.body;
   if (!bundle) return res.status(400).json({ error: "Missing bundle" });
 
-  // hashed_usid comes from the verified JWT
-  const hashed = hashUSID(req.user.usid);
+  // hashedUsid comes from the verified JWT
+  const hashed = req.user.hashedUsid;
   const now = Date.now();
 
   keyDb.run(
@@ -437,7 +437,7 @@ app.post("/keys/replenish", authenticate, uploadLimiter, (req, res) => {
   const { preKeys } = req.body;
   if (!preKeys || !Array.isArray(preKeys)) return res.status(400).json({ error: "Missing preKeys array" });
 
-  const hashed = hashUSID(req.user.usid);
+  const hashed = req.user.hashedUsid;
 
   keyDb.get("SELECT bundle FROM key_bundles WHERE hashed_usid = ?", [hashed], (err, row) => {
     if (err || !row) return res.status(404).json({ error: "Key bundle not found" });
@@ -538,7 +538,7 @@ app.post("/update-pubkey", authenticate, (req, res) => {
     return res.status(400).json({ error: "Invalid publicKey" });
   }
 
-  const hashed = hashUSID(req.user.usid);
+  const hashed = req.user.hashedUsid;
   const publicKeyBundle = JSON.stringify({ identityKey: publicKey });
 
   // Update app.db users table
@@ -624,11 +624,13 @@ wss.on("connection", (ws) => {
                   `[Mailbox] Flushing ${pending.length} queued message(s) to ${hashed.substring(0, 8)}...`,
                 );
                 pending.forEach((m) => {
+                  let encData = m.content;
+                  try { encData = JSON.parse(m.content); } catch (e) {}
                   ws.send(
                     JSON.stringify({
                       type: "message",
                       from: m.sender_hashed_usid,
-                      content: m.content,
+                      encrypted: encData,
                       timestamp: m.timestamp,
                     }),
                   );
@@ -677,8 +679,12 @@ wss.on("connection", (ws) => {
           );
           console.log(`[WS] Message delivered to ${to.substring(0, 8)}`);
         } else {
-          // Offline mailbox — store plaintext content if present, or a placeholder
-          const storeContent = content || "[encrypted message]";
+          // Offline mailbox — enforce encrypted only
+          if (!encrypted) {
+            ws.send(JSON.stringify({ type: "error", message: "Only encrypted messages are queued" }));
+            return;
+          }
+          const storeContent = typeof encrypted === 'string' ? encrypted : JSON.stringify(encrypted);
           db.run(
             "INSERT INTO mailbox (recipient_hashed_usid, sender_hashed_usid, content) VALUES (?, ?, ?)",
             [to, userHashedUsid, storeContent],
@@ -724,6 +730,7 @@ wss.on("connection", (ws) => {
           JSON.stringify({
             content: data.content,
             from: userHashedUsid || "Anonymous",
+            token: "INTERNAL_UDP_SECRET"
           }),
         );
         udpServer.send(udpMessage, UDP_PORT, "localhost", (err) => {
@@ -752,6 +759,10 @@ const udpServer = dgram.createSocket("udp4");
 udpServer.on("message", (msg, rinfo) => {
   try {
     const data = JSON.parse(msg.toString());
+    if (data.token !== "INTERNAL_UDP_SECRET") {
+      console.warn("[UDP] Unauthorized broadcast attempt rejected");
+      return;
+    }
     const broadcastData = JSON.stringify({
       type: "emergency_broadcast",
       content: data.content,
@@ -774,7 +785,7 @@ udpServer.on("listening", () => {
   console.log(`[UDP] Server listening ${address.address}:${address.port}`);
 });
 
-udpServer.bind(UDP_PORT);
+udpServer.bind(UDP_PORT, "127.0.0.1");
 
 // Serve protocol/ files at /protocol/* (before cache middleware so headers apply)
 app.use(

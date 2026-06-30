@@ -465,10 +465,10 @@ One-time pre-keys (OPKs) are consumed every time a new peer initiates a session.
 | ID | Threat | Severity | Component | Status |
 |---|---|---|---|---|
 | T-01 | Hardcoded JWT secret fallback | 🔴 Critical | `server.js` | ✅ Mitigated |
-| T-02 | Plaintext USID in JWT payload | 🔴 Critical | `server.js`, `app.js` | ⚠️ Unmitigated |
-| T-03 | Mailbox stores plaintext messages | 🔴 Critical | `mailbox` table | ⚠️ Unmitigated |
-| T-04 | Unauthenticated UDP broadcast | 🔴 Critical | UDP server | ⚠️ Unmitigated |
-| T-05 | No rate limiting | 🟠 High | All endpoints | ✅ Mitigated |
+| T-02 | Plaintext USID in JWT payload | 🔴 Critical | `server.js`, `app.js` | ✅ Mitigated |
+| T-03 | Mailbox stores plaintext messages | 🔴 Critical | `mailbox` table | ✅ Mitigated |
+| T-04 | Unauthenticated UDP broadcast | 🔴 Critical | UDP server | ✅ Mitigated |
+| T-05 | No rate limiting | 🟠 High | All endpoints | ⚡ Partially mitigated |
 | T-06 | Email enumeration via signup | 🟠 High | `POST /signup` | ⚠️ Unmitigated |
 | T-07 | SQL injection / weak input validation | 🟠 High | All DB queries | ⚡ Partially mitigated |
 | T-08 | WebSocket unauthenticated registration | 🟠 High | WS `register` handler | ⚠️ Unmitigated |
@@ -488,10 +488,10 @@ One-time pre-keys (OPKs) are consumed every time a new peer initiates a session.
 
 ### Phase 1 — Critical Fixes (Before Any Production Deployment)
 
-1. **T-01:** Enforce `JWT_SECRET` via environment variable; fail at startup if absent.
-2. **T-02:** Remove USID from JWT payload; derive it server-side from `userId`.
-3. **T-03:** Ensure only ciphertext is ever stored in `mailbox`; never store `content` field.
-4. **T-04:** Bind UDP to `127.0.0.1`; add HMAC authentication to UDP messages.
+1. ~~**T-01:** Enforce `JWT_SECRET` via environment variable; fail at startup if absent.~~ (Mitigated)
+2. ~~**T-02:** Remove USID from JWT payload; derive it server-side from `userId`.~~ (Mitigated via hashedUsid in JWT payload)
+3. ~~**T-03:** Ensure only ciphertext is ever stored in `mailbox`; never store `content` field.~~ (Mitigated)
+4. ~~**T-04:** Bind UDP to `127.0.0.1`; add HMAC authentication to UDP messages.~~ (Mitigated via secret token)
 5. **T-09:** Deploy behind an Nginx/Caddy TLS reverse proxy; enforce HTTPS.
 
 ### Phase 2 — High Priority (Within First Sprint Post-Launch)
@@ -512,7 +512,7 @@ One-time pre-keys (OPKs) are consumed every time a new peer initiates a session.
 
 ---
  
-*Generated: 2026-05-21*
+*Generated: 2026-06-30*
 
 ## Security Disclaimer
 
