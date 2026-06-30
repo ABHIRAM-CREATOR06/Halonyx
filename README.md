@@ -16,7 +16,7 @@
 [![AES-256-GCM](https://img.shields.io/badge/Encryption-AES--256--GCM-critical?style=flat)](https://csrc.nist.gov/publications/detail/sp/800-38d/final)
 [![WebTorrent](https://img.shields.io/badge/File%20Transfer-WebTorrent%20P2P-orange?style=flat&logo=bittorrent&logoColor=white)](https://webtorrent.io)
 [![Safety Numbers](https://img.shields.io/badge/MITM%20Protection-Safety%20Numbers-success?style=flat)](https://signal.org/blog/safety-number-updates/)
-[![License](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Live](https://img.shields.io/badge/Live-halonyx.onrender.com-blueviolet?style=flat)](https://halonyx.onrender.com)
 
 </div>
