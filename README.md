@@ -285,6 +285,7 @@ For deep technical dives into Halonyx's security model and system performance, r
 
 - **[Data Threat Model (`datathreat/datathreat.md`)](datathreat/datathreat.md):** A comprehensive STRIDE analysis of the system, covering 17 potential threats, vulnerabilities, and their mitigations (including WebRTC IP leaks, JWT exposure, OPK exhaustion, and offline mailbox security).
 - **[Performance Benchmarks (`benchmark/benchmark.md`)](benchmark/benchmark.md):** Detailed latency and throughput metrics for cryptographic operations (X3DH, Double Ratchet), WebSocket messaging, SQLite operations, and WebTorrent P2P file transfers over STUN/TURN.
+- **[Simulator (`simulator/index.html`)](simulator/index.html):** Under building 
 
 ---
 
@@ -357,6 +358,6 @@ Built at **SNGCE, Kerala** · APJ Abdul Kalam Technological University · 2026
 | Antony S Kannampuzha | Database · Infrastructure · Key Storage |
 
 ---
-> Built as a deep exploration of applied cryptography and secure 
+> Built as a deep exploration of applied cryptography and secure communication 
 > Not intended for production deployment.
 <div align="center"><sub>Connect Securely. Leave No Trace.</sub></div>
