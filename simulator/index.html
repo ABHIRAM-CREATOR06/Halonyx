@@ -1,0 +1,1465 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How Halonyx Works</title>
+  <style>
+    :root {
+      --primary: #0066cc;
+      --primary-focus: #0071e3;
+      --primary-on-dark: #2997ff;
+      --ink: #1d1d1f;
+      --ink-muted: #333333;
+      --ink-subtle: #7a7a7a;
+      --body-on-dark: #ffffff;
+      --body-muted: #cccccc;
+      --canvas: #ffffff;
+      --parchment: #f5f5f7;
+      --pearl: #fafafc;
+      --tile-1: #272729;
+      --tile-2: #2a2a2c;
+      --tile-3: #252527;
+      --black: #000000;
+      --hairline: #e0e0e0;
+      --dark-hairline: rgba(255, 255, 255, 0.16);
+      --alice: #7f77dd;
+      --bob: #1d9e75;
+      --server: #888780;
+      --mallory: #b94a5b;
+      --key: #ef9f27;
+      --danger: #c8242f;
+      --success: #2f7d32;
+      --warning: #9a6200;
+      --shadow-product: rgba(0, 0, 0, 0.22) 3px 5px 30px 0;
+      --radius-sm: 8px;
+      --radius-lg: 18px;
+      --radius-pill: 9999px;
+      --space-section: 80px;
+      --container: 1180px;
+      color-scheme: light dark;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--canvas);
+      font-family: "SF Pro Text", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 17px;
+      font-weight: 400;
+      line-height: 1.47;
+      letter-spacing: -0.374px;
+    }
+
+    button, input {
+      font: inherit;
+    }
+
+    button, a {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .global-nav {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      height: 44px;
+      background: var(--black);
+      color: var(--body-on-dark);
+    }
+
+    .global-nav__inner,
+    .sub-nav__inner,
+    .tile__inner,
+    .footer__inner {
+      width: min(var(--container), calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .global-nav__inner {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      font-size: 12px;
+      line-height: 1;
+      letter-spacing: -0.12px;
+    }
+
+    .global-nav__brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: inherit;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .global-nav__links {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      color: rgba(255, 255, 255, 0.78);
+    }
+
+    .global-nav__links button {
+      border: 0;
+      padding: 0;
+      color: inherit;
+      background: transparent;
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1;
+      letter-spacing: -0.12px;
+    }
+
+    .global-nav__links button:hover,
+    .global-nav__links button:focus-visible {
+      color: var(--primary-on-dark);
+      outline: none;
+    }
+
+    .sub-nav {
+      position: sticky;
+      top: 44px;
+      z-index: 25;
+      min-height: 52px;
+      background: rgba(245, 245, 247, 0.82);
+      color: var(--ink);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+      backdrop-filter: saturate(180%) blur(20px);
+    }
+
+    .sub-nav__inner {
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .sub-nav__title {
+      font-family: "SF Pro Display", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 21px;
+      font-weight: 600;
+      line-height: 1.19;
+      letter-spacing: 0.231px;
+      white-space: nowrap;
+    }
+
+    .sub-nav__actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .mode-toggle {
+      display: inline-flex;
+      padding: 3px;
+      border-radius: var(--radius-pill);
+      background: rgba(0, 0, 0, 0.06);
+    }
+
+    .mode-toggle button {
+      min-height: 34px;
+      border: 0;
+      border-radius: var(--radius-pill);
+      padding: 7px 14px;
+      color: var(--ink-muted);
+      background: transparent;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1.29;
+      letter-spacing: -0.224px;
+    }
+
+    .mode-toggle button[aria-pressed="true"] {
+      color: var(--body-on-dark);
+      background: var(--primary);
+    }
+
+    .button {
+      min-height: 44px;
+      border: 1px solid var(--primary);
+      border-radius: var(--radius-pill);
+      padding: 11px 22px;
+      color: var(--body-on-dark);
+      background: var(--primary);
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 17px;
+      line-height: 1;
+      letter-spacing: -0.374px;
+      transition: transform 160ms ease, background 160ms ease, color 160ms ease;
+    }
+
+    .button--secondary {
+      color: var(--primary);
+      background: transparent;
+    }
+
+    .button--on-dark {
+      color: var(--body-on-dark);
+      border-color: var(--primary-on-dark);
+      background: transparent;
+    }
+
+    .button--small {
+      min-height: 36px;
+      padding: 8px 15px;
+      font-size: 14px;
+      line-height: 1.29;
+      letter-spacing: -0.224px;
+    }
+
+    .button:active,
+    .mode-toggle button:active,
+    .dot:active {
+      transform: scale(0.95);
+    }
+
+    .button:focus-visible,
+    .mode-toggle button:focus-visible,
+    .dot:focus-visible,
+    input:focus-visible,
+    summary:focus-visible {
+      outline: 2px solid var(--primary-focus);
+      outline-offset: 2px;
+    }
+
+    .progress-track {
+      position: absolute;
+      inset: auto 0 0;
+      height: 3px;
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 7.14%;
+      background: var(--primary);
+      transition: width 280ms ease;
+    }
+
+    .step-dots {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 34vw;
+      overflow: hidden;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      flex: 0 0 auto;
+      border: 0;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.22);
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .dot[aria-current="step"] {
+      width: 26px;
+      border-radius: var(--radius-pill);
+      background: var(--primary);
+    }
+
+    .tile {
+      min-height: calc(100vh - 96px);
+      display: flex;
+      align-items: stretch;
+      background: var(--canvas);
+      color: var(--ink);
+    }
+
+    .tile[data-surface="parchment"] {
+      background: var(--parchment);
+      color: var(--ink);
+    }
+
+    .tile[data-surface="dark"] {
+      background: var(--tile-1);
+      color: var(--body-on-dark);
+    }
+
+    .tile[data-surface="dark2"] {
+      background: var(--tile-2);
+      color: var(--body-on-dark);
+    }
+
+    .tile[data-surface="dark3"] {
+      background: var(--tile-3);
+      color: var(--body-on-dark);
+    }
+
+    .tile__inner {
+      padding: var(--space-section) 0 48px;
+      display: grid;
+      grid-template-columns: minmax(280px, 0.82fr) minmax(520px, 1.18fr);
+      gap: 48px;
+      align-items: center;
+    }
+
+    .story {
+      display: grid;
+      gap: 18px;
+      align-content: center;
+    }
+
+    .phase {
+      color: var(--primary);
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.29;
+      letter-spacing: -0.224px;
+    }
+
+    .tile[data-surface^="dark"] .phase,
+    .tile[data-surface^="dark"] a {
+      color: var(--primary-on-dark);
+    }
+
+    .title {
+      margin: 0;
+      font-family: "SF Pro Display", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: clamp(34px, 4.8vw, 56px);
+      font-weight: 600;
+      line-height: 1.07;
+      letter-spacing: -0.28px;
+    }
+
+    .lead {
+      margin: 0;
+      max-width: 720px;
+      color: var(--ink-muted);
+      font-family: "SF Pro Display", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: clamp(21px, 2vw, 28px);
+      font-weight: 400;
+      line-height: 1.22;
+      letter-spacing: 0.196px;
+    }
+
+    .tile[data-surface^="dark"] .lead {
+      color: var(--body-muted);
+    }
+
+    .why {
+      margin: 0;
+      max-width: 720px;
+      color: var(--ink-subtle);
+    }
+
+    .tile[data-surface^="dark"] .why {
+      color: var(--body-muted);
+    }
+
+    .step-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 6px;
+    }
+
+    .detail {
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, 0.55);
+      overflow: hidden;
+    }
+
+    .tile[data-surface^="dark"] .detail {
+      border-color: var(--dark-hairline);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .detail summary {
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 18px;
+      cursor: pointer;
+      color: var(--primary);
+      font-weight: 600;
+      list-style: none;
+    }
+
+    .detail summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .tile[data-surface^="dark"] .detail summary {
+      color: var(--primary-on-dark);
+    }
+
+    .detail__body {
+      margin: 0;
+      padding: 0 18px 18px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      color: inherit;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.55;
+      letter-spacing: 0;
+    }
+
+    .visual-shell {
+      min-height: 560px;
+      display: grid;
+      gap: 16px;
+      align-content: center;
+    }
+
+    .scene {
+      position: relative;
+      min-height: 430px;
+      border-radius: 0;
+      background: rgba(255, 255, 255, 0.62);
+      overflow: hidden;
+    }
+
+    .tile[data-surface^="dark"] .scene {
+      background: rgba(0, 0, 0, 0.18);
+    }
+
+    .columns {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .column {
+      position: relative;
+      min-width: 0;
+      display: grid;
+      align-content: end;
+      justify-items: center;
+      padding: 28px 16px 34px;
+      border-left: 1px solid rgba(0, 0, 0, 0.06);
+    }
+
+    .column:first-child {
+      border-left: 0;
+    }
+
+    .tile[data-surface^="dark"] .column {
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+
+    .figure {
+      display: grid;
+      justify-items: center;
+      gap: 12px;
+      z-index: 2;
+    }
+
+    .figure svg {
+      width: 118px;
+      height: 118px;
+      filter: drop-shadow(var(--shadow-product));
+    }
+
+    .figure--server svg {
+      width: 132px;
+      height: 132px;
+    }
+
+    .figure__label {
+      padding: 8px 14px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: var(--radius-pill);
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.29;
+      letter-spacing: -0.224px;
+    }
+
+    .tile[data-surface^="dark"] .figure__label {
+      border-color: var(--dark-hairline);
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--body-on-dark);
+    }
+
+    .actor-extra {
+      min-height: 38px;
+      display: grid;
+      place-items: center;
+      color: var(--ink-subtle);
+      font-size: 14px;
+      text-align: center;
+    }
+
+    .tile[data-surface^="dark"] .actor-extra {
+      color: var(--body-muted);
+    }
+
+    .line {
+      position: absolute;
+      height: 2px;
+      background: var(--primary);
+      transform-origin: left center;
+      opacity: 0.9;
+      z-index: 1;
+    }
+
+    .line::after {
+      content: "";
+      position: absolute;
+      right: -7px;
+      top: -5px;
+      width: 0;
+      height: 0;
+      border-top: 6px solid transparent;
+      border-bottom: 6px solid transparent;
+      border-left: 8px solid var(--primary);
+    }
+
+    .line--a-s { left: 20%; right: 51%; top: 38%; }
+    .line--s-b { left: 51%; right: 20%; top: 38%; }
+    .line--a-b { left: 21%; right: 21%; top: 25%; }
+    .line--direct { left: 21%; right: 21%; top: 20%; border-top: 2px dashed var(--primary); background: transparent; height: 120px; border-radius: 50%; }
+    .line--direct::after { top: 92px; }
+    .line--danger { background: var(--danger); }
+    .line--danger::after { border-left-color: var(--danger); }
+
+    .token-board {
+      position: absolute;
+      left: 50%;
+      top: 24px;
+      transform: translateX(-50%);
+      width: min(390px, calc(100% - 40px));
+      display: grid;
+      gap: 10px;
+      z-index: 4;
+    }
+
+    .pill-row,
+    .message-row,
+    .db-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .data-pill {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: var(--radius-pill);
+      background: var(--canvas);
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.29;
+      letter-spacing: -0.224px;
+      white-space: nowrap;
+    }
+
+    .tile[data-surface^="dark"] .data-pill {
+      border-color: var(--dark-hairline);
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--body-on-dark);
+    }
+
+    .data-pill--key { border-color: rgba(239, 159, 39, 0.7); color: #8a5600; }
+    .data-pill--danger { border-color: rgba(200, 36, 47, 0.55); color: var(--danger); }
+    .data-pill--success { border-color: rgba(47, 125, 50, 0.55); color: var(--success); }
+    .tile[data-surface^="dark"] .data-pill--key { color: #ffd391; }
+    .tile[data-surface^="dark"] .data-pill--danger { color: #ffb4bc; }
+    .tile[data-surface^="dark"] .data-pill--success { color: #b8f0bb; }
+
+    .counter {
+      display: grid;
+      gap: 8px;
+      padding: 16px;
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      text-align: center;
+    }
+
+    .tile[data-surface^="dark"] .counter {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: var(--dark-hairline);
+    }
+
+    .opk-grid {
+      display: grid;
+      grid-template-columns: repeat(10, 1fr);
+      gap: 5px;
+    }
+
+    .opk-slot {
+      aspect-ratio: 1;
+      border-radius: 5px;
+      background: var(--key);
+      opacity: 0.25;
+    }
+
+    .opk-slot.active {
+      opacity: 1;
+    }
+
+    .safety-number {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      letter-spacing: 0;
+    }
+
+    .safety-number span {
+      padding: 7px 6px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.72);
+      text-align: center;
+    }
+
+    .tile[data-surface^="dark"] .safety-number span {
+      border-color: var(--dark-hairline);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .message-input {
+      width: 100%;
+      min-height: 44px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: var(--radius-pill);
+      padding: 12px 20px;
+      background: var(--canvas);
+      color: var(--ink);
+      outline: none;
+    }
+
+    .db-card {
+      flex: 1 1 120px;
+      min-height: 86px;
+      padding: 14px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: var(--radius-lg);
+      background: var(--canvas);
+      color: var(--ink);
+      text-align: center;
+      display: grid;
+      place-items: center;
+      gap: 4px;
+    }
+
+    .tile[data-surface^="dark"] .db-card {
+      border-color: var(--dark-hairline);
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--body-on-dark);
+    }
+
+    .footer {
+      background: var(--parchment);
+      color: var(--ink-muted);
+      padding: 48px 0 64px;
+      font-size: 12px;
+      line-height: 1.5;
+      letter-spacing: -0.12px;
+    }
+
+    .footer__inner {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .footer a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+
+    .nav-controls {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .status {
+      padding: 10px 14px;
+      border-radius: var(--radius-lg);
+      background: rgba(0, 102, 204, 0.08);
+      color: var(--ink);
+      text-align: center;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .status--danger { background: rgba(200, 36, 47, 0.1); color: var(--danger); }
+    .status--success { background: rgba(47, 125, 50, 0.1); color: var(--success); }
+    .status--warning { background: rgba(154, 98, 0, 0.12); color: var(--warning); }
+    .tile[data-surface^="dark"] .status { color: var(--body-on-dark); }
+
+    .fade-in { animation: fadeIn 360ms ease both; }
+    .flow-a-s { animation: flowAS 2.2s ease infinite; }
+    .flow-s-b { animation: flowSB 2.2s ease infinite; }
+    .pulse { animation: pulse 1.4s ease-in-out infinite; }
+    .slide-mallory { animation: slideMallory 700ms ease both; }
+    .spin { animation: spin 900ms ease both; }
+    .travel-direct { animation: directTravel 2.8s ease-in-out infinite; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes flowAS {
+      0%, 100% { transform: translateX(-12px); opacity: 0.35; }
+      50% { transform: translateX(12px); opacity: 1; }
+    }
+
+    @keyframes flowSB {
+      0%, 100% { transform: translateX(-12px); opacity: 0.35; }
+      50% { transform: translateX(12px); opacity: 1; }
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 0.75; }
+      50% { transform: scale(1.06); opacity: 1; }
+    }
+
+    @keyframes slideMallory {
+      from { transform: translate(-50%, 18px); opacity: 0; }
+      to { transform: translate(-50%, 0); opacity: 1; }
+    }
+
+    @keyframes spin {
+      to { transform: rotate(180deg); }
+    }
+
+    @keyframes directTravel {
+      0% { left: 19%; top: 26%; }
+      50% { left: 48%; top: 10%; }
+      100% { left: 78%; top: 26%; }
+    }
+
+    @media (max-width: 960px) {
+      .global-nav__links { display: none; }
+      .sub-nav__inner { align-items: flex-start; padding: 10px 0; flex-direction: column; }
+      .sub-nav { top: 44px; }
+      .step-dots { max-width: 100%; }
+      .tile__inner {
+        grid-template-columns: 1fr;
+        gap: 32px;
+        padding: 56px 0 36px;
+      }
+      .visual-shell { min-height: auto; }
+      .scene { min-height: 520px; }
+      .figure svg { width: 86px; height: 86px; }
+      .figure--server svg { width: 96px; height: 96px; }
+      .column { padding: 24px 8px 28px; }
+      .token-board { top: 18px; }
+      .safety-number { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .nav-controls { flex-direction: column-reverse; }
+      .nav-controls .button { width: 100%; }
+    }
+
+    @media (max-width: 520px) {
+      .global-nav__inner,
+      .sub-nav__inner,
+      .tile__inner,
+      .footer__inner {
+        width: min(100% - 28px, var(--container));
+      }
+      .title { font-size: 28px; }
+      .lead { font-size: 19px; }
+      .scene { min-height: 560px; }
+      .columns { grid-template-columns: 1fr; grid-template-rows: repeat(3, 1fr); }
+      .column { border-left: 0; border-top: 1px solid rgba(0, 0, 0, 0.06); align-content: center; }
+      .column:first-child { border-top: 0; }
+      .tile[data-surface^="dark"] .column { border-color: rgba(255, 255, 255, 0.08); }
+      .line { display: none; }
+      .token-board { position: relative; inset: auto; transform: none; width: auto; margin: 12px; }
+      .figure__label { font-size: 12px; padding: 6px 10px; }
+      .actor-extra { display: none; }
+      .safety-number { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 1ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 1ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="global-nav" aria-label="Global">
+    <div class="global-nav__inner">
+      <a class="global-nav__brand" href="https://github.com/ABHIRAM-CREATOR06/Halonyx" target="_blank" rel="noreferrer">
+        <span aria-hidden="true">H</span>
+        <span>Halonyx</span>
+      </a>
+      <nav class="global-nav__links" aria-label="Sections">
+        <span>Setup</span>
+        <span>Key Exchange</span>
+        <span>Attacks</span>
+        <span>Message Flow</span>
+        <button id="endToEndFlowBtn" type="button">End-to-end flow</button>
+        <span>Architecture</span>
+      </nav>
+      <span id="stepCounter">Step 1 of 14</span>
+    </div>
+  </header>
+
+  <div class="sub-nav">
+    <div class="sub-nav__inner">
+      <div class="sub-nav__title">How Halonyx Works</div>
+      <div class="sub-nav__actions">
+        <div class="step-dots" id="stepDots" aria-label="Step progress"></div>
+        <div class="mode-toggle" aria-label="Explanation mode">
+          <button id="beginnerBtn" type="button" aria-pressed="true">Beginner</button>
+          <button id="protocolBtn" type="button" aria-pressed="false">Protocol</button>
+        </div>
+      </div>
+    </div>
+    <div class="progress-track" aria-hidden="true"><div class="progress-fill" id="progressFill"></div></div>
+  </div>
+
+  <main class="tile" id="tile" data-surface="canvas">
+    <div class="tile__inner">
+      <section class="story" aria-live="polite">
+        <div class="phase" id="phaseLabel"></div>
+        <h1 class="title" id="stepTitle"></h1>
+        <p class="lead" id="stepLead"></p>
+        <p class="why" id="stepWhy"></p>
+        <div class="step-actions" id="stepActions"></div>
+        <details class="detail" id="detailPanel">
+          <summary>Show me the technical detail <span aria-hidden="true">+</span></summary>
+          <pre class="detail__body" id="technicalText"></pre>
+        </details>
+      </section>
+
+      <section class="visual-shell">
+        <div class="scene" id="scene" aria-label="Animated simulator scene"></div>
+        <div class="nav-controls">
+          <button class="button button--secondary" id="prevBtn" type="button">Previous</button>
+          <button class="button" id="nextBtn" type="button">Next</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer__inner">
+      <span>Powered by Halonyx. Built at SNGCE, Kerala - APJAKTU - 2026.</span>
+      <span><a href="https://github.com/ABHIRAM-CREATOR06/Halonyx" target="_blank" rel="noreferrer">GitHub</a> · <a href="https://halonyx.onrender.com" target="_blank" rel="noreferrer">Live demo</a></span>
+    </div>
+  </footer>
+
+  <script>
+    const state = {
+      step: 0,
+      mode: "beginner",
+      opks: 10,
+      ratchet: 0,
+      attack: false,
+      message: "Hi Bob",
+      bobOnline: false
+    };
+
+    const GLOSSARY = [
+      ["E2EE", "End-to-end encryption"],
+      ["X3DH", "Extended Triple Diffie-Hellman key agreement"],
+      ["IK", "Identity Key"],
+      ["SPK", "Signed Pre-Key"],
+      ["OPK", "One-Time Pre-Key"],
+      ["EK", "Ephemeral Key, a fresh temporary key"],
+      ["DH", "Diffie-Hellman shared-secret operation"],
+      ["SK", "Shared Key"],
+      ["HKDF", "HMAC-based Key Derivation Function"],
+      ["AES-256-GCM", "Advanced Encryption Standard with 256-bit keys in Galois/Counter Mode"],
+      ["IV", "Initialisation Vector"],
+      ["WS", "WebSocket"],
+      ["USID", "User Stable Identifier"],
+      ["SHA-256", "Secure Hash Algorithm with a 256-bit output"],
+      ["KDF", "Key Derivation Function"],
+      ["CK", "Chain Key"],
+      ["MK", "Message Key"],
+      ["MITM", "Man-in-the-middle attack"],
+      ["P2P", "Peer-to-peer"],
+      ["URI", "Uniform Resource Identifier"],
+      ["WebRTC", "Web Real-Time Communication"],
+      ["STUN", "Session Traversal Utilities for NAT"],
+      ["TURN", "Traversal Using Relays around NAT"],
+      ["JWT", "JSON Web Token"]
+    ];
+
+    const glossaryText = "Short forms expanded:\n" + GLOSSARY.map(([short, full]) => `${short} = ${full}`).join("\n");
+
+    const STEPS = [
+      {
+        phase: "Phase 1 - Setup",
+        title: "Bob publishes his public keys",
+        surface: "canvas",
+        beginner: "Before Alice ever contacts Bob, Bob uploads public keys to the server, like leaving padlocks on a public noticeboard. Anyone can use a padlock to seal a message for Bob, but only Bob has the private key that opens it.",
+        protocol: "Bob generates and uploads an X3DH key bundle: Identity Key, Signed Pre-Key, and One-Time Pre-Keys. Private keys remain non-exportable CryptoKey objects in IndexedDB; raw private bytes are not exposed to JavaScript.",
+        why: "This lets Alice start a secure conversation even when Bob is offline.",
+        technical: `Bob's key bundle:
+Identity Key (IK) - P-256 ECDH, long-term identity
+Signed Pre-Key (SPK) - X25519 ECDH, signed with Ed25519
+One-Time Pre-Keys (OPKs) - X25519 ECDH, consumed once
+
+Upload:
+POST /keys/upload
+
+Storage:
+keys.db stores public bundles by SHA-256(USID)
+Private keys stay in IndexedDB as non-exportable CryptoKey objects.`
+      },
+      {
+        phase: "Phase 1 - Setup",
+        title: "The one-time key problem",
+        surface: "parchment",
+        beginner: "Bob's one-time padlocks are meant to be used once and destroyed. If someone grabs all of them just to cause trouble, the next first message loses one layer of protection until Bob replenishes them.",
+        protocol: "An attacker can initiate fake X3DH sessions until the OPK supply reaches zero. Halonyx exposes replenishment, but automatic client-side top-up is a known gap.",
+        why: "Good security explanations include limitations, not only strengths.",
+        technical: `OPK Exhaustion Attack:
+1. Attacker initiates 10 fake X3DH sessions
+2. Each session consumes one OPK in keys.db
+3. OPK count reaches 0
+4. Next X3DH setup falls back from 4 DH operations to 3
+
+Missing step:
+DH4 = DH(EKa, OPKb)
+
+Mitigation:
+POST /keys/replenish
+
+Known gap:
+No automatic client-side replenishment yet.`,
+        action: "replenish"
+      },
+      {
+        phase: "Phase 2 - Key Exchange",
+        title: "Alice fetches Bob's keys",
+        surface: "dark",
+        beginner: "Alice asks the server for Bob's padlock bundle. The server hands it over, and one one-time padlock is consumed forever.",
+        protocol: "Alice calls GET /keys/:hashedUsid, verifies Bob's signed pre-key signature, generates her own ephemeral key pair, and uses the returned OPK only once.",
+        why: "The server distributes public material, but the secret is created only on devices.",
+        technical: `GET /keys/:hashedUsid
+
+Server returns:
+{
+  IK_pub,
+  SPK_pub,
+  SPK_sig,
+  OPK_pub
+}
+
+Alice verifies SPK_sig with Bob's identity key.
+Alice generates EK locally.
+The selected OPK is marked consumed in keys.db.`
+      },
+      {
+        phase: "Phase 2 - Key Exchange",
+        title: "Establishing a shared secret",
+        surface: "dark2",
+        beginner: "Alice performs four mathematical handshakes using her keys and Bob's public keys. The four results combine into a shared secret that is never sent over the internet.",
+        protocol: "X3DH combines DH1 through DH4 and derives SK with HKDF-SHA256. Bob runs the responder path and independently derives the identical SK.",
+        why: "This is the core trick: both sides compute the same secret without transmitting it.",
+        technical: `X3DH - Extended Triple Diffie-Hellman:
+DH1 = DH(IKa, SPKb)
+DH2 = DH(EKa, IKb)
+DH3 = DH(EKa, SPKb)
+DH4 = DH(EKa, OPKb)
+
+SK = HKDF-SHA256(DH1 || DH2 || DH3 || DH4)
+
+Alice sends an x3dh_init packet.
+Bob derives the same SK on his device.
+The server never receives SK.`
+      },
+      {
+        phase: "Phase 2 - Key Exchange",
+        title: "A new key for every message",
+        surface: "canvas",
+        beginner: "The shared secret starts a machine called the Double Ratchet. Every message gets a fresh key, and each key is thrown away after one use.",
+        protocol: "The symmetric ratchet derives a new message key every send. The DH ratchet mixes in fresh Diffie-Hellman material on replies for post-compromise recovery.",
+        why: "One stolen message key should not unlock the past or the future.",
+        technical: `Double Ratchet:
+
+Symmetric ratchet:
+CK_next = HKDF(CK, "chain key")
+MK      = HKDF(CK, "message key")
+
+MK is used once and discarded.
+
+DH ratchet on reply:
+new ephemeral DH pair -> new root key -> new chain keys
+
+Properties:
+Forward secrecy
+Post-compromise security`,
+        action: "ratchet"
+      },
+      {
+        phase: "Phase 3 - MITM Attacks",
+        title: "The key substitution attack",
+        surface: "dark3",
+        beginner: "If a compromised server gives Alice a fake Bob key, Alice may encrypt to the attacker by mistake. The attacker can read the message, re-encrypt it to Bob, and neither person notices.",
+        protocol: "This is a key distribution MITM. Forward secrecy and the Double Ratchet do not help if the session was established with the attacker's identity key.",
+        why: "End-to-end encryption still needs a way to verify that keys belong to the right people.",
+        technical: `Key substitution MITM:
+1. Alice requests Bob's public key
+2. Compromised server returns Mallory's key
+3. Alice runs X3DH with Mallory
+4. Alice encrypts messages to Mallory
+5. Mallory decrypts, reads, re-encrypts to Bob
+
+Result:
+Full passive interception.
+The cryptography works, but with the wrong person.`
+      },
+      {
+        phase: "Phase 3 - MITM Attacks",
+        title: "Safety Numbers detect the attack",
+        surface: "parchment",
+        beginner: "Alice and Bob each compute a 60-digit number from their identity keys. They compare it by voice call or in person; if it matches, the server did not swap a key.",
+        protocol: "Halonyx computes a lexicographically sorted SHA-256 fingerprint from both users' hashed identifiers and public identity keys, then formats it as 12 groups of 5 digits.",
+        why: "The server cannot fake a match because each device computes the number locally.",
+        technical: `safetyNumber = SHA-256(
+  sort_lex([
+    SHA256(aliceUsid) || alicePubKey,
+    SHA256(bobUsid)   || bobPubKey
+  ])
+)
+
+Format:
+12 groups of 5 digits = 60 digits
+
+Endpoint:
+GET /public-key/:hashedUsid
+
+Stored after verification in localStorage.`,
+        action: "attack"
+      },
+      {
+        phase: "Phase 3 - MITM Attacks",
+        title: "Detecting key changes between sessions",
+        surface: "canvas",
+        beginner: "Halonyx remembers the last verified Safety Number. If it changes later, the app warns you before you continue.",
+        protocol: "The client compares the current computed safety number against the value stored in localStorage for that contact hash.",
+        why: "A changed key might be harmless, but it deserves explicit verification.",
+        technical: `After verification:
+localStorage.set(contactHash, safetyNumber)
+
+On session open:
+current = computeSafetyNumber(contactPubKey)
+stored  = localStorage.get(contactHash)
+
+if current === stored:
+  proceed normally
+else:
+  warn and require explicit acknowledgement`
+      },
+      {
+        phase: "Phase 4 - Message Flow",
+        title: "A complete message in Halonyx",
+        surface: "dark",
+        beginner: "When Alice hits send, her device turns the message into ciphertext. The server delivers the locked blob, and Bob's device turns it back into readable text.",
+        protocol: "Alice derives MK, generates an IV, encrypts with AES-256-GCM, sends via WebSocket, discards MK, and Bob derives the same MK to decrypt and verify the auth tag.",
+        why: "The protocol helps by splitting the flow into one-time message keys, authenticated encryption, server-blind relay, and Bob-only decryption.",
+        technical: `On Alice's device:
+1. Double Ratchet derives MK
+2. Generate random IV
+3. AES-256-GCM encrypt(plaintext, MK, IV)
+4. Discard MK
+
+Network:
+WebSocket.send({
+  type: "message",
+  payload: encrypted_blob,
+  iv: IV,
+  recipient: SHA-256(bobUSID)
+})
+
+On Bob's device:
+derive MK -> decrypt -> verify auth_tag
+
+How the protocol helps the flow:
+X3DH creates the first shared secret without sending it.
+Double Ratchet turns that secret into a fresh MK per message.
+AES-256-GCM locks the message and detects tampering.
+WebSocket only transports encrypted_blob and IV.
+Bob's ratchet derives the same MK, so only Bob can decrypt.`,
+        action: "message"
+      },
+      {
+        phase: "Phase 4 - Message Flow",
+        title: "Offline delivery",
+        surface: "parchment",
+        beginner: "If Bob is offline, the server stores the encrypted blob until he returns. When Bob reconnects, the server forwards it and deletes its copy.",
+        protocol: "The mailbox stores recipient_hash, encrypted_payload, and timestamp. On reconnect, rows are forwarded over WebSocket and deleted for at-most-once delivery.",
+        why: "Offline delivery can exist without giving the server message content.",
+        technical: `Bob offline:
+INSERT INTO mailbox (
+  recipient_hash,
+  encrypted_payload,
+  timestamp
+)
+
+Sender receives:
+{ type: "queued" }
+
+Bob reconnects:
+SELECT * FROM mailbox WHERE recipient = SHA256(bobUSID)
+Forward each encrypted_payload
+DELETE FROM mailbox WHERE id = row.id
+
+Guarantee:
+At-most-once delivery`,
+        action: "offline"
+      },
+      {
+        phase: "Phase 4 - Message Flow",
+        title: "File transfer bypasses the server",
+        surface: "dark2",
+        beginner: "Files go directly from Alice's browser to Bob's browser. The server receives only a short magnet link, like a map, not the file itself.",
+        protocol: "WebTorrent seeds the file in Alice's browser, sends the magnet URI over the encrypted chat channel, and Bob downloads over WebRTC DataChannel.",
+        why: "This reduces server access to files, but direct WebRTC can reveal IP addresses.",
+        technical: `WebTorrent P2P transfer:
+
+Alice:
+WebTorrent.seed(file) -> magnet URI
+
+Encrypted channel:
+send magnet URI through E2EE message flow
+
+Bob:
+WebTorrent.download(magnetURI)
+WebRTC DataChannel established
+
+Infrastructure:
+Trackers discover peers only
+STUN helps NAT traversal
+TURN may relay as fallback
+
+Known limitation:
+WebRTC can expose local and public IP addresses.`
+      },
+      {
+        phase: "Phase 5 - Architecture",
+        title: "Three separate databases",
+        surface: "canvas",
+        beginner: "Halonyx separates identity, messages, and keys into three databases. The only link is a one-way fingerprint of the user identifier.",
+        protocol: "identity.db, app.db, and keys.db are isolated. Message flow uses SHA-256(USID), not name, email, or plaintext USID.",
+        why: "If one database leaks, it should not automatically reveal the whole person or their messages.",
+        technical: `Triple SQLite isolation:
+
+identity.db:
+name, email, hashed_usid
+Used only for account operations
+
+app.db:
+users, contacts, mailbox
+Contains SHA-256(USID) and encrypted payloads
+
+keys.db:
+X3DH public key bundles
+Indexed by SHA-256(USID)
+
+Cross-database link:
+SHA-256(USID) only`
+      },
+      {
+        phase: "Phase 5 - Architecture",
+        title: "No phone number. No email. Just a number.",
+        surface: "parchment",
+        beginner: "Halonyx can identify you with a random 256-bit number called a USID. The server stores only a fingerprint of it, not the USID itself.",
+        protocol: "The client generates 32 random bytes with crypto.getRandomValues. The server stores SHA-256(USID), while optional name and email stay in identity.db.",
+        why: "Pseudonymous identity reduces how much personal information messaging needs.",
+        technical: `USID generation:
+crypto.getRandomValues(new Uint8Array(32))
+
+Server storage:
+SHA-256(USID), never plaintext USID
+
+Registration:
+POST /signup
+Rate limited per IP
+Returns: { usid, jwt }
+
+Separation:
+name + email -> identity.db
+SHA-256(USID) -> app.db and keys.db`
+      },
+      {
+        phase: "Finale",
+        title: "What you have just learned",
+        surface: "dark3",
+        beginner: "You have walked through how Halonyx establishes secrets, rotates message keys, detects key substitution, stores offline messages, sends files, and separates identity from message data.",
+        protocol: "The complete architecture combines X3DH, Double Ratchet, Safety Numbers, local key-change checks, AES-256-GCM message flow, WebTorrent P2P transfer, triple database isolation, and USID identity.",
+        why: "A secure system is not one magic lock; it is many smaller protections working together.",
+        technical: `Summary:
+X3DH -> offline shared secret setup
+Double Ratchet -> unique key per message
+OPK replenishment -> protects first-session forward secrecy
+Safety Numbers -> detects key substitution MITM
+Key change detection -> warns across sessions
+AES-256-GCM -> authenticated encryption
+Offline mailbox -> encrypted blobs queued and deleted
+WebTorrent P2P -> files bypass server
+Triple database isolation -> identity, app data, and keys separated
+USID -> pseudonymous identifier by design
+
+GitHub:
+github.com/ABHIRAM-CREATOR06/Halonyx
+
+Live demo:
+halonyx.onrender.com`
+      }
+    ];
+
+    const tile = document.getElementById("tile");
+    const phaseLabel = document.getElementById("phaseLabel");
+    const stepTitle = document.getElementById("stepTitle");
+    const stepLead = document.getElementById("stepLead");
+    const stepWhy = document.getElementById("stepWhy");
+    const stepActions = document.getElementById("stepActions");
+    const technicalText = document.getElementById("technicalText");
+    const scene = document.getElementById("scene");
+    const prevBtn = document.getElementById("prevBtn");
+    const nextBtn = document.getElementById("nextBtn");
+    const stepCounter = document.getElementById("stepCounter");
+    const progressFill = document.getElementById("progressFill");
+    const stepDots = document.getElementById("stepDots");
+    const beginnerBtn = document.getElementById("beginnerBtn");
+    const protocolBtn = document.getElementById("protocolBtn");
+    const endToEndFlowBtn = document.getElementById("endToEndFlowBtn");
+    const detailPanel = document.getElementById("detailPanel");
+
+    function esc(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function figure(name, role, color) {
+      const server = role === "server";
+      const mallory = role === "mallory";
+      const fill = color;
+      const face = server
+        ? `<rect x="25" y="34" width="90" height="60" rx="10" fill="${fill}"/><rect x="38" y="48" width="64" height="24" rx="4" fill="#1d1d1f"/><circle cx="55" cy="60" r="4" fill="#fff"/><circle cx="85" cy="60" r="4" fill="#fff"/><path d="M58 78c10 6 24 6 34 0" stroke="#1d1d1f" stroke-width="5" stroke-linecap="round" fill="none"/><rect x="50" y="96" width="40" height="9" rx="4" fill="#666"/>`
+        : `<circle cx="70" cy="54" r="28" fill="${fill}"/><path d="M36 120c6-28 24-42 34-42s28 14 34 42" fill="${fill}"/><circle cx="60" cy="50" r="4" fill="#1d1d1f"/><circle cx="80" cy="50" r="4" fill="#1d1d1f"/><path d="M60 66c7 5 13 5 20 0" stroke="#1d1d1f" stroke-width="4" stroke-linecap="round" fill="none"/>`;
+      return `<div class="figure figure--${role}">
+        <svg viewBox="0 0 140 140" role="img" aria-label="${name}">${face}</svg>
+        <div class="figure__label">${name}</div>
+        <div class="actor-extra">${mallory ? "attacker" : server ? "stores and relays" : role === "alice" ? "sender" : "recipient"}</div>
+      </div>`;
+    }
+
+    function baseScene(extra = "", options = {}) {
+      const mallory = options.mallory ? `<div style="position:absolute;left:50%;top:50%;z-index:5;transform:translate(-50%,0)" class="slide-mallory">${figure("Mallory", "mallory", "var(--mallory)")}</div>` : "";
+      return `<div class="columns">
+        <div class="column">${figure("Alice", "alice", "var(--alice)")}</div>
+        <div class="column">${figure("Server", "server", "var(--server)")}</div>
+        <div class="column">${figure("Bob", "bob", "var(--bob)")}</div>
+      </div>${mallory}${extra}`;
+    }
+
+    function opkGrid(count) {
+      return `<div class="opk-grid">${Array.from({ length: 10 }, (_, i) => `<span class="opk-slot ${i < count ? "active" : ""}"></span>`).join("")}</div>`;
+    }
+
+    function safetyNumber(attacking) {
+      const good = "41820 77491 00358 62014 95827 33109 74568 22193 50964 88270 13645 79002";
+      const bad = "41820 77491 00358 62014 95827 99109 74568 22193 50964 88270 13645 79002";
+      return (attacking ? bad : good).split(" ").map(x => `<span>${x}</span>`).join("");
+    }
+
+    function scramble(value) {
+      const chars = "a3f9bc7e012xZ";
+      return Array.from(value || "Hi Bob").map((ch, i) => ch === " " ? " " : chars[(ch.charCodeAt(0) + i * 7) % chars.length]).join("");
+    }
+
+    function renderScene(stepIndex) {
+      switch (stepIndex) {
+        case 0:
+          return baseScene(`<div class="line line--s-b flow-s-b"></div><div class="token-board"><div class="pill-row"><span class="data-pill data-pill--key">IK</span><span class="data-pill data-pill--key">SPK</span><span class="data-pill data-pill--key">10 OPKs</span></div><div class="status">Bob uploads public key bundle</div></div>`);
+        case 1:
+          return baseScene(`<div class="token-board"><div class="counter"><strong>One-Time Pre-Keys available: ${state.opks}</strong>${opkGrid(state.opks)}<span class="${state.opks === 0 ? "status status--danger" : "status"}">${state.opks === 0 ? "OPK supply exhausted by fake sessions" : "Each slot can be used once"}</span></div></div>`);
+        case 2:
+          return baseScene(`<div class="line line--a-s flow-a-s"></div><div class="line line--s-b flow-s-b"></div><div class="token-board"><div class="pill-row"><span class="data-pill data-pill--key">IK_pub</span><span class="data-pill data-pill--key">SPK_pub</span><span class="data-pill data-pill--key">OPK consumed</span></div><div class="status">OPK counter: 10 -> 9</div></div>`);
+        case 3:
+          return baseScene(`<div class="line line--a-b pulse"></div><div class="token-board"><div class="pill-row"><span class="data-pill">DH1 identity</span><span class="data-pill">DH2 secrecy</span><span class="data-pill">DH3 randomness</span><span class="data-pill">DH4 one-time</span></div><div class="data-pill data-pill--key pulse">Shared Key appears on both devices</div></div>`);
+        case 4:
+          return baseScene(`<div class="line line--a-b flow-a-s"></div><div class="token-board"><div class="message-row">${Array.from({ length: Math.max(state.ratchet, 1) }, (_, i) => `<span class="data-pill data-pill--key">MK ${i + 1}</span>`).join("")}</div><div class="status">Ratchet position: ${state.ratchet}</div></div>`);
+        case 5:
+          return baseScene(`<div class="line line--a-s line--danger flow-a-s"></div><div class="line line--s-b line--danger flow-s-b"></div><div class="token-board"><div class="data-pill data-pill--danger">Bob's key replaced by Mallory's key</div><div class="status status--danger">Messages are readable by attacker</div></div>`, { mallory: true });
+        case 6:
+          return baseScene(`<div class="token-board"><div class="safety-number">${safetyNumber(state.attack)}</div><div class="status ${state.attack ? "status--danger" : "status--success"}">${state.attack ? "Mismatch: key substitution detected" : "Match: verified identity keys"}</div></div>`, { mallory: state.attack });
+        case 7:
+          return baseScene(`<div class="token-board"><div class="pill-row"><span class="data-pill data-pill--success">Session 1 verified</span><span class="data-pill ${state.attack ? "data-pill--danger" : "data-pill--key"}">Session 2 key ${state.attack ? "changed" : "unchanged"}</span></div><div class="status ${state.attack ? "status--warning" : "status--success"}">${state.attack ? "Verify before continuing" : "Matches last session"}</div></div>`, { mallory: state.attack });
+        case 8:
+          return baseScene(`<div class="line line--a-s flow-a-s"></div><div class="line line--s-b flow-s-b"></div><div class="token-board"><input class="message-input" id="messageInput" maxlength="60" value="${esc(state.message)}" aria-label="Message to encrypt"><div class="data-pill">Plain: ${esc(state.message || "Hi Bob")}</div><div class="data-pill data-pill--key">Ciphertext: ${esc(scramble(state.message))}</div>${state.message.trim().toLowerCase() === "halonyx" ? '<div class="status status--success pulse">Halonyx mode unlocked</div>' : ""}</div>`);
+        case 9:
+          return baseScene(`<div class="line line--a-s flow-a-s"></div><div class="line line--s-b ${state.bobOnline ? "flow-s-b" : ""}"></div><div class="token-board"><div class="pill-row"><span class="data-pill">encrypted_blob</span><span class="data-pill">${state.bobOnline ? "delivered" : "queued"}</span><span class="data-pill">${state.bobOnline ? "mailbox empty" : "mailbox holds blob"}</span></div><div class="status ${state.bobOnline ? "status--success" : "status--warning"}">${state.bobOnline ? "Bob reconnected: forwarded and deleted" : "Bob offline: server cannot read queued blob"}</div></div>`);
+        case 10:
+          return baseScene(`<div class="line line--direct"></div><div class="data-pill data-pill--key travel-direct" style="position:absolute;z-index:5">file</div><div class="token-board"><div class="status">Server receives magnet URI only</div><div class="status status--warning">Known trade-off: WebRTC can expose IP addresses</div></div>`);
+        case 11:
+          return baseScene(`<div class="token-board" style="width:min(520px,calc(100% - 40px))"><div class="db-row"><div class="db-card"><strong>identity.db</strong><span>name, email</span></div><div class="db-card"><strong>app.db</strong><span>mailbox blobs</span></div><div class="db-card"><strong>keys.db</strong><span>public bundles</span></div></div><div class="status">Linked only by SHA-256(USID)</div></div>`);
+        case 12:
+          return baseScene(`<div class="token-board"><div class="data-pill pulse">256-bit random USID</div><div class="data-pill">SHA-256(USID) stored</div><div class="status">No phone number required for message identity</div></div>`);
+        case 13:
+          return baseScene(`<div class="token-board" style="width:min(560px,calc(100% - 40px))"><div class="db-row"><div class="db-card">X3DH</div><div class="db-card">Double Ratchet</div><div class="db-card">Safety Numbers</div><div class="db-card">Offline Mailbox</div><div class="db-card">P2P Files</div><div class="db-card">USID Identity</div></div><div class="status status--success">A secure system is many protections working together</div></div>`);
+        default:
+          return baseScene();
+      }
+    }
+
+    function renderActions(step) {
+      if (step.action === "replenish") {
+        return `<button class="button button--small" id="drainBtn" type="button">Drain one OPK</button><button class="button button--secondary button--small" id="replenishBtn" type="button">Replenish</button>`;
+      }
+      if (step.action === "ratchet") {
+        return `<button class="button button--small" id="sendRatchetBtn" type="button">Send message</button><span class="status">Each click derives a new message key.</span>`;
+      }
+      if (step.action === "attack") {
+        return `<button class="button button--small" id="attackBtn" type="button">${state.attack ? "Turn attack off" : "Attack mode"}</button>`;
+      }
+      if (step.action === "message") {
+        return `<span class="status">Type inside the scene to watch encryption change.</span>`;
+      }
+      if (step.action === "offline") {
+        return `<button class="button button--small" id="onlineBtn" type="button">${state.bobOnline ? "Make Bob offline" : "Reconnect Bob"}</button>`;
+      }
+      return "";
+    }
+
+    function attachActions() {
+      document.getElementById("drainBtn")?.addEventListener("click", () => {
+        state.opks = Math.max(0, state.opks - 1);
+        render();
+      });
+      document.getElementById("replenishBtn")?.addEventListener("click", () => {
+        state.opks = 10;
+        render();
+      });
+      document.getElementById("sendRatchetBtn")?.addEventListener("click", () => {
+        state.ratchet = Math.min(6, state.ratchet + 1);
+        render();
+      });
+      document.getElementById("attackBtn")?.addEventListener("click", () => {
+        state.attack = !state.attack;
+        render();
+      });
+      document.getElementById("onlineBtn")?.addEventListener("click", () => {
+        state.bobOnline = !state.bobOnline;
+        render();
+      });
+      document.getElementById("messageInput")?.addEventListener("input", event => {
+        state.message = event.target.value;
+        render();
+        const input = document.getElementById("messageInput");
+        input?.focus();
+        input?.setSelectionRange(input.value.length, input.value.length);
+      });
+    }
+
+    function renderDots() {
+      stepDots.innerHTML = STEPS.map((_, i) => `<button class="dot" type="button" data-step="${i}" aria-label="Go to step ${i + 1}" ${i === state.step ? 'aria-current="step"' : ""}></button>`).join("");
+      stepDots.querySelectorAll(".dot").forEach(dot => {
+        dot.addEventListener("click", () => {
+          state.step = Number(dot.dataset.step);
+          render();
+        });
+      });
+    }
+
+    function setMode(mode) {
+      state.mode = mode;
+      beginnerBtn.setAttribute("aria-pressed", String(mode === "beginner"));
+      protocolBtn.setAttribute("aria-pressed", String(mode === "protocol"));
+      render();
+    }
+
+    function showEndToEndFlow() {
+      state.step = 8;
+      state.mode = "protocol";
+      beginnerBtn.setAttribute("aria-pressed", "false");
+      protocolBtn.setAttribute("aria-pressed", "true");
+      detailPanel.open = true;
+      render();
+      document.getElementById("stepTitle")?.scrollIntoView({ block: "center" });
+    }
+
+    function render() {
+      const step = STEPS[state.step];
+      tile.dataset.surface = step.surface;
+      phaseLabel.textContent = step.phase;
+      stepTitle.textContent = step.title;
+      stepLead.textContent = step[state.mode];
+      stepWhy.textContent = "Why this matters: " + step.why;
+      stepActions.innerHTML = renderActions(step);
+      technicalText.textContent = `${step.technical}\n\n${glossaryText}`;
+      scene.innerHTML = renderScene(state.step);
+      stepCounter.textContent = `Step ${state.step + 1} of ${STEPS.length}`;
+      progressFill.style.width = `${((state.step + 1) / STEPS.length) * 100}%`;
+      prevBtn.disabled = state.step === 0;
+      nextBtn.textContent = state.step === STEPS.length - 1 ? "Start over" : "Next";
+      prevBtn.classList.toggle("button--on-dark", step.surface.startsWith("dark"));
+      nextBtn.classList.toggle("button--on-dark", false);
+      renderDots();
+      attachActions();
+    }
+
+    prevBtn.addEventListener("click", () => {
+      if (state.step > 0) {
+        state.step -= 1;
+        render();
+      }
+    });
+
+    nextBtn.addEventListener("click", () => {
+      state.step = state.step === STEPS.length - 1 ? 0 : state.step + 1;
+      render();
+    });
+
+    beginnerBtn.addEventListener("click", () => setMode("beginner"));
+    protocolBtn.addEventListener("click", () => setMode("protocol"));
+    endToEndFlowBtn.addEventListener("click", showEndToEndFlow);
+
+    window.addEventListener("keydown", event => {
+      if (event.target.matches("input, textarea")) return;
+      if (event.key === "ArrowLeft") prevBtn.click();
+      if (event.key === "ArrowRight") nextBtn.click();
+    });
+
+    render();
+  </script>
+</body>
+</html>
