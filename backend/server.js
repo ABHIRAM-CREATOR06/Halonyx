@@ -571,9 +571,77 @@ app.post("/update-pubkey", authenticate, (req, res) => {
   );
 });
 
+// --- UDP Anti-Spam Rate Limiter ---
+class RateBucket {
+  constructor({ windowMs = 60000, maxHits = 5, banAfter = 5, banDurationMs = 300000 } = {}) {
+    this.windowMs = windowMs;
+    this.maxHits = maxHits;
+    this.banAfter = banAfter;          // ban after this many violations
+    this.banDurationMs = banDurationMs; // ban duration (default 5 min)
+    this.hits = new Map();              // key -> [timestamps]
+    this.violations = new Map();        // key -> violation count
+    this.bans = new Map();              // key -> ban expiry timestamp
+  }
+
+  /** Returns true if the request is allowed, false if rate-limited or banned. */
+  allow(key) {
+    const now = Date.now();
+
+    // Check ban
+    const banExpiry = this.bans.get(key);
+    if (banExpiry && now < banExpiry) return false;
+    if (banExpiry && now >= banExpiry) {
+      this.bans.delete(key);
+      this.violations.delete(key);
+    }
+
+    // Sliding window
+    let timestamps = this.hits.get(key) || [];
+    timestamps = timestamps.filter(t => now - t < this.windowMs);
+
+    if (timestamps.length >= this.maxHits) {
+      // Record violation
+      const v = (this.violations.get(key) || 0) + 1;
+      this.violations.set(key, v);
+      if (v >= this.banAfter) {
+        this.bans.set(key, now + this.banDurationMs);
+        console.warn(`[RateBucket] BANNED key="${key}" for ${this.banDurationMs / 1000}s (${v} violations)`);
+      }
+      this.hits.set(key, timestamps);
+      return false;
+    }
+
+    timestamps.push(now);
+    this.hits.set(key, timestamps);
+    return true;
+  }
+
+  isBanned(key) {
+    const banExpiry = this.bans.get(key);
+    if (!banExpiry) return false;
+    if (Date.now() >= banExpiry) {
+      this.bans.delete(key);
+      this.violations.delete(key);
+      return false;
+    }
+    return true;
+  }
+}
+
+// --- UDP Constants (used by both WS bridge and UDP listener) ---
+const UDP_PORT = 9000;
+// Max UDP payload size in bytes
+const UDP_MAX_PAYLOAD = 512;
+// Max content string length inside the JSON payload
+const UDP_MAX_CONTENT_LEN = 200;
+
 // WebSocket for messaging
 const wss = new WebSocket.Server({ server });
 const clients = new Map(); // hashed_usid -> WebSocket
+
+// WS emergency rate limit: 1 emergency broadcast per 60s per user, ban after 3 violations
+const wsEmergencyLimiter = new RateBucket({ windowMs: 60000, maxHits: 1, banAfter: 3, banDurationMs: 300000 });
+
 
 wss.on("connection", (ws) => {
   let userHashedUsid = null;
@@ -723,13 +791,30 @@ wss.on("connection", (ws) => {
       }
 
       if (data.type === "emergency_broadcast") {
+        if (!userHashedUsid) {
+          ws.send(JSON.stringify({ type: "error", message: "Not registered — cannot send emergency" }));
+          return;
+        }
+
+        // --- WS→UDP rate limit: 1 emergency per 60s per user ---
+        if (!wsEmergencyLimiter.allow(userHashedUsid)) {
+          console.warn(`[WS->UDP] RATE-LIMITED emergency from ${userHashedUsid.substring(0, 8)}`);
+          ws.send(JSON.stringify({ type: "error", message: "Emergency cooldown active — please wait before sending another" }));
+          return;
+        }
+
+        // Sanitize content
+        const emergencyContent = data.content && typeof data.content === "string"
+          ? data.content.substring(0, UDP_MAX_CONTENT_LEN)
+          : "EMERGENCY: Immediate assistance required!";
+
         console.log(
-          `[WS->UDP] Emergency from ${userHashedUsid?.substring(0, 8)}`,
+          `[WS->UDP] Emergency from ${userHashedUsid.substring(0, 8)}`,
         );
         const udpMessage = Buffer.from(
           JSON.stringify({
-            content: data.content,
-            from: userHashedUsid || "Anonymous",
+            content: emergencyContent,
+            from: userHashedUsid,
             token: "INTERNAL_UDP_SECRET"
           }),
         );
@@ -753,30 +838,70 @@ wss.on("connection", (ws) => {
 });
 
 // --- UDP Group Messaging Bridge ---
-const UDP_PORT = 9000;
 const udpServer = dgram.createSocket("udp4");
 
+// UDP limits: 1 message per 30s per source IP, auto-ban after 5 violations (5 min ban)
+const udpPerIpLimiter = new RateBucket({ windowMs: 30000, maxHits: 1, banAfter: 5, banDurationMs: 300000 });
+// Global UDP limit: max 5 messages per minute across ALL sources
+const udpGlobalLimiter = new RateBucket({ windowMs: 60000, maxHits: 5, banAfter: 999, banDurationMs: 0 });
+
 udpServer.on("message", (msg, rinfo) => {
+  const srcKey = `${rinfo.address}:${rinfo.port}`;
+
+  // --- Guard 1: Payload size ---
+  if (msg.length > UDP_MAX_PAYLOAD) {
+    console.warn(`[UDP] REJECTED oversized packet (${msg.length}B) from ${srcKey}`);
+    return;
+  }
+
+  // --- Guard 2: Per-IP rate limit ---
+  if (!udpPerIpLimiter.allow(rinfo.address)) {
+    console.warn(`[UDP] RATE-LIMITED ${srcKey} (per-IP)`);
+    return;
+  }
+
+  // --- Guard 3: Global rate limit ---
+  if (!udpGlobalLimiter.allow("__global__")) {
+    console.warn(`[UDP] RATE-LIMITED (global cap reached)`);
+    return;
+  }
+
   try {
     const data = JSON.parse(msg.toString());
+
+    // --- Guard 4: Token validation ---
     if (data.token !== "INTERNAL_UDP_SECRET") {
-      console.warn("[UDP] Unauthorized broadcast attempt rejected");
+      console.warn(`[UDP] Unauthorized broadcast attempt from ${srcKey}`);
       return;
     }
+
+    // --- Guard 5: Content validation ---
+    if (!data.content || typeof data.content !== "string" || data.content.trim().length === 0) {
+      console.warn(`[UDP] REJECTED empty/invalid content from ${srcKey}`);
+      return;
+    }
+    if (data.content.length > UDP_MAX_CONTENT_LEN) {
+      console.warn(`[UDP] REJECTED oversized content (${data.content.length} chars) from ${srcKey}`);
+      return;
+    }
+
     const broadcastData = JSON.stringify({
       type: "emergency_broadcast",
-      content: data.content,
-      from: data.from,
+      content: data.content.substring(0, UDP_MAX_CONTENT_LEN),
+      from: data.from ? String(data.from).substring(0, 64) : "unknown",
       timestamp: new Date().toISOString(),
     });
 
+    let delivered = 0;
     clients.forEach((clientWs) => {
       if (clientWs.readyState === WebSocket.OPEN) {
         clientWs.send(broadcastData);
+        delivered++;
       }
     });
+    console.log(`[UDP] Broadcast delivered to ${delivered} client(s) from ${srcKey}`);
   } catch (e) {
-    console.error("[UDP] Error processing message:", e);
+    console.error(`[UDP] Malformed packet from ${srcKey}:`, e.message);
   }
 });
 

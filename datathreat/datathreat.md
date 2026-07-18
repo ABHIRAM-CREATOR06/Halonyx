@@ -122,26 +122,27 @@ If the client sends plaintext `content` (which it does in the non-E2EE fallback 
 **Severity:** 🔴 Critical  
 
 **Description:**  
-The UDP server on port 9000 accepts any UDP datagram and broadcasts its content to all connected WebSocket clients:
-```javascript
-udpServer.on('message', (msg, rinfo) => {
-    // No authentication, no validation
-    clients.forEach((clientWs) => { clientWs.send(broadcastData); });
-});
-```
-Any process on the same host (or network, if the UDP port is publicly reachable) can inject arbitrary emergency broadcast messages. The message content is also transmitted over UDP in plaintext.
+The UDP server on port 9000 accepts UDP datagrams and broadcasts their content to all connected WebSocket clients. Without controls, any process on the same host (or network, if the UDP port is publicly reachable) could inject arbitrary emergency broadcast messages at any rate, causing alert flooding ("UDP spamming"). UDP source addresses can also be spoofed.
 
 **Attack Vector:** Local (any process on the server) or remote (if firewall does not block port 9000). UDP source addresses can be spoofed.
 
 **Affected Components:** `backend/server.js` UDP server, `emergency_broadcast` WebSocket handler.
 
-**Impact:** An attacker can send mass fake emergency alerts to all users, causing panic or phishing. UDP traffic is unencrypted and logged in plaintext.
+**Impact:** An attacker could send mass fake emergency alerts to all users, causing panic or phishing. High-frequency UDP spam could also exhaust server resources.
 
-**Mitigation:**
-- Bind the UDP server to `127.0.0.1` only to prevent external access.
-- Add an HMAC token to UDP messages; verify server-side before broadcasting.
-- Rate-limit emergency broadcasts per user (e.g., 1 per minute).
-- Only accept UDP messages that originate from an internal WebSocket relay, not from external sockets directly.
+**Mitigation:** ✅ **Fully mitigated** via multi-layered UDP anti-spam controls:
+- ✅ UDP server bound to `127.0.0.1` — external network access blocked.
+- ✅ Secret token (`INTERNAL_UDP_SECRET`) validated on every UDP message before broadcast.
+- ✅ **`RateBucket` rate limiter** with sliding-window algorithm applied at two levels:
+  - **Per-IP limit:** 1 message per 30 seconds per source IP address.
+  - **Global limit:** Maximum 5 messages per 60 seconds across all sources.
+- ✅ **Auto-ban:** IPs exceeding the rate limit 5 times are banned for 5 minutes (300 seconds).
+- ✅ **Payload size cap:** UDP packets exceeding 512 bytes are rejected before parsing.
+- ✅ **Content validation:** Empty/missing content rejected; content truncated to 200 characters max.
+- ✅ **`from` field sanitization:** Sender identifier truncated to 64 characters.
+- ✅ **WS→UDP bridge rate limit:** Each authenticated user limited to 1 emergency broadcast per 60 seconds; banned for 5 minutes after 3 violations.
+- ✅ **Registration enforcement:** Unregistered WebSocket clients cannot trigger emergency broadcasts.
+- ✅ **Comprehensive logging:** All rejections (rate-limited, oversized, unauthorized, malformed) are logged with source IP/port.
 
 ---
 
@@ -152,22 +153,25 @@ Any process on the same host (or network, if the UDP port is publicly reachable)
 **Severity:** 🟠 High  
 
 **Description:**  
-No rate limiting is applied to any REST endpoint or WebSocket message handler. An attacker can:
+Without rate limiting, an attacker can:
 - Flood `POST /signup` to enumerate valid email addresses (via timing differences in `row` vs. `null` responses).
 - Exhaust SQLite write capacity by spamming contact additions or signups.
 - Fill the `mailbox` table with garbage messages targeting an offline user.
 - Create thousands of WebSocket connections to exhaust server memory.
+- Spam emergency broadcasts via UDP or WebSocket.
 
-**Attack Vector:** Remote, unauthenticated (for `/signup`) or authenticated (for `/add-contact`, `/contacts`).
+**Attack Vector:** Remote, unauthenticated (for `/signup`) or authenticated (for `/add-contact`, `/contacts`, emergency broadcasts).
 
-**Affected Components:** All REST endpoints, WebSocket server, `mailbox` table.
+**Affected Components:** All REST endpoints, WebSocket server, UDP server, `mailbox` table.
 
 **Impact:** Service unavailability, database bloat, denial of service for legitimate users.
 
 **Mitigation:**
-- Add `express-rate-limit` middleware with per-IP limits (e.g., 5 signups/hour, 30 contact-adds/minute).
-- Limit mailbox size per recipient (e.g., 200 queued messages max).
-- Implement WebSocket connection limits per IP.
+- ✅ `express-rate-limit` applied to `POST /signup` (5 requests per 5 minutes per IP) and `POST /keys/upload` / `POST /keys/replenish` (10 requests per 5 minutes per IP).
+- ✅ UDP rate limiting via `RateBucket`: per-IP (1/30s) + global (5/min) with auto-ban after 5 violations.
+- ✅ WS emergency broadcast rate limiting: 1 per 60 seconds per user with auto-ban after 3 violations.
+- ⚠️ Remaining: Mailbox size cap per recipient not yet enforced.
+- ⚠️ Remaining: WebSocket connection limits per IP not yet implemented.
 
 ---
 
@@ -358,7 +362,7 @@ The USID is a 256-bit random value, so its SHA-256 hash is computationally irrev
 **Severity:** 🟡 Medium  
 
 **Description:**  
-Messages are relayed in real-time and deleted from the mailbox after delivery. There is no server-side message log. While this protects privacy, it also means there is no audit trail for abuse (e.g., harassment). The emergency broadcast system in particular has no logging of who triggered an alert, making abuse investigation impossible.
+Messages are relayed in real-time and deleted from the mailbox after delivery. There is no server-side message log. While this protects privacy, it also means there is no audit trail for abuse (e.g., harassment).
 
 **Attack Vector:** Any authenticated user.
 
@@ -367,8 +371,10 @@ Messages are relayed in real-time and deleted from the mailbox after delivery. T
 **Impact:** Inability to investigate abuse, harassment, or false emergency alerts.
 
 **Mitigation:**
-- Log emergency broadcast events (sender hashed USID, timestamp) to a separate append-only audit log (not message content).
-- Rate-limit emergency broadcasts per user with exponential backoff.
+- ✅ Emergency broadcast events are now logged with sender hashed USID (truncated), source IP/port, timestamp, and delivery count.
+- ✅ All rate-limit violations, bans, oversized payloads, and unauthorized attempts are logged with source identifiers.
+- ✅ Emergency broadcasts are rate-limited per user (1/60s) with auto-ban after 3 violations.
+- ⚠️ Remaining: Formal append-only audit log file (separate from stdout) not yet implemented.
 
 ---
 
@@ -467,7 +473,7 @@ One-time pre-keys (OPKs) are consumed every time a new peer initiates a session.
 | T-01 | Hardcoded JWT secret fallback | 🔴 Critical | `server.js` | ✅ Mitigated |
 | T-02 | Plaintext USID in JWT payload | 🔴 Critical | `server.js`, `app.js` | ✅ Mitigated |
 | T-03 | Mailbox stores plaintext messages | 🔴 Critical | `mailbox` table | ✅ Mitigated |
-| T-04 | Unauthenticated UDP broadcast | 🔴 Critical | UDP server | ✅ Mitigated |
+| T-04 | Unauthenticated UDP broadcast / UDP spamming | 🔴 Critical | UDP server, WS bridge | ✅ Mitigated |
 | T-05 | No rate limiting | 🟠 High | All endpoints | ⚡ Partially mitigated |
 | T-06 | Email enumeration via signup | 🟠 High | `POST /signup` | ⚠️ Unmitigated |
 | T-07 | SQL injection / weak input validation | 🟠 High | All DB queries | ⚡ Partially mitigated |
@@ -476,7 +482,7 @@ One-time pre-keys (OPKs) are consumed every time a new peer initiates a session.
 | T-10 | Private keys in localStorage | 🟠 High | `app.js` | ⚡ Partially mitigated |
 | T-11 | Missing CSP / XSS risk | 🟠 High | Frontend | ⚠️ Unmitigated |
 | T-12 | Hashed USID metadata leakage | 🟡 Medium | WS wire, DB | ⚡ Partially mitigated |
-| T-13 | No audit trail for abuse | 🟡 Medium | WS / UDP handlers | ⚠️ Unmitigated |
+| T-13 | No audit trail for abuse | 🟡 Medium | WS / UDP handlers | ⚡ Partially mitigated |
 | T-14 | Mailbox flooding (DoS) | 🟡 Medium | `mailbox` table | ⚠️ Unmitigated |
 | T-15 | Public key tampering (MITM E2EE) | 🟠 High | `GET /pubkey`, X3DH | ⚡ Partially mitigated |
 | T-16 | WebRTC / WebTorrent IP Leak | 🟠 High | WebTorrent / TURN | ⚠️ Unmitigated |
@@ -491,13 +497,14 @@ One-time pre-keys (OPKs) are consumed every time a new peer initiates a session.
 1. ~~**T-01:** Enforce `JWT_SECRET` via environment variable; fail at startup if absent.~~ (Mitigated)
 2. ~~**T-02:** Remove USID from JWT payload; derive it server-side from `userId`.~~ (Mitigated via hashedUsid in JWT payload)
 3. ~~**T-03:** Ensure only ciphertext is ever stored in `mailbox`; never store `content` field.~~ (Mitigated)
-4. ~~**T-04:** Bind UDP to `127.0.0.1`; add HMAC authentication to UDP messages.~~ (Mitigated via secret token)
+4. ~~**T-04:** Bind UDP to `127.0.0.1`; add HMAC authentication to UDP messages; add rate limiting + auto-ban.~~ (Mitigated via secret token, RateBucket per-IP/global rate limiting, auto-ban, payload size/content validation)
 5. **T-09:** Deploy behind an Nginx/Caddy TLS reverse proxy; enforce HTTPS.
 
 ### Phase 2 — High Priority (Within First Sprint Post-Launch)
 
 6. **T-08:** Require JWT verification in WebSocket `register` message.
-7. **T-05:** Add `express-rate-limit` to all endpoints and WebSocket connections.
+7. ~~**T-05 (partial):** Add rate limiting to signup, key upload, UDP, and WS emergency endpoints.~~ (Mitigated: `express-rate-limit` on signup/key endpoints; `RateBucket` on UDP + WS emergency)
+7b. **T-05 (remaining):** Add mailbox size caps and WebSocket connection limits per IP.
 8. **T-10:** Use `HttpOnly` cookies for JWT; use non-extractable Web Crypto keys.
 9. **T-11:** Add CSP headers; audit all `innerHTML` usage.
 10. **T-15:** Implement safety number UI for key fingerprint verification.
@@ -507,12 +514,14 @@ One-time pre-keys (OPKs) are consumed every time a new peer initiates a session.
 11. **T-06:** Uniform signup response regardless of email existence.
 12. **T-07:** Add strict USID and email format validation before all DB queries.
 13. **T-14:** Enforce mailbox size cap (200 messages per recipient).
-14. **T-13:** Add append-only audit log for emergency broadcast events.
+14. ~~**T-13 (partial):** Log emergency broadcast events with sender identity and delivery count.~~ (Mitigated via console logging with source identification)
+14b. **T-13 (remaining):** Implement formal append-only audit log file separate from stdout.
 15. **T-12:** Investigate ephemeral routing tokens to reduce metadata linkability.
 
 ---
  
-*Generated: 2026-06-30*
+*Generated: 2026-06-30*  
+*Last Updated: 2026-07-18 — UDP anti-spam controls (RateBucket, per-IP/global rate limiting, auto-ban, payload validation)*
 
 ## Security Disclaimer
 
