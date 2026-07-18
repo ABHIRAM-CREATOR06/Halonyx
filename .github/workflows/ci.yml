@@ -24,7 +24,7 @@ jobs:
         run: npm ci
 
       - name: Verify sqlite3 native binding
-        run: node scripts/verify-sqlite.js
+        run: node tests/verify-sqlite.js
 
       - name: Run test suite
         run: npm test
