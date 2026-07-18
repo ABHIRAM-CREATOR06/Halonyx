@@ -330,13 +330,15 @@ class SignalProtocol {
 
   /**
    * Convert 30 raw bytes to 12 groups of 5 digits.
-   * Each group: 5 bytes → interpret as big-endian uint40 → mod 100 000.
+   * Each group is derived from a rolling 4-byte window → mod 100 000.
    */
   _formatSafetyNumber(bytes) {
     const groups = [];
-    for (let i = 0; i < 30; i += 5) {
+    for (let i = 0; i < 12; i++) {
       let val = 0;
-      for (let j = i; j < i + 5; j++) val = val * 256 + bytes[j];
+      for (let j = 0; j < 4; j++) {
+        val = val * 256 + bytes[(i * 2 + j) % bytes.length];
+      }
       groups.push(String(Math.abs(val % 100000)).padStart(5, '0'));
     }
     // Return as 4 rows of 3 groups for display
