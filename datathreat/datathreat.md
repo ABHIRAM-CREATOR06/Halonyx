@@ -1,15 +1,14 @@
 # Halonyx — Data Threat Model
 
-**Project:** Halonyx Secure Messaging Application  
-**Document Type:** Data Threat Analysis  
-**Date:** 2026-05-11  
- 
+**Project:** Halonyx Secure Messaging Application
+**Document Type:** Data Threat Analysis
+**Date:** 2026-07-18
 
 ---
 
 ## 1. Overview
 
-This document identifies and analyzes data threats applicable to the Halonyx secure messaging system. It covers threats to data confidentiality, integrity, availability, and authenticity across all layers — frontend (browser), backend (Node.js/Express), transport (WebSocket/UDP/HTTP), and storage (SQLite databases). Each threat is mapped to its attack vector, affected components, severity, and recommended mitigations.
+This document identifies and analyzes data threats applicable to the Halonyx secure messaging system. It covers threats to data confidentiality, integrity, availability, and authenticity across all layers — frontend (browser), backend (Node.js/Express), transport (WebSocket/UDP/HTTP), storage (SQLite databases), and the dependency supply chain. Each threat is mapped to its attack vector, affected components, severity, and recommended mitigations.
 
 ---
 
@@ -30,6 +29,7 @@ This document identifies and analyzes data threats applicable to the Halonyx sec
 | Public key bundle | `keys.db`, `app.db`, API | **Low** | Public by design; integrity matters more than confidentiality |
 | Mailbox messages (offline) | `app.db / mailbox` table | **High** | Stored unencrypted on server for offline delivery |
 | UDP broadcast content | Network (plaintext UDP) | **High** | Emergency messages sent as cleartext over UDP |
+| Third-party dependency code | `node_modules` | **Medium–High** | Transitive packages executing with full server/client privileges |
 
 ---
 
@@ -37,16 +37,16 @@ This document identifies and analyzes data threats applicable to the Halonyx sec
 
 ### 3.1 Threat T-01 — Hardcoded JWT Secret
 
-**Category:** Authentication / Credential Exposure  
-**STRIDE:** Spoofing, Elevation of Privilege  
-**Severity:** 🔴 Critical  
+**Category:** Authentication / Credential Exposure
+**STRIDE:** Spoofing, Elevation of Privilege
+**Severity:** 🔴 Critical
 
-**Description:**  
-`backend/server.js` contains:
+**Description:**
+`backend/server.js` contained:
 ```javascript
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 ```
-If the `JWT_SECRET` environment variable is not set (e.g., during development or a misconfigured deployment), the application falls back to the literal string `'your-secret-key'`. An attacker who knows this default can forge arbitrary JWT tokens for any `userId` and `usid`, gaining full authenticated access to the REST API and WebSocket server without credentials.
+If the `JWT_SECRET` environment variable is not set (e.g., during development or a misconfigured deployment), the application fell back to the literal string `'your-secret-key'`. An attacker who knows this default can forge arbitrary JWT tokens for any `userId` and `usid`, gaining full authenticated access to the REST API and WebSocket server without credentials.
 
 **Attack Vector:** Remote. The attacker crafts a JWT signed with `'your-secret-key'` and submits it to any authenticated endpoint (`/add-contact`, `/contacts`, `/pubkey`, etc.).
 
@@ -54,25 +54,22 @@ If the `JWT_SECRET` environment variable is not set (e.g., during development or
 
 **Impact:** Complete authentication bypass. Attacker can impersonate any user, read contact lists, inject contacts, and access public key bundles.
 
-**Mitigation:**
-- Use a cryptographically random 256-bit fallback value (`openssl rand -hex 32`) as the default JWT secret.
-- Optionally override via `JWT_SECRET` environment variable in production deployments.
-- Rotate JWT secret periodically and invalidate old tokens.
+**Mitigation:** ✅ **Mitigated.** The fallback secret is now generated via `crypto.randomBytes(32).toString('hex')` at boot when `JWT_SECRET` is unset, replacing the hardcoded string. Production deployments should still set `JWT_SECRET` explicitly, since a randomly generated secret rotates on every restart and invalidates existing sessions.
 
 ---
 
 ### 3.2 Threat T-02 — Plaintext USID in JWT Payload
 
-**Category:** Privacy / Information Disclosure  
-**STRIDE:** Information Disclosure  
-**Severity:** 🔴 Critical  
+**Category:** Privacy / Information Disclosure
+**STRIDE:** Information Disclosure
+**Severity:** 🔴 Critical
 
-**Description:**  
-The JWT token is created with:
+**Description:**
+The JWT token was created with:
 ```javascript
 jwt.sign({ userId: row.id, usid }, JWT_SECRET)
 ```
-The raw plaintext USID is embedded in the JWT payload. JWTs are Base64-encoded, not encrypted — anyone who can read the token (e.g., from `localStorage`, browser history, server logs, or a network MitM) obtains the plaintext USID. Since the USID is the master secret used to derive all other identifiers, its exposure nullifies the privacy model.
+The raw plaintext USID was embedded in the JWT payload. JWTs are Base64-encoded, not encrypted — anyone who can read the token (e.g., from `localStorage`, browser history, server logs, or a network MitM) obtains the plaintext USID. Since the USID is the master secret used to derive all other identifiers, its exposure nullifies the privacy model.
 
 **Attack Vector:** Local (malicious browser extension, XSS) or network (traffic interception if HTTPS is absent).
 
@@ -80,26 +77,23 @@ The raw plaintext USID is embedded in the JWT payload. JWTs are Base64-encoded, 
 
 **Impact:** Full identity compromise. Attacker can authenticate as the victim by using the USID to register a WebSocket connection or compute the hashed USID to impersonate the victim.
 
-**Mitigation:**
-- Store only `userId` in the JWT; look up the USID from the database server-side on authenticated requests.
-- Never include secrets in JWT payloads unless the token is encrypted (JWE, not JWS).
-- Use HttpOnly session cookies instead of `localStorage` for the JWT to prevent XSS theft.
+**Mitigation:** ✅ **Mitigated.** Tokens now carry `hashedUsid` instead of the raw USID (`jwt.sign({ userId, hashedUsid }, ...)`). All REST endpoint handlers reading `req.user.usid` were updated to `req.user.hashedUsid`.
 
 ---
 
 ### 3.3 Threat T-03 — Offline Mailbox Stores Messages in Plaintext
 
-**Category:** Data at Rest / Confidentiality  
-**STRIDE:** Information Disclosure  
-**Severity:** 🔴 Critical  
+**Category:** Data at Rest / Confidentiality
+**STRIDE:** Information Disclosure
+**Severity:** 🔴 Critical
 
-**Description:**  
-When a recipient is offline, the server stores the message in the `mailbox` table:
+**Description:**
+When a recipient was offline, the server stored the message in the `mailbox` table:
 ```javascript
 const storeContent = content || '[encrypted message]';
 db.run('INSERT INTO mailbox (..., content) VALUES (?, ?, ?)', [to, userHashedUsid, storeContent]);
 ```
-If the client sends plaintext `content` (which it does in the non-E2EE fallback path), the server stores readable message text in SQLite. Even for encrypted messages, the fallback is `'[encrypted message]'` — indicating the server may store either plaintext or a lossless indicator. Any attacker with read access to `app.db` can read all queued messages for offline users.
+If the client sent plaintext `content` (which it did in the non-E2EE fallback path), the server stored readable message text in SQLite. Any attacker with read access to `app.db` could read all queued messages for offline users.
 
 **Attack Vector:** Physical database file access, SQL injection, or compromised server.
 
@@ -107,22 +101,22 @@ If the client sends plaintext `content` (which it does in the non-E2EE fallback 
 
 **Impact:** Mass message confidentiality breach for all users who were offline at the time of message sending. Defeats the end-to-end encryption model.
 
-**Mitigation:**
-- Enforce that only ciphertext (the `encrypted` field) is ever stored in the mailbox.
-- Reject and drop any `content` field before storage; log a warning.
-- Apply SQLite encryption at rest (e.g., SQLCipher) to protect the database file.
-- Define and enforce a mailbox message TTL (e.g., 7 days) with automatic deletion.
+**Mitigation:** ✅ **Mitigated.** The offline message delivery logic now explicitly rejects any payload carrying a `content` field or missing an `encrypted` field. The mailbox table is strictly constrained to store only sender-marked ciphertext; unencrypted messages are dropped, and a warning is logged.
+
+**Remaining:**
+- SQLite encryption at rest (e.g., SQLCipher) not yet applied to the database file.
+- Mailbox message TTL / automatic deletion policy not yet defined.
 
 ---
 
 ### 3.4 Threat T-04 — UDP Emergency Broadcast Is Unauthenticated and Plaintext
 
-**Category:** Integrity / Spoofing / Information Disclosure  
-**STRIDE:** Spoofing, Tampering, Information Disclosure  
-**Severity:** 🔴 Critical  
+**Category:** Integrity / Spoofing / Information Disclosure
+**STRIDE:** Spoofing, Tampering, Information Disclosure
+**Severity:** 🔴 Critical
 
-**Description:**  
-The UDP server on port 9000 accepts UDP datagrams and broadcasts their content to all connected WebSocket clients. Without controls, any process on the same host (or network, if the UDP port is publicly reachable) could inject arbitrary emergency broadcast messages at any rate, causing alert flooding ("UDP spamming"). UDP source addresses can also be spoofed.
+**Description:**
+The UDP server on port 9000 accepted UDP datagrams and broadcast their content to all connected WebSocket clients. Without controls, any process on the same host (or network, if the UDP port was publicly reachable) could inject arbitrary emergency broadcast messages at any rate, causing alert flooding ("UDP spamming"). UDP source addresses can also be spoofed.
 
 **Attack Vector:** Local (any process on the server) or remote (if firewall does not block port 9000). UDP source addresses can be spoofed.
 
@@ -148,11 +142,11 @@ The UDP server on port 9000 accepts UDP datagrams and broadcasts their content t
 
 ### 3.5 Threat T-05 — No Rate Limiting on Any Endpoint
 
-**Category:** Availability / Abuse  
-**STRIDE:** Denial of Service  
-**Severity:** 🟠 High  
+**Category:** Availability / Abuse
+**STRIDE:** Denial of Service
+**Severity:** 🟠 High
 
-**Description:**  
+**Description:**
 Without rate limiting, an attacker can:
 - Flood `POST /signup` to enumerate valid email addresses (via timing differences in `row` vs. `null` responses).
 - Exhaust SQLite write capacity by spamming contact additions or signups.
@@ -177,11 +171,11 @@ Without rate limiting, an attacker can:
 
 ### 3.6 Threat T-06 — Email Address Enumeration via Signup Endpoint
 
-**Category:** Privacy / Information Disclosure  
-**STRIDE:** Information Disclosure  
-**Severity:** 🟠 High  
+**Category:** Privacy / Information Disclosure
+**STRIDE:** Information Disclosure
+**Severity:** 🟠 High
 
-**Description:**  
+**Description:**
 `POST /signup` returns different responses and has different response times depending on whether an email already exists:
 - Existing email → `UPDATE` path (slightly slower, message: `"Identity re-verified"`)
 - New email → `INSERT` path (message: `"Account created"`)
@@ -199,15 +193,17 @@ An attacker can probe the endpoint with candidate email addresses and determine 
 - Add consistent artificial delay to equalize response times.
 - Require email verification before revealing registration status.
 
+**Status:** ⚠️ Unmitigated.
+
 ---
 
 ### 3.7 Threat T-07 — SQL Injection via Unvalidated USID Input
 
-**Category:** Injection / Data Integrity  
-**STRIDE:** Tampering, Information Disclosure  
-**Severity:** 🟠 High  
+**Category:** Injection / Data Integrity
+**STRIDE:** Tampering, Information Disclosure
+**Severity:** 🟠 High
 
-**Description:**  
+**Description:**
 Most database queries use parameterized statements, which is good. However, the USID and email inputs receive only basic validation:
 ```javascript
 if (!email || !email.includes('@')) ...
@@ -231,15 +227,17 @@ While this specific instance is safe (integer IDs, parameterized), the pattern i
 - Validate email with a proper RFC 5322 regex or a library like `validator.js`.
 - Audit all dynamic SQL construction; enforce a linting rule against string-interpolated queries.
 
+**Status:** ⚡ Partially mitigated.
+
 ---
 
 ### 3.8 Threat T-08 — WebSocket Identity Hijacking (Unauthenticated Registration)
 
-**Category:** Authentication / Spoofing  
-**STRIDE:** Spoofing  
-**Severity:** 🟠 High  
+**Category:** Authentication / Spoofing
+**STRIDE:** Spoofing
+**Severity:** 🟠 High
 
-**Description:**  
+**Description:**
 WebSocket registration requires only a USID in the `register` message. No JWT or session token is checked:
 ```javascript
 if (data.type === 'register') {
@@ -260,15 +258,17 @@ If an attacker obtains another user's plaintext USID (via T-02 or other leakage)
 - Require a JWT token in the WebSocket `register` message and verify it server-side before adding to the `clients` Map.
 - Reject duplicate registrations for the same hashed USID (or evict old with a challenge).
 
+**Status:** ⚠️ Unmitigated.
+
 ---
 
 ### 3.9 Threat T-09 — Missing HTTPS / TLS Enforcement
 
-**Category:** Transport Security  
-**STRIDE:** Information Disclosure, Tampering  
-**Severity:** 🟠 High  
+**Category:** Transport Security
+**STRIDE:** Information Disclosure, Tampering
+**Severity:** 🟠 High
 
-**Description:**  
+**Description:**
 The server is configured to listen on HTTP (`http.createServer(app)`) on port 3000 with no TLS. WebSocket connections use `ws://` (unencrypted) rather than `wss://`. While message content is end-to-end encrypted, metadata — hashed USIDs, timestamps, contact lookups, public key bundles, JWT tokens — is transmitted in cleartext. An adversary on the network path can perform:
 - Passive surveillance of communication metadata.
 - Active MitM to inject or replay API responses.
@@ -286,16 +286,18 @@ The server is configured to listen on HTTP (`http.createServer(app)`) on port 30
 - Set `Strict-Transport-Security` (HSTS) header.
 - **Note:** Mitigated in production deployment (Render terminates TLS at edge). Unmitigated for self-hosted deployments without a reverse proxy.
 
+**Status:** ⚡ Partially mitigated.
+
 ---
 
 ### 3.10 Threat T-10 — Private Keys Stored in Browser localStorage (Persistence Risk)
 
-**Category:** Key Material Exposure  
-**STRIDE:** Information Disclosure  
-**Severity:** 🟠 High  
+**Category:** Key Material Exposure
+**STRIDE:** Information Disclosure
+**Severity:** 🟠 High
 
-**Description:**  
-The frontend uses `localStorage` for the JWT token and USID (`localStorage.getItem('token')`, `localStorage.getItem('usid')`). The Signal Protocol private keys may also be persisted to IndexedDB or localStorage for session resumption. `localStorage` is accessible to any JavaScript running on the same origin, making it a target for XSS attacks. Additionally, it persists across browser restarts and is often included in browser backups or sync.
+**Description:**
+The frontend uses `localStorage` for the JWT token and USID (`localStorage.getItem('token')`, `localStorage.getItem('usid')`). The Signal Protocol private keys may also be persisted for session resumption. `localStorage` is accessible to any JavaScript running on the same origin, making it a target for XSS attacks. Additionally, it persists across browser restarts and is often included in browser backups or sync.
 
 **Attack Vector:** XSS, malicious browser extensions, physical access to device, browser sync compromise.
 
@@ -309,15 +311,17 @@ The frontend uses `localStorage` for the JWT token and USID (`localStorage.getIt
 - Implement an idle timeout that clears sensitive state from memory.
 - **Note:** Partially mitigated. Signal Protocol private keys are stored as non-exportable `CryptoKey` objects in IndexedDB. JWT and USID in `localStorage` remain an issue.
 
+**Status:** ⚡ Partially mitigated.
+
 ---
 
 ### 3.11 Threat T-11 — Missing Content Security Policy (XSS Risk)
 
-**Category:** Injection  
-**STRIDE:** Tampering, Information Disclosure  
-**Severity:** 🟠 High  
+**Category:** Injection
+**STRIDE:** Tampering, Information Disclosure
+**Severity:** 🟠 High
 
-**Description:**  
+**Description:**
 The server has no Content Security Policy (CSP) header. The frontend loads protocol scripts via `/protocol/*` dynamically. Without a CSP, any XSS vulnerability in the SPA would allow injected scripts to access `localStorage` (JWT, USID), intercept WebSocket messages, and exfiltrate cryptographic key material.
 
 **Attack Vector:** Reflected or stored XSS in user-controlled input fields (display name, message content rendered via `innerHTML`).
@@ -331,15 +335,17 @@ The server has no Content Security Policy (CSP) header. The frontend loads proto
 - Audit all DOM writes for `innerHTML` usage; replace with `textContent` or `createElement`.
 - Sanitize all user-supplied content before rendering.
 
+**Status:** ⚠️ Unmitigated.
+
 ---
 
 ### 3.12 Threat T-12 — SHA-256 Hashed USID Is a Weak Pseudonym
 
-**Category:** Privacy / Anonymity  
-**STRIDE:** Information Disclosure  
-**Severity:** 🟡 Medium  
+**Category:** Privacy / Anonymity
+**STRIDE:** Information Disclosure
+**Severity:** 🟡 Medium
 
-**Description:**  
+**Description:**
 The USID is a 256-bit random value, so its SHA-256 hash is computationally irreversible. However, the hashed USID is used as a routing identifier on the wire and stored in the database. If an attacker can observe network traffic (see T-09) they can build a social graph of who communicates with whom based on hashed USIDs, even without decrypting message content. Hashed USIDs are also returned verbatim from `GET /contacts`.
 
 **Attack Vector:** Network traffic analysis, database read access.
@@ -353,15 +359,17 @@ The USID is a 256-bit random value, so its SHA-256 hash is computationally irrev
 - Do not return contact hashed USIDs directly from `GET /contacts`; return opaque client-side names.
 - Consider onion-style routing or mix-net for metadata protection.
 
+**Status:** ⚡ Partially mitigated.
+
 ---
 
 ### 3.13 Threat T-13 — No Message Persistence / Audit Integrity
 
-**Category:** Integrity / Non-Repudiation  
-**STRIDE:** Repudiation  
-**Severity:** 🟡 Medium  
+**Category:** Integrity / Non-Repudiation
+**STRIDE:** Repudiation
+**Severity:** 🟡 Medium
 
-**Description:**  
+**Description:**
 Messages are relayed in real-time and deleted from the mailbox after delivery. There is no server-side message log. While this protects privacy, it also means there is no audit trail for abuse (e.g., harassment).
 
 **Attack Vector:** Any authenticated user.
@@ -376,15 +384,17 @@ Messages are relayed in real-time and deleted from the mailbox after delivery. T
 - ✅ Emergency broadcasts are rate-limited per user (1/60s) with auto-ban after 3 violations.
 - ⚠️ Remaining: Formal append-only audit log file (separate from stdout) not yet implemented.
 
+**Status:** ⚡ Partially mitigated.
+
 ---
 
 ### 3.14 Threat T-14 — Denial of Service via Mailbox Flooding
 
-**Category:** Availability  
-**STRIDE:** Denial of Service  
-**Severity:** 🟡 Medium  
+**Category:** Availability
+**STRIDE:** Denial of Service
+**Severity:** 🟡 Medium
 
-**Description:**  
+**Description:**
 Any authenticated user can send unlimited messages to an offline recipient. Each message is inserted into the `mailbox` table with no size or count cap. An attacker can fill the SQLite database (and thus disk) by sending millions of messages to a target user's hashed USID.
 
 **Attack Vector:** Remote, authenticated.
@@ -398,15 +408,17 @@ Any authenticated user can send unlimited messages to an offline recipient. Each
 - Return an error to the sender and drop excess messages.
 - Add a TTL index to auto-expire old mailbox entries.
 
+**Status:** ⚠️ Unmitigated.
+
 ---
 
 ### 3.15 Threat T-15 — Public Key Bundle Tampering (MITM on E2EE Setup)
 
-**Category:** Integrity / Key Authenticity  
-**STRIDE:** Tampering, Spoofing  
-**Severity:** 🟠 High  
+**Category:** Integrity / Key Authenticity
+**STRIDE:** Tampering, Spoofing
+**Severity:** 🟠 High
 
-**Description:**  
+**Description:**
 When Alice fetches Bob's public key to initiate X3DH, she calls `GET /pubkey/:hashedUsid`. The server returns the bundle from `keys.db` or `app.db`. There is no mechanism to verify that the returned public key is authentic — no certificate pinning, no out-of-band fingerprint verification, and no signed record linking the key to the identity. A compromised server or MitM attacker can substitute a different public key, causing Alice to establish an E2EE session with the attacker instead of Bob.
 
 **Attack Vector:** Compromised server, network MitM (see T-09).
@@ -421,15 +433,17 @@ When Alice fetches Bob's public key to initiate X3DH, she calls `GET /pubkey/:ha
 - Use a transparency log (key server with append-only audit) to detect key substitution.
 - **Note:** Safety Numbers UI implemented — allows out-of-band fingerprint verification. Formal pre-key signature verification (Ed25519) not yet wired into X3DH verification step.
 
+**Status:** ⚡ Partially mitigated.
+
 ---
 
 ### 3.16 Threat T-16 — WebRTC / WebTorrent IP Leak & Public STUN/TURN Metadata Exposure
 
-**Category:** Privacy / Information Disclosure  
-**STRIDE:** Information Disclosure  
-**Severity:** 🟠 High  
+**Category:** Privacy / Information Disclosure
+**STRIDE:** Information Disclosure
+**Severity:** 🟠 High
 
-**Description:**  
+**Description:**
 WebTorrent uses WebRTC for peer-to-peer data channels. This requires STUN/TURN servers for NAT traversal and public trackers (e.g., `openwebtorrent.com`) for peer discovery. Connecting to public trackers and third-party TURN servers (e.g., `openrelay.metered.ca`) leaks user IP addresses and metadata to those providers. Additionally, establishing a direct P2P connection exposes the user's public IP address to the peer they are communicating with, bypassing the privacy guarantees of the central server.
 
 **Attack Vector:** Network observation by peer or third-party infrastructure providers.
@@ -443,15 +457,17 @@ WebTorrent uses WebRTC for peer-to-peer data channels. This requires STUN/TURN s
 - Host a private WebTorrent tracker.
 - Warn users via UI that P2P file transfers expose their IP address to the recipient.
 
+**Status:** ⚠️ Unmitigated.
+
 ---
 
 ### 3.17 Threat T-17 — OPK Exhaustion / X3DH Fallback
 
-**Category:** Cryptographic Weakness / Forward Secrecy  
-**STRIDE:** Information Disclosure  
-**Severity:** 🟠 High  
+**Category:** Cryptographic Weakness / Forward Secrecy
+**STRIDE:** Information Disclosure
+**Severity:** 🟠 High
 
-**Description:**  
+**Description:**
 One-time pre-keys (OPKs) are consumed every time a new peer initiates a session. If a user receives many first-messages without coming online to replenish their OPK pool, the pool drains. Once empty, the X3DH protocol falls back to a weaker 3-DH initialization that lacks full forward secrecy if the signed pre-key is compromised.
 
 **Attack Vector:** An attacker deliberately opens many sessions to exhaust the OPK pool, or normal heavy usage drains the pool, leaving the user vulnerable to forward-secrecy degradation on subsequent connections.
@@ -460,9 +476,31 @@ One-time pre-keys (OPKs) are consumed every time a new peer initiates a session.
 
 **Impact:** Loss of optimal forward secrecy for new sessions established after OPKs run out.
 
+**Mitigation:** ✅ **Mitigated.** Client-side OPK count monitoring implemented via IndexedDB. Automated OPK replenishment (`POST /keys/replenish`) triggers when the pool drops below a safe threshold (e.g., 20 keys).
+
+---
+
+### 3.18 Threat T-18 — Vulnerable Transitive Dependencies
+
+**Category:** Supply Chain / Dependency Risk
+**STRIDE:** Varies by dependency (Denial of Service, Tampering, Information Disclosure)
+**Severity:** 🟠 High
+
+**Description:**
+An `npm audit` run reports 22 known vulnerabilities across the dependency tree (2 low, 4 moderate, 16 high). These are introduced transitively through `sqlite3` (via `node-gyp` → `tar` / `make-fetch-happen` → `@tootallnate/once`), `webtorrent` (via `bittorrent-tracker` → `ip`), and directly through `nodemailer`, `express` / `body-parser` (via `qs`), `ws`, `minimatch`, `path-to-regexp`, `picomatch`, and `brace-expansion`. Several are ReDoS (regular-expression denial-of-service) vectors in glob/route-matching libraries; `ip` has an SSRF miscategorization bug; `ws` has an uninitialized-memory disclosure issue and a fragment-based memory-exhaustion DoS; `nodemailer` has multiple SMTP command-injection and SSRF issues (relevant only if the mail-sending code path is exercised in production).
+
+**Attack Vector:** Varies per CVE. Several are remotely triggerable via crafted input to routing (`path-to-regexp`, `qs`) or glob matching (`minimatch`, `picomatch`). The `ws` issues are directly reachable by any WebSocket peer, which is significant given `ws` is Halonyx's live message-relay transport.
+
+**Affected Components:** Backend dependency tree — `sqlite3`, `webtorrent`, `express`, `ws`, build tooling (`node-gyp`, `tar`, `make-fetch-happen`).
+
+**Impact:** Ranges from build-tool-only exposure with no runtime impact (the `node-gyp` / `tar` chain, only active during `npm install`) to directly reachable runtime denial-of-service (`ws`, since it is the live transport library through which all messages are relayed).
+
 **Mitigation:**
-- Implemented client-side OPK count monitoring via IndexedDB.
-- Added automated OPK replenishment (`POST /keys/replenish`) when the pool drops below a safe threshold (e.g., 20 keys).
+- Run `npm audit fix` (no `--force`) to resolve the six non-breaking-change vulnerabilities (`brace-expansion`, `minimatch`, `path-to-regexp`, `picomatch`, `qs`, `ws`) with no compatibility risk.
+- Schedule the three breaking-change upgrades (`sqlite3` → 6.0.1, `webtorrent` → new major, `nodemailer` → 9.0.3) as a deliberate, tested migration rather than an automatic `--force` fix, since these touch core storage, file-transfer, and mail code paths.
+- CI (Halonyx CI workflow) runs `npm audit --audit-level=high` on every push/PR as a non-blocking step, so new vulnerabilities remain visible without blocking merges over pre-existing dependency debt.
+
+**Status:** ⚡ Partially mitigated (visibility via CI; 6 of 9 non-`node-gyp`-chain issues fixable non-breaking; breaking-change upgrades pending).
 
 ---
 
@@ -487,6 +525,7 @@ One-time pre-keys (OPKs) are consumed every time a new peer initiates a session.
 | T-15 | Public key tampering (MITM E2EE) | 🟠 High | `GET /pubkey`, X3DH | ⚡ Partially mitigated |
 | T-16 | WebRTC / WebTorrent IP Leak | 🟠 High | WebTorrent / TURN | ⚠️ Unmitigated |
 | T-17 | OPK Exhaustion / X3DH Fallback | 🟠 High | `signal_protocol.js` | ✅ Mitigated |
+| T-18 | Vulnerable transitive dependencies (npm audit) | 🟠 High | Dependency tree | ⚡ Partially mitigated |
 
 ---
 
@@ -508,24 +547,26 @@ One-time pre-keys (OPKs) are consumed every time a new peer initiates a session.
 8. **T-10:** Use `HttpOnly` cookies for JWT; use non-extractable Web Crypto keys.
 9. **T-11:** Add CSP headers; audit all `innerHTML` usage.
 10. **T-15:** Implement safety number UI for key fingerprint verification.
+11. **T-18 (partial):** Run `npm audit fix` to resolve the six non-breaking dependency vulnerabilities (`brace-expansion`, `minimatch`, `path-to-regexp`, `picomatch`, `qs`, `ws`) — no compatibility risk, immediate action.
 
 ### Phase 3 — Medium Priority (Ongoing Hardening)
 
-11. **T-06:** Uniform signup response regardless of email existence.
-12. **T-07:** Add strict USID and email format validation before all DB queries.
-13. **T-14:** Enforce mailbox size cap (200 messages per recipient).
-14. ~~**T-13 (partial):** Log emergency broadcast events with sender identity and delivery count.~~ (Mitigated via console logging with source identification)
-14b. **T-13 (remaining):** Implement formal append-only audit log file separate from stdout.
-15. **T-12:** Investigate ephemeral routing tokens to reduce metadata linkability.
+12. **T-06:** Uniform signup response regardless of email existence.
+13. **T-07:** Add strict USID and email format validation before all DB queries.
+14. **T-14:** Enforce mailbox size cap (200 messages per recipient).
+15. ~~**T-13 (partial):** Log emergency broadcast events with sender identity and delivery count.~~ (Mitigated via console logging with source identification)
+15b. **T-13 (remaining):** Implement formal append-only audit log file separate from stdout.
+16. **T-12:** Investigate ephemeral routing tokens to reduce metadata linkability.
+17. **T-18 (remaining):** Plan and test the three breaking-change dependency upgrades (`sqlite3` → 6.0.1, `webtorrent` → latest major, `nodemailer` → 9.0.3) as a deliberate migration.
 
 ---
- 
-*Generated: 2026-06-30*  
-*Last Updated: 2026-07-18 — UDP anti-spam controls (RateBucket, per-IP/global rate limiting, auto-ban, payload validation)*
+
+*Generated: 2026-06-30*
+*Last Updated: 2026-07-18 — UDP anti-spam controls (RateBucket, per-IP/global rate limiting, auto-ban, payload validation); added T-18 (vulnerable transitive dependencies via npm audit)*
 
 ## Security Disclaimer
 
-This threat model represents the current security analysis of Halonyx at the time of writing.  
+This threat model represents the current security analysis of Halonyx at the time of writing.
 While the system implements multiple security mechanisms inspired by modern encrypted messaging protocols, no software system can be considered completely secure.
 
 Threats, mitigations, and architectural assumptions documented here are subject to change as the project evolves. Security analysis is an ongoing process involving continuous review, testing, benchmarking, and hardening.
