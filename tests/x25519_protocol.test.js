@@ -11,7 +11,7 @@ const X3DH = require("../protocol/x3dh");
 
 async function supportsX25519() {
   try {
-    await webcrypto.subtle.generateKey({ name: "ECDH", namedCurve: "X25519" }, true, ["deriveBits"]);
+    await webcrypto.subtle.generateKey({ name: "X25519" }, true, ["deriveBits"]);
     return true;
   } catch {
     return false;

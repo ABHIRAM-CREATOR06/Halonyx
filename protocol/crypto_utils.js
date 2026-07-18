@@ -113,7 +113,7 @@ class CryptoUtils {
    */
   async generateDhKeyPair() {
     const kp = await crypto.subtle.generateKey(
-      { name: 'ECDH', namedCurve: 'X25519' },
+      { name: 'X25519' },
       true,                // extractable=true: needed to export publicKey as 'raw'
       ['deriveBits']
     );
@@ -132,7 +132,7 @@ class CryptoUtils {
   async importDhPublicKey(bytes) {
     return crypto.subtle.importKey(
       'raw', bytes,
-      { name: 'ECDH', namedCurve: 'X25519' },
+      { name: 'X25519' },
       true, []
     );
   }
@@ -143,7 +143,7 @@ class CryptoUtils {
   async deriveBits(privateKey, peerPublicKeyBytes) {
     const pub = await this.importDhPublicKey(peerPublicKeyBytes);
     const bits = await crypto.subtle.deriveBits(
-      { name: 'ECDH', public: pub }, privateKey, 256
+      { name: 'X25519', public: pub }, privateKey, 256
     );
     return new Uint8Array(bits);
   }
