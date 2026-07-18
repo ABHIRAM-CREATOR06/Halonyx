@@ -1,0 +1,36 @@
+name: Halonyx CI
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    name: Test on Node ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20, 22]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify sqlite3 native binding
+        run: node scripts/verify-sqlite.js
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Run X25519 protocol tests
+        run: npm run test:x25519
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
