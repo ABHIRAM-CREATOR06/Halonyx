@@ -693,7 +693,7 @@ wss.on("connection", (ws) => {
                 );
                 pending.forEach((m) => {
                   let encData = m.content;
-                  try { encData = JSON.parse(m.content); } catch (e) {}
+                  try { encData = JSON.parse(m.content); } catch (e) { }
                   ws.send(
                     JSON.stringify({
                       type: "message",
