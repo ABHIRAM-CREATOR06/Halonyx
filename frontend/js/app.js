@@ -1408,6 +1408,28 @@ function setupEventListeners() {
       .then(() => showSnackbar("USID copied to clipboard", "success"));
   });
 
+  // Email USID direct client-side handlers (No Backend Required)
+  document.getElementById("email-usid-btn").addEventListener("click", () => {
+    openEmailDialog();
+  });
+  document.getElementById("open-email-dialog-btn").addEventListener("click", () => {
+    hideDialog("profile-dialog");
+    openEmailDialog();
+  });
+  document.getElementById("close-email-dialog").addEventListener("click", () => {
+    hideDialog("email-usid-dialog");
+  });
+  document.getElementById("cancel-email-dialog").addEventListener("click", () => {
+    hideDialog("email-usid-dialog");
+  });
+  document.getElementById("email-recipient-input").addEventListener("input", updateEmailPreview);
+  document.getElementById("send-mailto-btn").addEventListener("click", () => handleSendEmail("mailto"));
+  document.getElementById("send-gmail-btn").addEventListener("click", () => handleSendEmail("gmail"));
+  document.getElementById("send-outlook-btn").addEventListener("click", () => handleSendEmail("outlook"));
+  document.getElementById("send-yahoo-btn").addEventListener("click", () => handleSendEmail("yahoo"));
+  document.getElementById("send-webshare-btn").addEventListener("click", () => handleSendEmail("share"));
+  document.getElementById("copy-email-template").addEventListener("click", () => handleSendEmail("copy"));
+
   document.getElementById("toggle-details").addEventListener("click", () => {
     document.getElementById("details-pane").classList.toggle("collapsed");
     updateTorrentStats();
@@ -1496,3 +1518,99 @@ function formatBytes(bytes, decimals = 1) {
     parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + " " + sizes[i]
   );
 }
+
+// ─────────────────────────────────────────
+// Client-Side Email USID Functions (No Backend Required)
+// ─────────────────────────────────────────
+function updateEmailPreview() {
+  const recipientInput = document.getElementById("email-recipient-input");
+  const previewBox = document.getElementById("email-preview-box");
+  if (!previewBox) return;
+
+  const recipient = recipientInput ? recipientInput.value.trim() : "";
+  const nameInput = document.getElementById("name");
+  const senderName = nameInput ? nameInput.value.trim() : "";
+
+  const utils = window.EmailUtils;
+  if (!utils || typeof utils.buildUsidEmailContent !== "function") {
+    previewBox.textContent = "Email utilities not available.";
+    return;
+  }
+
+  const { subject, body } = utils.buildUsidEmailContent(myUsid || "0x...", senderName);
+  const recipientLine = recipient ? `To: ${recipient}\n` : "";
+  previewBox.textContent = `${recipientLine}Subject: ${subject}\n\n${body}`;
+}
+
+function openEmailDialog() {
+  if (!myUsid) {
+    showSnackbar("USID identity is not available yet", "warn");
+    return;
+  }
+
+  const recipientInput = document.getElementById("email-recipient-input");
+  if (recipientInput) recipientInput.value = "";
+
+  const shareBtn = document.getElementById("send-webshare-btn");
+  if (shareBtn) {
+    shareBtn.style.display = (navigator && typeof navigator.share === "function") ? "flex" : "none";
+  }
+
+  updateEmailPreview();
+  showDialog("email-usid-dialog");
+}
+
+function handleSendEmail(provider) {
+  if (!myUsid) {
+    showSnackbar("USID identity is not available yet", "warn");
+    return;
+  }
+
+  const recipientInput = document.getElementById("email-recipient-input");
+  const recipient = recipientInput ? recipientInput.value.trim() : "";
+  const nameInput = document.getElementById("name");
+  const senderName = nameInput ? nameInput.value.trim() : "";
+
+  const utils = window.EmailUtils;
+  if (!utils) {
+    showSnackbar("Email utilities not loaded", "error");
+    return;
+  }
+
+  const { subject, body } = utils.buildUsidEmailContent(myUsid, senderName);
+
+  if (provider === "mailto") {
+    const mailtoUrl = utils.buildMailtoUrl(myUsid, recipient, senderName);
+    window.location.href = mailtoUrl;
+    showSnackbar("Opening default mail application...", "info");
+  } else if (provider === "gmail" || provider === "outlook" || provider === "yahoo") {
+    const webmails = utils.buildWebmailUrls(myUsid, recipient, senderName);
+    const targetUrl = webmails[provider];
+    if (targetUrl) {
+      window.open(targetUrl, "_blank", "noopener,noreferrer");
+      showSnackbar(`Opening ${provider.toUpperCase()} webmail...`, "info");
+    }
+  } else if (provider === "share") {
+    if (navigator && typeof navigator.share === "function") {
+      navigator.share({
+        title: subject,
+        text: body,
+      }).then(() => {
+        showSnackbar("Shared identity code successfully", "success");
+      }).catch(err => {
+        if (err.name !== "AbortError") {
+          console.error("[Email Share] Native share error:", err);
+        }
+      });
+    }
+  } else if (provider === "copy") {
+    const fullText = (recipient ? `To: ${recipient}\n` : "") + `Subject: ${subject}\n\n${body}`;
+    navigator.clipboard.writeText(fullText).then(() => {
+      showSnackbar("Email template copied to clipboard", "success");
+    }).catch(err => {
+      console.error("[Email Share] Clipboard copy failed:", err);
+      showSnackbar("Failed to copy template", "error");
+    });
+  }
+}
+

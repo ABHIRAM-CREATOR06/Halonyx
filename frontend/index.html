@@ -469,15 +469,94 @@
                     </p>
                     <div class="usid-copy-wrap">
                         <code id="my-usid-code" class="usid-code full"></code>
-                        <button id="copy-usid" class="icon-btn-sm" title="Copy">
+                        <button id="copy-usid" class="icon-btn-sm" title="Copy USID">
                             <span class="material-icons-outlined"
                                 >content_copy</span
                             >
                         </button>
+                        <button id="email-usid-btn" class="icon-btn-sm" title="Send USID via Email">
+                            <span class="material-icons-outlined"
+                                >email</span
+                            >
+                        </button>
                     </div>
                     <div class="dialog-actions">
+                        <button id="open-email-dialog-btn" class="btn-ghost sm">
+                            <span class="material-icons-outlined">mail_outline</span>
+                            Send USID by Mail
+                        </button>
                         <button id="close-profile" class="btn-primary sm">
                             Done
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Email USID Dialog (No Backend Required) -->
+            <div id="email-usid-dialog" class="dialog-overlay">
+                <div class="dialog email-dialog">
+                    <div class="email-dialog-header">
+                        <div class="dialog-icon">
+                            <span class="material-icons-outlined">mark_email_unread</span>
+                        </div>
+                        <button id="close-email-dialog" class="icon-btn-sm dialog-close-btn" title="Close">
+                            <span class="material-icons-outlined">close</span>
+                        </button>
+                    </div>
+                    <h3 class="dialog-title">Send USID by Mail</h3>
+                    <p class="dialog-body">
+                        Share your cryptographic USID identity code directly via email without using any backend server.
+                    </p>
+
+                    <div class="field-stack">
+                        <div class="field-wrap">
+                            <label for="email-recipient-input">Recipient Email <small style="color:var(--fg-muted);">(Optional)</small></label>
+                            <input
+                                type="email"
+                                id="email-recipient-input"
+                                placeholder="peer@example.com"
+                                class="field-input"
+                                autocomplete="off"
+                            />
+                        </div>
+
+                        <div class="mail-preview-wrap">
+                            <div class="mail-preview-header">
+                                <span class="preview-title">MESSAGE PREVIEW</span>
+                                <button id="copy-email-template" class="btn-text-sm" title="Copy email text">
+                                    <span class="material-icons-outlined">content_copy</span> Copy Text
+                                </button>
+                            </div>
+                            <div id="email-preview-box" class="mail-preview-box"></div>
+                        </div>
+                    </div>
+
+                    <div class="email-options-grid">
+                        <button id="send-mailto-btn" class="btn-primary sm email-option-btn">
+                            <span class="material-icons-outlined">open_in_new</span>
+                            <span>Default Mail App</span>
+                        </button>
+                        <button id="send-gmail-btn" class="btn-secondary sm email-option-btn">
+                            <span class="material-icons-outlined">mail</span>
+                            <span>Gmail</span>
+                        </button>
+                        <button id="send-outlook-btn" class="btn-secondary sm email-option-btn">
+                            <span class="material-icons-outlined">mark_email_read</span>
+                            <span>Outlook</span>
+                        </button>
+                        <button id="send-yahoo-btn" class="btn-secondary sm email-option-btn">
+                            <span class="material-icons-outlined">alternate_email</span>
+                            <span>Yahoo</span>
+                        </button>
+                        <button id="send-webshare-btn" class="btn-secondary sm email-option-btn" style="display: none;">
+                            <span class="material-icons-outlined">share</span>
+                            <span>Native Share</span>
+                        </button>
+                    </div>
+
+                    <div class="dialog-actions" style="margin-top:0;">
+                        <button id="cancel-email-dialog" class="btn-ghost sm">
+                            Close
                         </button>
                     </div>
                 </div>
@@ -551,6 +630,7 @@
 
         <!-- Signal Protocol stack — load in dependency order before app.js -->
         <script src="/protocol/crypto_utils.js"></script>
+        <script src="/protocol/email_utils.js"></script>
         <script src="/protocol/x3dh.js"></script>
         <script src="/protocol/double_ratchet.js"></script>
         <script src="/protocol/idb_key_store.js"></script>
