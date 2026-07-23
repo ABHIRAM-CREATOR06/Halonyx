@@ -188,10 +188,19 @@ function connectWS() {
 async function handleWSMessage(data) {
   switch (data.type) {
     case "registered":
+      // If the server detected an old-format raw USID, it sends back the
+      // canonical hashed form so we can silently migrate localStorage.
+      if (data.migrateUsid) {
+        myUsid = data.migrateUsid;
+        myHashedUsid = myUsid;
+        localStorage.setItem("usid", myUsid);
+        console.log("[Migration] USID updated to canonical hashed format.");
+      }
       hideSplashScreen();
       break;
     case "error":
-      if (data.message === "Identity not verified") handleAuthError();
+      if (data.message === "Identity not verified")
+        handleAuthError("Session expired. Please reconnect using your email or USID.");
       break;
     case "message": {
       const { from, encrypted, content, timestamp } = data;
@@ -275,7 +284,7 @@ function handleAuthError(reason) {
   showSnackbar(reason || "Identity not verified or token invalid", "error");
   setTimeout(() => {
     location.reload();
-  }, 1200);
+  }, 3000);
 }
 window.handleAuthError = handleAuthError;
 
@@ -288,29 +297,13 @@ function switchAuthTab(tab) {
   if (tab === "connect") {
     if (createSec) createSec.style.display = "none";
     if (connectSec) connectSec.style.display = "block";
-    if (tabCreate) {
-      tabCreate.classList.remove("active");
-      tabCreate.style.background = "transparent";
-      tabCreate.style.color = "#888";
-    }
-    if (tabConnect) {
-      tabConnect.classList.add("active");
-      tabConnect.style.background = "rgba(255,255,255,0.1)";
-      tabConnect.style.color = "#fff";
-    }
+    if (tabCreate) tabCreate.classList.remove("active");
+    if (tabConnect) tabConnect.classList.add("active");
   } else {
     if (createSec) createSec.style.display = "block";
     if (connectSec) connectSec.style.display = "none";
-    if (tabConnect) {
-      tabConnect.classList.remove("active");
-      tabConnect.style.background = "transparent";
-      tabConnect.style.color = "#888";
-    }
-    if (tabCreate) {
-      tabCreate.classList.add("active");
-      tabCreate.style.background = "rgba(255,255,255,0.1)";
-      tabCreate.style.color = "#fff";
-    }
+    if (tabConnect) tabConnect.classList.remove("active");
+    if (tabCreate) tabCreate.classList.add("active");
   }
 }
 window.switchAuthTab = switchAuthTab;
@@ -1224,8 +1217,9 @@ async function sha256hex(str) {
  */
 async function generateOrLoadIdentityKeyPair() {
   // Cache the hashed form of our own USID for use in computeSafetyNumber
+  // myUsid is already the hashed USID (sha256 of raw) — no need to re-hash
   if (myUsid && !myHashedUsid) {
-    myHashedUsid = await sha256hex(myUsid);
+    myHashedUsid = myUsid;
     console.log(
       "[SafetyNum] myHashedUsid cached:",
       myHashedUsid.substring(0, 12) + "...",
@@ -1346,8 +1340,9 @@ async function showSafetyNumbers() {
   if (!currentChatUsid) return;
 
   // Ensure our hashed USID is ready (normally cached at startup)
+  // myUsid is already the hashed USID — no re-hash needed
   if (!myHashedUsid && myUsid) {
-    myHashedUsid = await sha256hex(myUsid);
+    myHashedUsid = myUsid;
   }
 
   if (!myIdentityPublicKeyHex) {

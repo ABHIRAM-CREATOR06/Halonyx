@@ -136,7 +136,7 @@ app.post("/signup", signupLimiter, (req, res) => {
               [hashed, publicKeyBundle],
               function () {
                 const jwtToken = jwt.sign({ userId, hashedUsid: hashed }, JWT_SECRET);
-                res.json({ message: "Account created", usid, token: jwtToken });
+                res.json({ message: "Account created", usid: hashed, token: jwtToken });
               },
             );
           },
@@ -152,32 +152,48 @@ app.post("/connect", (req, res) => {
     return res.status(400).json({ error: "USID or valid Email is required to connect" });
   }
 
-  let query = "";
-  let params = [];
-
   if (usid && usid.trim()) {
+    // Try both the value as-is (new hashed format) and SHA-256 of it (old raw format).
+    // Both raw and hashed USIDs are 64-char hex, so length alone cannot distinguish them.
     const cleanUsid = usid.trim();
-    const hashed = cleanUsid.length === 64 ? cleanUsid : hashUSID(cleanUsid);
-    query = "SELECT id, name, email, hashed_usid FROM users_metadata WHERE hashed_usid = ?";
-    params = [hashed];
+    const hashed = hashUSID(cleanUsid);
+
+    idDb.get(
+      "SELECT id, name, email, hashed_usid FROM users_metadata WHERE hashed_usid = ? OR hashed_usid = ?",
+      [cleanUsid, hashed],
+      (err, row) => {
+        if (err) return res.status(500).json({ error: "Identity DB lookup failed" });
+        if (!row) return res.status(404).json({ error: "Identity not found. Please sign up first." });
+
+        const jwtToken = jwt.sign({ userId: row.id, hashedUsid: row.hashed_usid }, JWT_SECRET);
+        res.json({
+          message: "Connected successfully",
+          usid: row.hashed_usid,
+          name: row.name,
+          email: row.email,
+          token: jwtToken,
+        });
+      }
+    );
   } else {
-    query = "SELECT id, name, email, hashed_usid FROM users_metadata WHERE email = ?";
-    params = [email.trim()];
+    idDb.get(
+      "SELECT id, name, email, hashed_usid FROM users_metadata WHERE email = ?",
+      [email.trim()],
+      (err, row) => {
+        if (err) return res.status(500).json({ error: "Identity DB lookup failed" });
+        if (!row) return res.status(404).json({ error: "Identity not found. Please sign up first." });
+
+        const jwtToken = jwt.sign({ userId: row.id, hashedUsid: row.hashed_usid }, JWT_SECRET);
+        res.json({
+          message: "Connected successfully",
+          usid: row.hashed_usid,
+          name: row.name,
+          email: row.email,
+          token: jwtToken,
+        });
+      }
+    );
   }
-
-  idDb.get(query, params, (err, row) => {
-    if (err) return res.status(500).json({ error: "Identity DB lookup failed" });
-    if (!row) return res.status(404).json({ error: "Identity not found. Please sign up first." });
-
-    const jwtToken = jwt.sign({ userId: row.id, hashedUsid: row.hashed_usid }, JWT_SECRET);
-    res.json({
-      message: "Connected successfully",
-      usid: row.hashed_usid,
-      name: row.name,
-      email: row.email,
-      token: jwtToken,
-    });
-  });
 });
 
 function authenticate(req, res, next) {
@@ -706,75 +722,76 @@ wss.on("connection", (ws) => {
 
       if (data.type === "register") {
         const { usid } = data;
-        const hashed = hashUSID(usid);
 
-        // VERIFY CONNECTION AGAINST IDENTITY DB
+        // Helper that completes registration once we have the canonical hashed USID.
+        // migrateUsid is truthy when the client sent an old-format raw USID that
+        // we resolved by hashing — we echo the canonical hashed form back so the
+        // client can silently update its localStorage without forcing a re-login.
+        function finaliseRegistration(row, canonicalHashedUsid, migrateUsid) {
+          userHashedUsid = canonicalHashedUsid;
+          clients.set(userHashedUsid, ws);
+          console.log(`[WS] User Registered: ${row.name} (${userHashedUsid.substring(0, 8)}...)`);
+
+          const registeredMsg = { type: "registered", success: true };
+          if (migrateUsid) registeredMsg.migrateUsid = canonicalHashedUsid;
+          ws.send(JSON.stringify(registeredMsg));
+
+          // ── Offline Mailbox Flush ──────────────────────────────────
+          db.all(
+            "SELECT * FROM mailbox WHERE recipient_hashed_usid = ? ORDER BY timestamp ASC",
+            [canonicalHashedUsid],
+            (mbErr, pending) => {
+              if (mbErr || !pending || pending.length === 0) return;
+              console.log(`[Mailbox] Flushing ${pending.length} queued message(s) to ${canonicalHashedUsid.substring(0, 8)}...`);
+              pending.forEach((m) => {
+                let encData = m.content;
+                try { encData = JSON.parse(m.content); } catch (e) { }
+                ws.send(JSON.stringify({
+                  type: "message",
+                  from: m.sender_hashed_usid,
+                  encrypted: encData,
+                  timestamp: m.timestamp,
+                }));
+              });
+              db.run(
+                "DELETE FROM mailbox WHERE recipient_hashed_usid = ?",
+                [canonicalHashedUsid],
+                (delErr) => {
+                  if (delErr) console.error("[Mailbox] Failed to purge mailbox:", delErr);
+                  else console.log(`[Mailbox] Purged ${pending.length} message(s) for ${canonicalHashedUsid.substring(0, 8)}...`);
+                }
+              );
+            }
+          );
+          // ──────────────────────────────────────────────────────────
+        }
+
+        // Step 1: Try direct lookup — client sent a hashed USID (new format).
         idDb.get(
           "SELECT name FROM users_metadata WHERE hashed_usid = ?",
-          [hashed],
+          [usid],
           (err, row) => {
-            if (err || !row) {
-              console.log(
-                `[WS] Registration REJECTED: ${hashed.substring(0, 8)}... (Not in Identity DB)`,
-              );
-              ws.send(
-                JSON.stringify({
-                  type: "error",
-                  message: "Identity not verified",
-                }),
-              );
-              return;
+            if (!err && row) {
+              return finaliseRegistration(row, usid, false);
             }
 
-            userHashedUsid = hashed;
-            clients.set(userHashedUsid, ws);
-            console.log(
-              `[WS] User Registered: ${row.name} (${userHashedUsid.substring(0, 8)}...)`,
-            );
-            ws.send(JSON.stringify({ type: "registered", success: true }));
-
-            // ── Offline Mailbox Flush ──────────────────────────────────
-            // Deliver any messages that arrived while this user was offline,
-            // then purge them so they are not delivered twice.
-            db.all(
-              "SELECT * FROM mailbox WHERE recipient_hashed_usid = ? ORDER BY timestamp ASC",
+            // Step 2: Fallback — client sent a raw USID (old format). Hash it and retry.
+            const hashed = hashUSID(usid);
+            idDb.get(
+              "SELECT name FROM users_metadata WHERE hashed_usid = ?",
               [hashed],
-              (mbErr, pending) => {
-                if (mbErr || !pending || pending.length === 0) return;
-                console.log(
-                  `[Mailbox] Flushing ${pending.length} queued message(s) to ${hashed.substring(0, 8)}...`,
-                );
-                pending.forEach((m) => {
-                  let encData = m.content;
-                  try { encData = JSON.parse(m.content); } catch (e) { }
-                  ws.send(
-                    JSON.stringify({
-                      type: "message",
-                      from: m.sender_hashed_usid,
-                      encrypted: encData,
-                      timestamp: m.timestamp,
-                    }),
-                  );
-                });
-                db.run(
-                  "DELETE FROM mailbox WHERE recipient_hashed_usid = ?",
-                  [hashed],
-                  (delErr) => {
-                    if (delErr)
-                      console.error(
-                        "[Mailbox] Failed to purge mailbox:",
-                        delErr,
-                      );
-                    else
-                      console.log(
-                        `[Mailbox] Purged ${pending.length} message(s) for ${hashed.substring(0, 8)}...`,
-                      );
-                  },
-                );
-              },
+              (err2, row2) => {
+                if (err2 || !row2) {
+                  console.log(`[WS] Registration REJECTED: ${usid.substring(0, 8)}... (Not in Identity DB)`);
+                  ws.send(JSON.stringify({ type: "error", message: "Identity not verified" }));
+                  return;
+                }
+                // Old raw USID — finalise with canonical hashed form and ask client to migrate.
+                console.log(`[WS] Migrating old raw USID for ${row2.name} to hashed format.`);
+                finaliseRegistration(row2, hashed, hashed);
+              }
             );
-            // ──────────────────────────────────────────────────────────
-          },
+          }
         );
         return;
       }

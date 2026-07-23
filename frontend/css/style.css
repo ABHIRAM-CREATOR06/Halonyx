@@ -130,10 +130,12 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
+    overflow-y: auto;
     background: var(--bg-ink);
     z-index: 200;
-    gap: 32px;
+    gap: 40px;
+    padding: 48px 0 48px;
     transition:
         opacity var(--t-slow) var(--ease),
         transform var(--t-slow) var(--ease);
@@ -221,7 +223,7 @@ body {
 /* Registration Card */
 .reg-form {
     width: 100%;
-    max-width: 420px;
+    max-width: 480px;
     padding: 0 20px;
     animation: fadeUp 0.5s var(--ease) both;
 }
@@ -229,50 +231,91 @@ body {
     background: var(--bg-panel);
     border: 1px solid var(--bd-hi);
     border-radius: var(--r-xl);
-    padding: 40px 36px;
+    padding: 56px 48px;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 40px;
     box-shadow: var(--shadow-card);
+}
+
+/* Auth Tabs */
+.reg-tabs {
+    display: flex;
+    gap: 8px;
+    background: var(--bg-surface);
+    border-radius: var(--r-lg);
+    padding: 5px;
+    border: 1px solid var(--bd);
+}
+
+.btn-tab {
+    flex: 1;
+    padding: 10px 14px;
+    border-radius: var(--r);
+    border: none;
+    background: transparent;
+    color: var(--fg-muted);
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.88rem;
+    font-family: var(--font-body);
+    transition:
+        background var(--t-fast) var(--ease),
+        color var(--t-fast) var(--ease),
+        box-shadow var(--t-fast) var(--ease);
+}
+
+.btn-tab.active {
+    background: var(--bg-elevated);
+    color: var(--fg);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--bd-hi);
+}
+
+.btn-tab:not(.active):hover {
+    background: var(--bg-hover);
+    color: var(--fg-sub);
 }
 
 .reg-header {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    margin-bottom: 8px;
+    gap: 0;
+    margin-bottom: 0;
 }
 .reg-header .material-icons-outlined {
-    font-size: 28px;
+    font-size: 34px;
     color: var(--accent);
+    margin-bottom: 16px;
 }
 .reg-header h2 {
-    font-size: 1.5rem;
+    font-size: 1.65rem;
     font-weight: 700;
     color: var(--fg);
     letter-spacing: -0.02em;
+    margin-bottom: 10px;
 }
 .reg-header p {
-    font-size: 0.9rem;
+    font-size: 0.93rem;
     color: var(--fg-sub);
-    line-height: 1.6;
+    line-height: 1.7;
 }
 
 .field-stack {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 24px;
 }
 .field-wrap {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 10px;
 }
 .field-wrap label {
-    font-size: 0.8rem;
+    font-size: 0.83rem;
     font-family: var(--font-body);
     font-weight: 600;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.03em;
     color: var(--fg);
     text-transform: none;
 }
@@ -286,9 +329,9 @@ body {
     background: var(--bg-surface);
     border: 1px solid var(--bd-hi);
     border-radius: var(--r);
-    padding: 12px 14px;
+    padding: 14px 16px;
     color: var(--fg);
-    font-size: 0.9rem;
+    font-size: 0.93rem;
     font-family: var(--font-body);
     outline: none;
     transition:
@@ -341,14 +384,21 @@ body {
 .reg-disclaimer {
     display: flex;
     align-items: flex-start;
-    gap: 8px;
-    font-size: 0.8rem;
+    gap: 10px;
+    font-size: 0.83rem;
     color: var(--fg-muted);
-    line-height: 1.4;
-    margin-top: 4px;
+    line-height: 1.6;
+    padding: 16px 18px;
+    background: rgba(255,255,255,0.03);
+    border-radius: var(--r);
+    border: 1px solid var(--bd);
 }
 .reg-disclaimer .material-icons-outlined {
-    font-size: 14px;
+    font-size: 16px;
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--accent);
+    opacity: 0.7;
 }
 
 /* Loader */
@@ -1865,7 +1915,13 @@ body.theme-light .snackbar {
     }
 
     .reg-card {
-        padding: 32px 24px;
+        padding: 40px 32px;
+        gap: 32px;
+    }
+
+    .reg-form {
+        max-width: 100%;
+        padding: 0 16px;
     }
 
     .dialog {
@@ -1874,7 +1930,7 @@ body.theme-light .snackbar {
     }
 
     .field-stack {
-        gap: 14px;
+        gap: 20px;
     }
 }
 
