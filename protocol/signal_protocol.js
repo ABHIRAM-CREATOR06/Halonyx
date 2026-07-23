@@ -83,6 +83,11 @@ class SignalProtocol {
       },
       body: JSON.stringify({ bundle: encoded }),
     });
+    if (res.status === 401) {
+      if (typeof window !== 'undefined' && typeof window.handleAuthError === 'function') {
+        window.handleAuthError("Session expired during key upload");
+      }
+    }
     if (!res.ok) console.error('[Signal] Key bundle upload failed', await res.text());
     else console.log('[Signal] Public key bundle uploaded');
   }
@@ -112,6 +117,12 @@ class SignalProtocol {
         body: JSON.stringify({ preKeys: newPreKeys }),
       });
       
+      if (res.status === 401) {
+        if (typeof window !== 'undefined' && typeof window.handleAuthError === 'function') {
+          window.handleAuthError("Session expired during key replenishment");
+        }
+      }
+
       if (res.ok) {
         opkState.keys = opkState.keys.concat(newPrivateKeys);
         opkState.count = opkState.keys.length;

@@ -37,41 +37,77 @@
 
             <div id="registration-form" class="reg-form" style="display: none">
                 <div class="reg-card">
-                    <div class="reg-header">
-                        <span class="material-icons-outlined">fingerprint</span>
-                        <h2>Create Secure Identity</h2>
-                        <p>
-                            Your identity is cryptographically generated and
-                            never stored on any server.
-                        </p>
+                    <div class="reg-tabs" style="display: flex; gap: 8px; margin-bottom: 16px;">
+                        <button type="button" id="tab-create-mode" class="btn-tab active" onclick="switchAuthTab('create')" style="flex: 1; padding: 8px; border-radius: 8px; border: 1px solid var(--border-color, rgba(255,255,255,0.15)); background: rgba(255,255,255,0.1); color: #fff; cursor: pointer; font-weight: 500;">New Identity</button>
+                        <button type="button" id="tab-connect-mode" class="btn-tab" onclick="switchAuthTab('connect')" style="flex: 1; padding: 8px; border-radius: 8px; border: 1px solid var(--border-color, rgba(255,255,255,0.15)); background: transparent; color: #888; cursor: pointer; font-weight: 500;">Connect / Sign In</button>
                     </div>
-                    <div class="field-stack">
-                        <div class="field-wrap">
-                            <label>Full Name</label>
-                            <input
-                                type="text"
-                                id="name"
-                                placeholder="e.g. Alex Chen"
-                                class="field-input"
-                                autocomplete="off"
-                            />
+
+                    <!-- Create Mode -->
+                    <div id="auth-create-section">
+                        <div class="reg-header">
+                            <span class="material-icons-outlined">fingerprint</span>
+                            <h2>Create Secure Identity</h2>
+                            <p>
+                                Your identity is cryptographically generated and
+                                stored privately on your device.
+                            </p>
                         </div>
-                        <div class="field-wrap">
-                            <label>Email Address</label>
-                            <input
-                                type="email"
-                                id="email"
-                                placeholder="you@example.com"
-                                class="field-input"
-                                autocomplete="off"
-                            />
+                        <div class="field-stack">
+                            <div class="field-wrap">
+                                <label>Full Name</label>
+                                <input
+                                    type="text"
+                                    id="name"
+                                    placeholder="e.g. Alex Chen"
+                                    class="field-input"
+                                    autocomplete="off"
+                                />
+                            </div>
+                            <div class="field-wrap">
+                                <label>Email Address</label>
+                                <input
+                                    type="email"
+                                    id="email"
+                                    placeholder="you@example.com"
+                                    class="field-input"
+                                    autocomplete="off"
+                                />
+                            </div>
                         </div>
+                        <button id="signup-btn" class="btn-primary" onclick="signup()">
+                            <span class="material-icons-outlined">lock</span>
+                            Generate Secure ID
+                        </button>
                     </div>
-                    <button id="signup-btn" class="btn-primary">
-                        <span class="material-icons-outlined">lock</span>
-                        Generate Secure ID
-                    </button>
-                    <p class="reg-disclaimer">
+
+                    <!-- Connect Mode -->
+                    <div id="auth-connect-section" style="display: none;">
+                        <div class="reg-header">
+                            <span class="material-icons-outlined">login</span>
+                            <h2>Connect Existing Identity</h2>
+                            <p>
+                                Reconnect using your existing USID key or registered Email.
+                            </p>
+                        </div>
+                        <div class="field-stack">
+                            <div class="field-wrap">
+                                <label>USID Key or Registered Email</label>
+                                <input
+                                    type="text"
+                                    id="connect-input"
+                                    placeholder="0x... or email address"
+                                    class="field-input"
+                                    autocomplete="off"
+                                />
+                            </div>
+                        </div>
+                        <button id="connect-btn" class="btn-primary" onclick="connectIdentity()">
+                            <span class="material-icons-outlined">vpn_key</span>
+                            Connect Identity
+                        </button>
+                    </div>
+
+                    <p class="reg-disclaimer" style="margin-top: 16px;">
                         <span class="material-icons-outlined">info</span> Your
                         USID is a cryptographic hash — keep it safe.
                     </p>

@@ -249,14 +249,119 @@ async function handleWSMessage(data) {
   }
 }
 
-function handleAuthError() {
+async function authFetch(url, options = {}) {
+  options.headers = options.headers || {};
+  if (token && !options.headers["Authorization"]) {
+    options.headers["Authorization"] = `Bearer ${token}`;
+  }
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    console.warn(`[AuthFetch] 401 Unauthorized for ${url}`);
+    handleAuthError("Session expired or invalid token. Please reconnect.");
+  }
+  return res;
+}
+
+function handleAuthError(reason) {
+  if (identityRejected) return;
   identityRejected = true;
   localStorage.removeItem("token");
   localStorage.removeItem("usid");
   token = null;
   myUsid = null;
-  location.reload();
+  if (ws) {
+    try { ws.close(); } catch (_) {}
+  }
+  showSnackbar(reason || "Identity not verified or token invalid", "error");
+  setTimeout(() => {
+    location.reload();
+  }, 1200);
 }
+window.handleAuthError = handleAuthError;
+
+function switchAuthTab(tab) {
+  const createSec = document.getElementById("auth-create-section");
+  const connectSec = document.getElementById("auth-connect-section");
+  const tabCreate = document.getElementById("tab-create-mode");
+  const tabConnect = document.getElementById("tab-connect-mode");
+
+  if (tab === "connect") {
+    if (createSec) createSec.style.display = "none";
+    if (connectSec) connectSec.style.display = "block";
+    if (tabCreate) {
+      tabCreate.classList.remove("active");
+      tabCreate.style.background = "transparent";
+      tabCreate.style.color = "#888";
+    }
+    if (tabConnect) {
+      tabConnect.classList.add("active");
+      tabConnect.style.background = "rgba(255,255,255,0.1)";
+      tabConnect.style.color = "#fff";
+    }
+  } else {
+    if (createSec) createSec.style.display = "block";
+    if (connectSec) connectSec.style.display = "none";
+    if (tabConnect) {
+      tabConnect.classList.remove("active");
+      tabConnect.style.background = "transparent";
+      tabConnect.style.color = "#888";
+    }
+    if (tabCreate) {
+      tabCreate.classList.add("active");
+      tabCreate.style.background = "rgba(255,255,255,0.1)";
+      tabCreate.style.color = "#fff";
+    }
+  }
+}
+window.switchAuthTab = switchAuthTab;
+
+async function connectIdentity() {
+  const inputVal = document.getElementById("connect-input").value.trim();
+  if (!inputVal) return showSnackbar("Please enter a USID or registered email", "warn");
+
+  const btn = document.getElementById("connect-btn");
+  btn.disabled = true;
+  btn.textContent = "Connecting...";
+
+  const payload = inputVal.includes("@") ? { email: inputVal } : { usid: inputVal };
+
+  try {
+    const res = await fetch("/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      token = data.token;
+      myUsid = data.usid;
+      localStorage.setItem("token", token);
+      localStorage.setItem("usid", myUsid);
+
+      document.getElementById("registration-form").style.display = "none";
+      document.getElementById("splash-loader-container").style.display = "flex";
+      document.getElementById("loader-status").textContent = "Restoring identity...";
+
+      try {
+        await generateOrLoadIdentityKeyPair();
+        await signalProtocol.init(myUsid, token);
+        document.getElementById("loader-status").textContent = "Identity restored. Connecting...";
+      } catch (e) {
+        console.error("[E2EE] Protocol init failed during connect:", e);
+      }
+
+      connectWS();
+    } else {
+      showSnackbar(data.error || "Connection failed", "error");
+    }
+  } catch (e) {
+    showSnackbar("Network error. Please try again.", "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span class="material-icons-outlined">vpn_key</span> Connect Identity';
+  }
+}
+window.connectIdentity = connectIdentity;
 
 function setNetStatus(state) {
   const dot = document.querySelector(".status-dot");
@@ -333,9 +438,7 @@ async function loadContacts() {
   if (!token) return;
   try {
     console.log("[Load Contacts] Fetching contacts list...");
-    const res = await fetch("/contacts", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await authFetch("/contacts");
 
     if (!res.ok) {
       console.warn(
@@ -465,11 +568,10 @@ async function addContact() {
   );
 
   try {
-    const res = await fetch("/add-contact", {
+    const res = await authFetch("/add-contact", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ usid }),
     });
@@ -548,11 +650,10 @@ async function removeContact(usid) {
       usid.substring(0, 10),
     );
 
-    const res = await fetch("/contacts", {
+    const res = await authFetch("/contacts", {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ usid }),
     });
@@ -1164,11 +1265,10 @@ async function generateOrLoadIdentityKeyPair() {
 async function uploadIdentityPublicKey() {
   if (!myIdentityPublicKeyHex || !token) return;
   try {
-    await fetch("/update-pubkey", {
+    await authFetch("/update-pubkey", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ publicKey: myIdentityPublicKeyHex }),
     });
@@ -1262,9 +1362,7 @@ async function showSafetyNumbers() {
   }
 
   try {
-    const res = await fetch(`/public-key/${currentChatUsid}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await authFetch(`/public-key/${currentChatUsid}`);
 
     if (!res.ok) {
       showSnackbar("Peer has not uploaded their identity key yet", "warn");

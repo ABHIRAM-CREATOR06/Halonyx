@@ -35,7 +35,25 @@ initDb(idDb, "./backend/db/identity_schema.sql");
 initDb(keyDb, "./backend/db/key_schema.sql");
 
 const crypto = require("crypto");
-const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString("hex");
+const JWT_SECRET_FILE = "./backend/db/.jwt_secret";
+
+function getJwtSecret() {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  try {
+    if (fs.existsSync(JWT_SECRET_FILE)) {
+      const stored = fs.readFileSync(JWT_SECRET_FILE, "utf8").trim();
+      if (stored && stored.length >= 16) return stored;
+    }
+    const secret = crypto.randomBytes(32).toString("hex");
+    const dbDir = "./backend/db";
+    if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
+    fs.writeFileSync(JWT_SECRET_FILE, secret, "utf8");
+    return secret;
+  } catch (e) {
+    return crypto.randomBytes(32).toString("hex");
+  }
+}
+const JWT_SECRET = getJwtSecret();
 
 const signupLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
@@ -73,7 +91,7 @@ app.post("/signup", signupLimiter, (req, res) => {
 
   // Identity Registry Check
   idDb.get(
-    "SELECT id FROM users_metadata WHERE email = ?",
+    "SELECT id, hashed_usid FROM users_metadata WHERE email = ?",
     [emailValue],
     (err, row) => {
       if (err)
@@ -81,20 +99,21 @@ app.post("/signup", signupLimiter, (req, res) => {
 
       if (row) {
         console.log(`[Signup] Identity RE-ENTRY: ${emailValue}`);
+        const existingHashedUsid = row.hashed_usid;
         idDb.run(
-          "UPDATE users_metadata SET hashed_usid = ?, name = ? WHERE id = ?",
-          [hashed, name.trim(), row.id],
-          (err) => {
-            if (err)
+          "UPDATE users_metadata SET name = ? WHERE id = ?",
+          [name.trim(), row.id],
+          (updateErr) => {
+            if (updateErr)
               return res.status(500).json({ error: "Identity update failed" });
             db.run(
               "INSERT OR IGNORE INTO users (hashed_usid, public_key_bundle) VALUES (?, ?)",
-              [hashed, publicKeyBundle],
+              [existingHashedUsid, publicKeyBundle],
               () => {
-                const jwtToken = jwt.sign({ userId: row.id, hashedUsid: hashed }, JWT_SECRET);
+                const jwtToken = jwt.sign({ userId: row.id, hashedUsid: existingHashedUsid }, JWT_SECRET);
                 res.json({
                   message: "Identity re-verified",
-                  usid,
+                  usid: existingHashedUsid,
                   token: jwtToken,
                 });
               },
@@ -125,6 +144,40 @@ app.post("/signup", signupLimiter, (req, res) => {
       }
     },
   );
+});
+
+app.post("/connect", (req, res) => {
+  const { usid, email } = req.body;
+  if ((!usid || !usid.trim()) && (!email || !email.includes("@"))) {
+    return res.status(400).json({ error: "USID or valid Email is required to connect" });
+  }
+
+  let query = "";
+  let params = [];
+
+  if (usid && usid.trim()) {
+    const cleanUsid = usid.trim();
+    const hashed = cleanUsid.length === 64 ? cleanUsid : hashUSID(cleanUsid);
+    query = "SELECT id, name, email, hashed_usid FROM users_metadata WHERE hashed_usid = ?";
+    params = [hashed];
+  } else {
+    query = "SELECT id, name, email, hashed_usid FROM users_metadata WHERE email = ?";
+    params = [email.trim()];
+  }
+
+  idDb.get(query, params, (err, row) => {
+    if (err) return res.status(500).json({ error: "Identity DB lookup failed" });
+    if (!row) return res.status(404).json({ error: "Identity not found. Please sign up first." });
+
+    const jwtToken = jwt.sign({ userId: row.id, hashedUsid: row.hashed_usid }, JWT_SECRET);
+    res.json({
+      message: "Connected successfully",
+      usid: row.hashed_usid,
+      name: row.name,
+      email: row.email,
+      token: jwtToken,
+    });
+  });
 });
 
 function authenticate(req, res, next) {
