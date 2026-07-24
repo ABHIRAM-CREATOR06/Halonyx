@@ -1,9 +1,32 @@
+# Dependencies
 node_modules/
+
+# Environment / secrets
 .env
-db/*.sqlite
+.env.*
+backend/db/.jwt_secret
+
+# SQLite databases — never commit actual data or key material
+# (schema.sql / identity_schema.sql / key_schema.sql are fine and stay tracked)
+backend/db/*.db
+backend/db/*.sqlite
+backend/db/*.sqlite3
 db/*.db
-macOS
+db/*.sqlite
+
+# Logs
+*.log
+npm-debug.log*
+x25519-output.log
+
+# OS files
 .DS_Store
-backend/db/identity.db
-backend/db/app.db
-backend/db/identity.db
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Coverage / test artifacts
+coverage/
