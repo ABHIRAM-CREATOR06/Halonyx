@@ -3,27 +3,32 @@
 <pre>
 ██╗  ██╗ █████╗ ██╗      ██████╗ ███╗   ██╗██╗   ██╗██╗  ██╗
 ██║  ██║██╔══██╗██║     ██╔═══██╗████╗  ██║╚██╗ ██╔╝╚██╗██╔╝
-███████║███████║██║     ██║   ██║██╔██╗ ██║ ╚████╔╝  ╚███╔╝ 
-██╔══██║██╔══██║██║     ██║   ██║██║╚██╗██║  ╚██╔╝   ██╔██╗ 
+███████║███████║██║     ██║   ██║██╔██╗ ██║ ╚████╔╝  ╚███╔╝
+██╔══██║██╔══██║██║     ██║   ██║██║╚██╗██║  ╚██╔╝   ██╔██╗
 ██║  ██║██║  ██║███████╗╚██████╔╝██║ ╚████║   ██║   ██╔╝ ██╗
 ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝
 </pre>
 
-**Secure Decentralized Messaging · Signal Protocol (X3DH + Double Ratchet)**
+**Self-hostable E2EE Messenger · Signal Protocol (X3DH + Double Ratchet), implemented from scratch**
 
-[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?style=flat&logo=node.js&logoColor=white)](https://nodejs.org)
+[![CI](https://img.shields.io/github/actions/workflow/status/ABHIRAM-CREATOR06/Halonyx/ci.yml?branch=main&label=CI&logo=githubactions&logoColor=white)](https://github.com/ABHIRAM-CREATOR06/Halonyx/actions)
+[![Node.js](https://img.shields.io/badge/Node.js-20%20%7C%2022%20%7C%2024-339933?style=flat&logo=node.js&logoColor=white)](https://nodejs.org)
 [![Signal Protocol](https://img.shields.io/badge/Signal%20Protocol-X3DH%20%2B%20Double%20Ratchet-2c6bed?style=flat)](https://signal.org/docs/)
 [![AES-256-GCM](https://img.shields.io/badge/Encryption-AES--256--GCM-critical?style=flat)](https://csrc.nist.gov/publications/detail/sp/800-38d/final)
 [![WebTorrent](https://img.shields.io/badge/File%20Transfer-WebTorrent%20P2P-orange?style=flat&logo=bittorrent&logoColor=white)](https://webtorrent.io)
 [![Safety Numbers](https://img.shields.io/badge/MITM%20Protection-Safety%20Numbers-success?style=flat)](https://signal.org/blog/safety-number-updates/)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](https://github.com/ABHIRAM-CREATOR06/Halonyx/blob/main/LICENSE)
 [![Live](https://img.shields.io/badge/Live-halonyx.onrender.com-blueviolet?style=flat)](https://halonyx.onrender.com)
+
+[Live Demo](https://halonyx.onrender.com) · [Simulator](#interactive-simulator) · [Threat Model](specification_docs/security_docs/datathreat.md) · [Benchmarks](specification_docs/benchmark/benchmark.md) · [Policy Brief](specification_docs/compliance_doc/encryption-policy-brief.md)
 
 </div>
 
 ---
 
-Halonyx is an end-to-end encrypted messaging application built on the **Signal Protocol** — the same cryptography used by Signal and WhatsApp. Every message is encrypted on the client before it leaves your device. The relay server never sees plaintext. Files are transferred directly peer-to-peer over **WebTorrent (BitTorrent over WebRTC)** — the server never touches your files. Identity verification via **Safety Numbers** closes the last remaining attack surface: MITM key substitution.
+Halonyx is a self-hostable, end-to-end encrypted messenger built on the **Signal Protocol** — implemented from scratch rather than wrapped around `libsignal`. Every message is encrypted client-side with X3DH + Double Ratchet before it ever reaches the server; the relay only ever sees ciphertext. Files move directly peer-to-peer over **WebTorrent (BitTorrent over WebRTC)**, so the server is never in the data path for transfers either. **Safety Numbers** close the one gap E2EE alone can't: a compromised or malicious server substituting keys during setup.
+
+It's a final-year project built as a deep, from-first-principles exploration of applied cryptography and is not a production messenger. The [threat model](specification_docs/security_docs/datathreat.md) and [compliance brief](specification_docs/compliance_doc/encryption-policy-brief.md) below are written with that honesty in mind.
 
 ---
 
@@ -44,23 +49,37 @@ Halonyx is an end-to-end encrypted messaging application built on the **Signal P
 - **Web Audio Notifications** — send and receive sounds synthesized via Web Audio API; no audio files required
 - **Dark / Light Theme** — fully adaptive UI with smooth transitions
 - **Contact Management** — add by USID, remove, search, duplicate auto-cleanup
-- **Rate Limiting** — per-IP rate limits on signup and key upload endpoints (express-rate-limit v8)
+- **Rate Limiting** — per-IP rate limits on signup and key upload endpoints (`express-rate-limit` v8)
+- **Interactive Simulator** — a browser-based "How Halonyx Works" explainer that walks through X3DH and the Double Ratchet step by step
 
 ---
 
 ## Getting Started
 
-**Prerequisites:** Node.js v18+
+**Prerequisites:** Node.js 20, 22, or 24 (matches the CI matrix)
 
 ```bash
 git clone https://github.com/ABHIRAM-CREATOR06/Halonyx.git
-cd halonyx
+cd Halonyx
 npm install
 npm start        # production
-npm run dev      # development (auto-reload)
+npm run dev      # development (auto-reload via nodemon)
 ```
 
 Open **http://localhost:3000**. On Windows, run `start_server.bat`.
+
+### Running the tests
+
+```bash
+npm test                 # full suite (node --test)
+npm run test:x25519      # X3DH + Double Ratchet crypto core only
+```
+
+CI runs the full suite plus the X25519 protocol tests on Node 20, 22, and 24 on every push and PR, and fails the build outright if the X25519 tests get skipped instead of actually passing — a stale WebCrypto shim silently reporting green isn't allowed to pass. A native-binding sanity check for `sqlite3` runs first, and `npm audit` runs non-blocking on top.
+
+### Interactive Simulator
+
+Open `simulator/index.html` directly in a browser for a standalone, dependency-free walkthrough of the protocol — no server required. It's the fastest way to understand X3DH and the Double Ratchet without reading the source.
 
 ---
 
@@ -131,7 +150,7 @@ Files are never uploaded to the Halonyx server. Instead:
 2. A **magnet URI** is sent to the recipient through the encrypted message channel
 3. Recipient's browser **leeches** directly from the sender over WebRTC data channels
 4. Public trackers (`openwebtorrent.com`, `webtorrent.dev`) handle peer discovery only — they never see file contents
-5. NAT Traversal is supported via **STUN** and **TURN** servers (e.g., `openrelay.metered.ca`), ensuring P2P connections succeed even for users behind strict firewalls or symmetric NATs
+5. NAT traversal is supported via **STUN** and **TURN** servers (e.g., `openrelay.metered.ca`), so P2P connections succeed even behind strict firewalls or symmetric NATs
 6. Live upload speed, download speed, progress percentage, and seeding ratio are displayed in real time
 
 ```
@@ -144,6 +163,8 @@ Sender Browser                        Recipient Browser
 ---
 
 ## Signal Protocol
+
+The full implementation — X3DH, the Double Ratchet, key management, session state, and crypto primitives — lives under [`protocol/`](protocol/README.md), with a dedicated [security analysis](protocol/SECURITY_ANALYSIS.md) covering the threat model, per-primitive security properties, and known limitations of the ratchet.
 
 ### X3DH Key Exchange
 
@@ -158,7 +179,7 @@ DH4 = DH(EKa,  OPKb)    — Alice's ephemeral   × Bob's one-time pre-key
 SK  = HKDF(DH1 ‖ DH2 ‖ DH3 ‖ DH4)
 ```
 
-The server relays an opaque `x3dh_init` packet to the recipient who runs the responder path and derives the same `SK` independently.
+The server relays an opaque `x3dh_init` packet to the recipient, who runs the responder path and derives the same `SK` independently.
 
 ### Double Ratchet
 
@@ -281,11 +302,35 @@ All authenticated routes require `Authorization: Bearer <token>`. Rate-limited e
 
 ## Documentation & Analysis
 
-For deep technical dives into Halonyx's security model and system performance, refer to the following documents:
+Halonyx ships with a full doc set under [`specification_docs/`](specification_docs/), covering security, performance, and legal posture:
 
-- **[Data Threat Model (`datathreat/datathreat.md`)](datathreat/datathreat.md):** A comprehensive STRIDE analysis of the system, covering 17 potential threats, vulnerabilities, and their mitigations (including WebRTC IP leaks, JWT exposure, OPK exhaustion, and offline mailbox security).
-- **[Performance Benchmarks (`benchmark/benchmark.md`)](benchmark/benchmark.md):** Detailed latency and throughput metrics for cryptographic operations (X3DH, Double Ratchet), WebSocket messaging, SQLite operations, and WebTorrent P2P file transfers over STUN/TURN.
-- **[Simulator (`simulator/index.html`)](simulator/index.html):** Under building 
+- **[Data Threat Model](specification_docs/security_docs/datathreat.md)** — a STRIDE-style analysis covering **18 classified threats** (T-01 through T-18) across the frontend, backend, transport, storage, and dependency supply chain — including a hardcoded JWT secret, unauthenticated WebSocket registration, WebRTC/WebTorrent IP leaks, and OPK exhaustion — each with severity ratings and a phased remediation roadmap.
+- **[Performance Benchmarks](specification_docs/benchmark/benchmark.md)** — latency and throughput for every layer of the stack: X3DH and Double Ratchet crypto operations, REST endpoints, WebSocket messaging (including offline mailbox store-and-flush), UDP emergency broadcast, SQLite read/write performance, and WebTorrent transfer over STUN/TURN.
+- **[Encryption Policy Brief](specification_docs/compliance_doc/encryption-policy-brief.md)** — a comparative look at where Halonyx's architecture stands against live encryption policy in the EU (CSAR/"Chat Control"), the US (EARN IT Act), India (IT Rules 2021 traceability), the UK (Online Safety Act / Investigatory Powers Act), and the UN Convention against Cybercrime.
+- **[Protocol Implementation Notes](protocol/README.md)** and **[Protocol Security Analysis](protocol/SECURITY_ANALYSIS.md)** — a component-by-component breakdown of the Signal Protocol implementation (X3DH, Double Ratchet, key management, session handling) and its security properties, assumptions, and limitations.
+
+---
+
+## Testing
+
+The `tests/` directory covers the crypto core and the surrounding server logic using Node's built-in test runner:
+
+```
+tests/
+├── x25519_protocol.test.js     # X3DH primitives over Web Crypto's X25519
+├── x3dh.test.js                # Full X3DH initiator/responder handshake
+├── double_ratchet.test.js      # Symmetric + DH ratchet correctness
+├── crypto_utils.test.js        # AES-256-GCM, HKDF, HMAC primitives
+├── safety_number.test.js       # Safety number derivation & formatting
+├── auth_connect.test.js        # Signup, JWT auth, WS registration flow
+├── relay_metadata_static.test.js  # Server never persists plaintext relay metadata
+├── simulator_static.test.js    # Simulator loads and runs standalone
+├── email_utils.test.js         # Email utility functions
+├── utils.test.js               # USID generation & hashing
+└── verify-sqlite.js            # Native sqlite3 binding sanity check
+```
+
+Run everything with `npm test`, or just the crypto core with `npm run test:x25519`. Both run automatically in CI on Node 20, 22, and 24.
 
 ---
 
@@ -293,30 +338,42 @@ For deep technical dives into Halonyx's security model and system performance, r
 
 ```
 Halonyx/
+├── .github/workflows/ci.yml    # Node 20/22/24 matrix — tests, X25519 core, sqlite check, audit
 ├── backend/
-│   ├── server.js              # Express + WebSocket + UDP + offline mailbox
-│   │                          # + /keys/upload, /public-key, /update-pubkey
+│   ├── server.js               # Express + WebSocket + UDP + offline mailbox
+│   │                           # + /keys/upload, /public-key, /update-pubkey
 │   ├── email.js
-│   ├── utils.js               # USID generation & hashing
+│   ├── utils.js                # USID generation & hashing
 │   └── db/
-│       ├── app.db             # users · contacts · mailbox
-│       ├── identity.db        # hashed_usid ↔ email/name metadata
-│       ├── keys.db            # X3DH public key bundles
+│       ├── app.db              # users · contacts · mailbox
+│       ├── identity.db         # hashed_usid ↔ email/name metadata
+│       ├── keys.db             # X3DH public key bundles
 │       ├── schema.sql
 │       ├── identity_schema.sql
 │       └── key_schema.sql
 ├── frontend/
-│   ├── index.html             # Three-pane layout + Safety Numbers dialog
-│   ├── css/style.css          # Dark/light adaptive UI, Signal-style bubbles
-│   └── js/app.js              # WebTorrent · WS · E2EE wiring · Safety Numbers
-└── protocol/
-    ├── signal_protocol.js     # Top-level façade: init, openSession, encrypt, decrypt
-    ├── x3dh.js                # X3DH initiator + responder paths
-    ├── double_ratchet.js      # Double Ratchet with HKDF chain KDF
-    ├── key_management.js      # Key pair generation, pre-key bundles
-    ├── idb_key_store.js       # IndexedDB persistence for keys and session state
-    ├── session.js             # Session lifecycle management
-    └── crypto_utils.js        # AES-256-GCM, HKDF, HMAC, X25519 primitives
+│   ├── index.html              # Three-pane layout + Safety Numbers dialog
+│   ├── css/style.css           # Dark/light adaptive UI, Signal-style bubbles
+│   └── js/app.js               # WebTorrent · WS · E2EE wiring · Safety Numbers
+├── protocol/
+│   ├── README.md                # Implementation overview
+│   ├── SECURITY_ANALYSIS.md     # Threat model & per-primitive security properties
+│   ├── signal_protocol.js       # Top-level façade: init, openSession, encrypt, decrypt
+│   ├── x3dh.js                  # X3DH initiator + responder paths
+│   ├── double_ratchet.js        # Double Ratchet with HKDF chain KDF
+│   ├── key_management.js        # Key pair generation, pre-key bundles
+│   ├── idb_key_store.js         # IndexedDB persistence for keys and session state
+│   ├── session.js               # Session lifecycle management
+│   └── crypto_utils.js          # AES-256-GCM, HKDF, HMAC, X25519 primitives
+├── simulator/
+│   ├── index.html               # Standalone "How Halonyx Works" interactive explainer
+│   └── readme.md
+├── specification_docs/
+│   ├── security_docs/datathreat.md            # STRIDE threat model — 18 classified threats
+│   ├── benchmark/benchmark.md                  # Full-stack performance benchmarks
+│   └── compliance_doc/encryption-policy-brief.md  # EU/US/India/UK/UN encryption policy brief
+├── tests/                       # Node --test suite — crypto core + server logic
+└── start_server.bat
 ```
 
 ---
@@ -335,6 +392,10 @@ Halonyx/
 - [x] Dark / light theme
 - [x] Contact remove + duplicate cleanup
 - [x] OPK replenishment monitoring
+- [x] Interactive protocol simulator
+- [x] CI test matrix (Node 20/22/24) with crypto-core enforcement
+- [x] Full STRIDE threat model (18 threats) + performance benchmark suite
+- [x] Cross-jurisdiction encryption policy brief
 - [ ] Safety number QR code scan
 - [ ] Post-quantum cryptography (CRYSTALS-Dilithium / SPHINCS+)
 - [ ] Multi-device session sync
@@ -348,8 +409,6 @@ Halonyx/
 
 Built at **SNGCE, Kerala** · APJ Abdul Kalam Technological University · 2026
 
----
-
 | Name | Role |
 |---|---|
 | Abhiram P | Backend · Signal Protocol · Safety Numbers |
@@ -358,6 +417,12 @@ Built at **SNGCE, Kerala** · APJ Abdul Kalam Technological University · 2026
 | Antony S Kannampuzha | Database · Infrastructure · Key Storage |
 
 ---
-> Built as a deep exploration of applied cryptography and secure communication 
+
+## License
+
+AGPL-3.0. See [LICENSE](LICENSE).
+
+> Built as a deep exploration of applied cryptography and secure communication.
 > Not intended for production deployment.
+
 <div align="center"><sub>Connect Securely. Leave No Trace.</sub></div>
