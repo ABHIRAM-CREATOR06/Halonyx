@@ -1,14 +1,5 @@
 ---
 name: Feature request
-about: Suggest an idea for this project
-title: ''
-labels: ''
-assignees: ''
-
----
-
----
-name: Feature request
 about: Suggest an addition or change to Halonyx
 title: "[FEATURE] "
 labels: enhancement
