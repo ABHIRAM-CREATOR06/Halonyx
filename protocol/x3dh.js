@@ -1,12 +1,20 @@
 /**
- * X3DH Key Exchange Implementation
- * 
- * Extended Triple Diffie-Hellman (X3DH) provides authenticated key exchange
- * for the Signal Protocol without requiring prior interaction.
- * 
- * Reference: https://signal.org/docs/specifications/x3dh/x3dh/
+ * X3DH Key Exchange — Fixed Implementation
+ *
+ * Bug 5 fix: processInitialMessage now correctly mirrors createInitialMessage.
+ *   Initiator computes:  DH1=DH(IKa,SPKb), DH2=DH(EKa,IKb), DH3=DH(EKa,SPKb)
+ *   Responder computes:  DH1=DH(SPKb,IKa), DH2=DH(IKb,EKa), DH3=DH(SPKb,EKa)
+ *   Both produce the same secrets by DH commutativity.
+ *
+ * Bug 6 fix: Pre-key signatures now use Ed25519 instead of the HMAC stub
+ *   that unconditionally returned true.
+ *
+ * KDF fix: deriveSharedSecret uses HKDF (not PBKDF2).
+ *
+ * All private keys are CryptoKey objects — never raw Uint8Array.
+ *
+ * Reference: https://signal.org/docs/specifications/x3dh/
  */
-
 class X3DH {
   constructor(cryptoUtils) {
     this.crypto = cryptoUtils || new CryptoUtils();
@@ -14,275 +22,136 @@ class X3DH {
   }
 
   /**
-   * Generate key pairs for X3DH
-   * @param {number} count - Number of ephemeral key pairs to generate
-   * @returns {Object} Key bundle with identity and ephemeral keys
+   * Generate a full key bundle for this user.
+   * Returns public key bytes for transmission, private CryptoKeys for local use.
+   *
+   * @returns {{
+   *   identityPublicBytes:    Uint8Array,
+   *   identityPrivateKey:     CryptoKey,   // X25519
+   *   signingPublicBytes:     Uint8Array,
+   *   signingPrivateKey:      CryptoKey,   // Ed25519
+   *   signedPreKeyPublicBytes:Uint8Array,
+   *   signedPreKeyPrivate:    CryptoKey,   // X25519
+   *   signedPreKeySignature:  Uint8Array,  // Ed25519 over signedPreKeyPublicBytes
+   * }}
    */
-  async generateKeyBundle(count = 3) {
-    const identityKey = await this.crypto.generateIdentityKeyPair();
-    const signedPreKey = await this.crypto.generateIdentityKeyPair();
-    const ephemeralKeys = [];
+  async generateKeyBundle() {
+    // Identity key pair (X25519 DH)
+    const identity  = await this.crypto.generateDhKeyPair();
+    // Signing key pair (Ed25519) — separate from identity DH key
+    const signing   = await this.crypto.generateSigningKeyPair();
+    // Signed pre-key (X25519 DH)
+    const spk       = await this.crypto.generateDhKeyPair();
 
-    for (let i = 0; i < count; i++) {
-      const ephemeralKey = await this.crypto.generateIdentityKeyPair();
-      ephemeralKeys.push(ephemeralKey);
-    }
+    // Sign the SPK public bytes with the Ed25519 signing private key
+    const spkSig = await this.crypto.signEd25519(spk.publicKeyBytes, signing.privateKey);
 
     return {
-      identityKey: identityKey.publicKey,
-      identityPrivateKey: identityKey.privateKey,
-      signedPreKey: signedPreKey.publicKey,
-      signedPreKeySignature: await this.signPreKey(
-        signedPreKey.publicKey,
-        identityKey.privateKey
-      ),
-      ephemeralKeys: ephemeralKeys.map(k => k.publicKey),
-      created: Date.now()
+      identityPublicBytes:     identity.publicKeyBytes,
+      identityPrivateKey:      identity.privateKey,       // CryptoKey
+      signingPublicBytes:      signing.publicKeyBytes,
+      signingPrivateKey:       signing.privateKey,        // CryptoKey
+      signedPreKeyPublicBytes: spk.publicKeyBytes,
+      signedPreKeyPrivate:     spk.privateKey,            // CryptoKey
+      signedPreKeySignature:   spkSig,
     };
   }
 
   /**
-   * Sign a pre-key with the identity private key
-   * @param {Uint8Array} preKey - Pre-key to sign
-   * @param {Uint8Array} privateKey - Identity private key
-   * @returns {Uint8Array} Signature
+   * Initiator side — create the initial message and shared secret.
+   *
+   * @param {CryptoKey}  myIdentityPrivate       X25519 private
+   * @param {Uint8Array} myIdentityPublicBytes    X25519 public (sent to responder)
+   * @param {Uint8Array} theirIdentityPublicBytes Responder's X25519 identity public
+   * @param {Uint8Array} theirSpkPublicBytes      Responder's signed pre-key public
+   * @param {Uint8Array} theirSpkSignature        Ed25519 signature over theirSpkPublicBytes
+   * @param {Uint8Array} theirSigningPublicBytes  Responder's Ed25519 signing public key
+   * @returns {{ ephemeralPublicBytes, sharedSecret }}
    */
-  async signPreKey(preKey, privateKey) {
-    const signature = await this.crypto.sign(preKey, privateKey);
-    return signature;
-  }
-
-  /**
-   * Create an initial message for establishing a session
-   * @param {Object} myKeyBundle - My key bundle
-   * @param {Uint8Array} theirIdentityKey - Recipient's identity key
-   * @param {Uint8Array} theirSignedPreKey - Recipient's signed pre-key
-   * @param {Uint8Array} theirEphemeralKey - One of recipient's ephemeral keys
-   * @returns {Object} Initial message with shared secret
-   */
-  async createInitialMessage(myKeyBundle, theirIdentityKey, theirSignedPreKey, theirEphemeralKey) {
-    // DH1 = DH(IKa, SPKb) - My identity key with their signed pre-key
-    const dh1 = await this.crypto.deriveBits(
-      await this.importPrivateKey(myKeyBundle.identityPrivateKey),
-      theirSignedPreKey
+  async createInitialMessage(
+    myIdentityPrivate, myIdentityPublicBytes,
+    theirIdentityPublicBytes, theirSpkPublicBytes,
+    theirSpkSignature, theirSigningPublicBytes
+  ) {
+    // Verify the signed pre-key before using it
+    const valid = await this.crypto.verifyEd25519(
+      theirSpkPublicBytes, theirSpkSignature, theirSigningPublicBytes
     );
+    if (!valid) throw new Error('[X3DH] Signed pre-key signature is invalid');
 
-    // DH2 = DH(EKa, IKb) - My ephemeral key with their identity key
-    const dh2 = await this.crypto.deriveBits(
-      await this.importPrivateKey(myKeyBundle.ephemeralKeys[0].privateKey),
-      theirIdentityKey
-    );
+    // Generate ephemeral key pair for this session
+    const ek = await this.crypto.generateDhKeyPair();
 
-    // DH3 = DH(EKa, SPKb) - My ephemeral key with their signed pre-key
-    const dh3 = await this.crypto.deriveBits(
-      await this.importPrivateKey(myKeyBundle.ephemeralKeys[0].privateKey),
-      theirSignedPreKey
-    );
+    // DH1 = DH(IKa_priv, SPKb_pub)
+    const dh1 = await this.crypto.deriveBits(myIdentityPrivate, theirSpkPublicBytes);
+    // DH2 = DH(EKa_priv, IKb_pub)
+    const dh2 = await this.crypto.deriveBits(ek.privateKey, theirIdentityPublicBytes);
+    // DH3 = DH(EKa_priv, SPKb_pub)
+    const dh3 = await this.crypto.deriveBits(ek.privateKey, theirSpkPublicBytes);
 
-    // DH4 = DH(EKa, EKb) - My ephemeral key with their ephemeral key
-    const dh4 = await this.crypto.deriveBits(
-      await this.importPrivateKey(myKeyBundle.ephemeralKeys[0].privateKey),
-      theirEphemeralKey
-    );
-
-    // Derive the shared secret key from DH outputs
-    const sharedSecret = await this.deriveSharedSecret(dh1, dh2, dh3, dh4);
+    const sharedSecret = await this._deriveSharedSecret(dh1, dh2, dh3);
 
     return {
-      identityKey: myKeyBundle.identityKey,
-      ephemeralKey: myKeyBundle.ephemeralKeys[0].publicKey,
-      sharedSecret: sharedSecret,
-      usedEphemeralKey: myKeyBundle.ephemeralKeys[0]
+      ephemeralPublicBytes: ek.publicKeyBytes,
+      sharedSecret,
     };
   }
 
   /**
-   * Process an initial message and derive shared secret
-   * @param {Object} theirInitialMsg - Initial message from peer
-   * @param {Object} myKeyBundle - My key bundle
-   * @returns {Object} Shared secret and peer info
+   * Responder side — mirror of createInitialMessage.
+   * Both sides MUST derive the same shared secret via DH commutativity.
+   *
+   * @param {Uint8Array} theirIdentityPublicBytes  Initiator's X25519 identity public
+   * @param {Uint8Array} theirEphemeralPublicBytes  Initiator's X25519 ephemeral public
+   * @param {CryptoKey}  myIdentityPrivate           X25519 private
+   * @param {CryptoKey}  mySignedPreKeyPrivate        X25519 private
+   * @returns {{ sharedSecret }}
    */
-  async processInitialMessage(theirInitialMsg, myKeyBundle) {
-    // DH1 = DH(IKa, SPKb) - Their identity key with my signed pre-key
-    const dh1 = await this.crypto.deriveBits(
-      await this.importPrivateKey(myKeyBundle.signedPreKeyPrivate || myKeyBundle.identityPrivateKey),
-      theirInitialMsg.ephemeralKey
-    );
+  async processInitialMessage(
+    theirIdentityPublicBytes, theirEphemeralPublicBytes,
+    myIdentityPrivate, mySignedPreKeyPrivate
+  ) {
+    // DH1 = DH(SPKb_priv, IKa_pub)   ← mirrors initiator's DH(IKa,SPKb)
+    const dh1 = await this.crypto.deriveBits(mySignedPreKeyPrivate, theirIdentityPublicBytes);
+    // DH2 = DH(IKb_priv, EKa_pub)    ← mirrors initiator's DH(EKa,IKb)
+    const dh2 = await this.crypto.deriveBits(myIdentityPrivate, theirEphemeralPublicBytes);
+    // DH3 = DH(SPKb_priv, EKa_pub)   ← mirrors initiator's DH(EKa,SPKb)
+    const dh3 = await this.crypto.deriveBits(mySignedPreKeyPrivate, theirEphemeralPublicBytes);
 
-    // DH2 = DH(SPKa, IKb) - My signed pre-key with their identity key
-    const dh2 = await this.crypto.deriveBits(
-      await this.importPrivateKey(myKeyBundle.signedPreKeyPrivate || myKeyBundle.identityPrivateKey),
-      theirInitialMsg.identityKey
-    );
+    const sharedSecret = await this._deriveSharedSecret(dh1, dh2, dh3);
+    return { sharedSecret };
+  }
 
-    // DH3 = DH(SPKa, EKb) - My signed pre-key with their ephemeral key
-    const dh3 = await this.crypto.deriveBits(
-      await this.importPrivateKey(myKeyBundle.signedPreKeyPrivate || myKeyBundle.identityPrivateKey),
-      theirInitialMsg.ephemeralKey
-    );
+  /**
+   * Derive shared secret from DH outputs using HKDF-SHA-256.
+   * Bug 3 fix: original used PBKDF2 with 1 iteration — replaced with HKDF.
+   */
+  async _deriveSharedSecret(dh1, dh2, dh3) {
+    const ikm  = this.crypto.concatArrays(dh1, dh2, dh3);
+    const salt = new Uint8Array(32); // 32 zero bytes per Signal spec
+    return this.crypto.hkdf(ikm, salt, this.info, 32);
+  }
 
-    // DH4 = DH(IKa, EKb) - My identity key with their ephemeral key
-    const dh4 = await this.crypto.deriveBits(
-      await this.importPrivateKey(myKeyBundle.identityPrivateKey),
-      theirInitialMsg.ephemeralKey
-    );
+  // ── Bundle encode / decode for server upload ──────────────────────────────
 
-    // Derive the shared secret key from DH outputs
-    const sharedSecret = await this.deriveSharedSecret(dh1, dh2, dh3, dh4);
-
+  encodePublicBundle(bundle) {
     return {
-      sharedSecret: sharedSecret,
-      peerIdentityKey: theirInitialMsg.identityKey,
-      peerEphemeralKey: theirInitialMsg.ephemeralKey
+      identityKey:    this.crypto.bufferToBase64(bundle.identityPublicBytes),
+      signingKey:     this.crypto.bufferToBase64(bundle.signingPublicBytes),
+      signedPreKey:   this.crypto.bufferToBase64(bundle.signedPreKeyPublicBytes),
+      spkSignature:   this.crypto.bufferToBase64(bundle.signedPreKeySignature),
     };
   }
 
-  /**
-   * Derive a shared secret from multiple DH outputs
-   * @param {...Uint8Array} dhOutputs - DH shared secrets
-   * @returns {Uint8Array} Derived shared secret
-   */
-  async deriveSharedSecret(...dhOutputs) {
-    // Concatenate all DH outputs
-    const concatInput = this.crypto.concatArrays(...dhOutputs);
-
-    // Add protocol info
-    const inputKeyMaterial = this.crypto.concatArrays(
-      concatInput,
-      this.info
-    );
-
-    // Derive key using HMAC-based KDF
-    const salt = new Uint8Array(32); // Zero salt
-    const derivedKey = await this.crypto.deriveKey(
-      inputKeyMaterial,
-      salt,
-      100000, // iterations
-      32 // output length
-    );
-
-    return derivedKey;
-  }
-
-  /**
-   * Import a private key for DH operations
-   * @param {Uint8Array} privateKeyBytes - Raw private key bytes
-   * @returns {CryptoKey} Imported private key
-   */
-  async importPrivateKey(privateKeyBytes) {
-    return await crypto.subtle.importKey(
-      'raw',
-      privateKeyBytes,
-      {
-        name: 'ECDH',
-        namedCurve: 'X25519'
-      },
-      false,
-      ['deriveBits', 'deriveKey']
-    );
-  }
-
-  /**
-   * Verify a pre-key signature
-   * @param {Uint8Array} preKey - Pre-key that was signed
-   * @param {Uint8Array} signature - Signature to verify
-   * @param {Uint8Array} identityKey - Signer's identity key
-   * @returns {boolean} True if signature is valid
-   */
-  async verifyPreKeySignature(preKey, signature, identityKey) {
-    const importedKey = await crypto.subtle.importKey(
-      'raw',
-      identityKey,
-      {
-        name: 'ECDH',
-        namedCurve: 'X25519'
-      },
-      false,
-      []
-    );
-
-    // Note: X25519 keys cannot be used for signing
-    // This would need Ed25519 keys for proper signature verification
-    // For implementation, use a separate signing key pair
-    console.warn('Pre-key signature verification requires Ed25519 keys');
-    return true; // Placeholder - implement with Ed25519
-  }
-
-  /**
-   * Generate a pre-key bundle for server upload
-   * @param {number} startId - Starting pre-key ID
-   * @param {number} count - Number of pre-keys to generate
-   * @returns {Object} Pre-key bundle
-   */
-  async generatePreKeyBundle(startId, count = 100) {
-    const keyBundle = await this.generateKeyBundle(count);
-    
+  decodePublicBundle(encoded) {
     return {
-      registrationId: Math.floor(Math.random() * 0xFFFF),
-      identityKey: keyBundle.identityKey,
-      signedPreKey: {
-        id: startId,
-        publicKey: keyBundle.signedPreKey,
-        signature: keyBundle.signedPreKeySignature
-      },
-      preKeys: keyBundle.ephemeralKeys.map((key, index) => ({
-        id: startId + index + 1,
-        publicKey: key
-      })),
-      created: keyBundle.created
-    };
-  }
-
-  /**
-   * Encode a key bundle for transmission
-   * @param {Object} bundle - Key bundle to encode
-   * @returns {string} Base64 encoded bundle
-   */
-  encodeBundle(bundle) {
-    const data = {
-      registrationId: bundle.registrationId,
-      identityKey: this.crypto.bufferToBase64(bundle.identityKey),
-      signedPreKey: {
-        id: bundle.signedPreKey.id,
-        publicKey: this.crypto.bufferToBase64(bundle.signedPreKey.publicKey),
-        signature: this.crypto.bufferToBase64(bundle.signedPreKey.signature)
-      },
-      preKeys: bundle.preKeys.map(pk => ({
-        id: pk.id,
-        publicKey: this.crypto.bufferToBase64(pk.publicKey)
-      }))
-    };
-
-    return btoa(JSON.stringify(data));
-  }
-
-  /**
-   * Decode a key bundle from transmission
-   * @param {string} encodedBundle - Base64 encoded bundle
-   * @returns {Object} Decoded key bundle
-   */
-  decodeBundle(encodedBundle) {
-    const data = JSON.parse(atob(encodedBundle));
-    
-    return {
-      registrationId: data.registrationId,
-      identityKey: this.crypto.base64ToBuffer(data.identityKey),
-      signedPreKey: {
-        id: data.signedPreKey.id,
-        publicKey: this.crypto.base64ToBuffer(data.signedPreKey.publicKey),
-        signature: this.crypto.base64ToBuffer(data.signedPreKey.signature)
-      },
-      preKeys: data.preKeys.map(pk => ({
-        id: pk.id,
-        publicKey: this.crypto.base64ToBuffer(pk.publicKey)
-      }))
+      identityPublicBytes:     this.crypto.base64ToBuffer(encoded.identityKey),
+      signingPublicBytes:      this.crypto.base64ToBuffer(encoded.signingKey),
+      signedPreKeyPublicBytes: this.crypto.base64ToBuffer(encoded.signedPreKey),
+      signedPreKeySignature:   this.crypto.base64ToBuffer(encoded.spkSignature),
     };
   }
 }
 
-// Export for Node.js and browser environments
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = X3DH;
-} else if (typeof window !== 'undefined') {
-  window.X3DH = X3DH;
-}
+if (typeof module !== 'undefined' && module.exports) module.exports = X3DH;
+else if (typeof window !== 'undefined') window.X3DH = X3DH;

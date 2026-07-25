@@ -8,3 +8,8 @@ CREATE TABLE IF NOT EXISTS users_metadata (
     hashed_usid TEXT NOT NULL UNIQUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS server_config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);

@@ -1,0 +1,45 @@
+name: Halonyx CI
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    name: Test on Node ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20, 22, 24]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify sqlite3 native binding
+        run: node tests/verify-sqlite.js
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Run X25519 protocol tests
+        run: |
+          set -o pipefail
+          npm run test:x25519 2>&1 | tee x25519-output.log
+          PASS_COUNT=$(grep -oP 'ℹ pass \K[0-9]+' x25519-output.log || echo 0)
+          SKIP_COUNT=$(grep -oP 'ℹ skipped \K[0-9]+' x25519-output.log || echo 0)
+          if [ "$PASS_COUNT" -eq 0 ] && [ "$SKIP_COUNT" -gt 0 ]; then
+            echo "::error::All $SKIP_COUNT X25519 protocol tests were skipped (Node WebCrypto lacks X25519 support here). The crypto core has zero real coverage. Fix the underlying implementation before treating this as passing."
+            exit 1
+          fi
+
+      - name: Audit dependencies (non-breaking fixes only, non-blocking)
+        run: npm audit --audit-level=high || true
+        continue-on-error: true
