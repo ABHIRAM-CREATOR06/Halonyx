@@ -6,7 +6,7 @@ function generateUSID() {
 }
 
 function hashUSID(usid) {
-    // Hash the USID using SHA-256 and return hex string
+    // Hash the USID using SHA-256 and return hex
     return crypto.createHash('sha256').update(usid).digest('hex');
 }
 

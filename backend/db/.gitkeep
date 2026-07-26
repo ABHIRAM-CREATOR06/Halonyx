@@ -1,0 +1,2 @@
+# This directory is intentionally tracked by git so the folder exists.
+# The actual .db files and .jwt_secret are created at runtime and excluded via .gitignore.
