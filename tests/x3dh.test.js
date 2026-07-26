@@ -8,6 +8,7 @@ globalThis.atob = globalThis.atob || ((value) => Buffer.from(value, "base64").to
 
 const CryptoUtils = require("../protocol/crypto_utils");
 const X3DH = require("../protocol/x3dh");
+const DoubleRatchet = require("../protocol/double_ratchet");
 
 async function supportsX25519() {
   try {
@@ -44,6 +45,40 @@ test("X3DH initiator and responder derive the same shared secret", async (t) => 
 
   assert.deepEqual(initial.sharedSecret, response.sharedSecret);
   assert.equal(initial.sharedSecret.length, 32);
+});
+
+test("the first message decrypts when responder starts from its signed pre-key", async (t) => {
+  if (!(await supportsX25519())) return t.skip("Node WebCrypto in this environment does not support X25519");
+
+  const cryptoUtils = new CryptoUtils();
+  const x3dh = new X3DH(cryptoUtils);
+  const alice = await x3dh.generateKeyBundle();
+  const bob = await x3dh.generateKeyBundle();
+  const initial = await x3dh.createInitialMessage(
+    alice.identityPrivateKey,
+    alice.identityPublicBytes,
+    bob.identityPublicBytes,
+    bob.signedPreKeyPublicBytes,
+    bob.signedPreKeySignature,
+    bob.signingPublicBytes,
+  );
+  const response = await x3dh.processInitialMessage(
+    alice.identityPublicBytes,
+    initial.ephemeralPublicBytes,
+    bob.identityPrivateKey,
+    bob.signedPreKeyPrivate,
+  );
+
+  const aliceRatchet = new DoubleRatchet(cryptoUtils);
+  await aliceRatchet.initialize(initial.sharedSecret, bob.signedPreKeyPublicBytes, true);
+  const bobRatchet = new DoubleRatchet(cryptoUtils);
+  await bobRatchet.initialize(response.sharedSecret, alice.identityPublicBytes, false, {
+    privateKey: bob.signedPreKeyPrivate,
+    publicKeyBytes: bob.signedPreKeyPublicBytes,
+  });
+
+  assert.equal(await bobRatchet.decrypt(await aliceRatchet.encrypt("first secure message")), "first secure message");
+  assert.equal(await aliceRatchet.decrypt(await bobRatchet.encrypt("secure reply")), "secure reply");
 });
 
 test("X3DH rejects a tampered signed pre-key signature", async (t) => {

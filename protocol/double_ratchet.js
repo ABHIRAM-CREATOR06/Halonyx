@@ -33,11 +33,12 @@ class DoubleRatchet {
    * @param {Uint8Array} remotePublicKeyBytes  Peer's ratchet public key (their SPK public bytes)
    * @param {boolean}    isInitiator
    */
-  async initialize(sharedSecret, remotePublicKeyBytes, isInitiator) {
+  async initialize(sharedSecret, remotePublicKeyBytes, isInitiator, initialDhKeyPair = null) {
     this.rootKey = sharedSecret;
 
-    // Generate our first ratchet DH key pair
-    const kp = await this.crypto.generateDhKeyPair();
+    // A responder starts from its signed pre-key: this is the private key paired
+    // with the public key the initiator used for the first ratchet step.
+    const kp = initialDhKeyPair || await this.crypto.generateDhKeyPair();
     this.dhPrivateKey     = kp.privateKey;     // CryptoKey
     this.dhPublicKeyBytes = kp.publicKeyBytes; // Uint8Array
 
@@ -156,6 +157,7 @@ class DoubleRatchet {
 
   getState() {
     return {
+      version:               3,
       rootKey:               this.rootKey,
       sendingChainKey:       this.sendingChainKey,
       receivingChainKey:     this.receivingChainKey,

@@ -60,6 +60,13 @@ class SignalProtocol {
     // Restore any persisted sessions
     const savedSessions = await this.idb.loadAllSessions();
     for (const { peerId, ratchetState } of savedSessions) {
+      // The original responder initialization used a transient ratchet key,
+      // which cannot decrypt an initiator's first message. Do not restore
+      // those incompatible sessions; opening the chat performs fresh X3DH.
+      if (ratchetState.version !== 3) {
+        await this.idb.deleteSession(peerId);
+        continue;
+      }
       const dr = new DoubleRatchet(this.crypto);
       dr.restoreState(ratchetState);
       this.sessions.set(peerId, dr);
@@ -219,7 +226,15 @@ class SignalProtocol {
 
     // Initialize Double Ratchet (responder)
     const dr = new DoubleRatchet(this.crypto);
-    await dr.initialize(sharedSecret, theirIdentityPublicBytes, false);
+    await dr.initialize(
+      sharedSecret,
+      theirIdentityPublicBytes,
+      false,
+      {
+        privateKey: this.identity.signedPreKeyPrivate,
+        publicKeyBytes: this.identity.signedPreKeyPublicBytes,
+      },
+    );
     this.sessions.set(peerUsid, dr);
     this._sessionMeta.set(peerUsid, { peerIdentityPublicBytes: theirIdentityPublicBytes });
     await this.idb.saveSession(peerUsid, dr.getState());

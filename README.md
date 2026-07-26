@@ -338,23 +338,29 @@ Run everything with `npm test`, or just the crypto core with `npm run test:x2551
 
 ```
 Halonyx/
-├── .github/workflows/ci.yml    # Node 20/22/24 matrix — tests, X25519 core, sqlite check, audit
+├── .github/
+│   ├── workflows/ci.yml         # Node 20/22/24 matrix — tests, X25519 core, sqlite check, audit
+│   ├── ISSUE_TEMPLATE/
+│   │   ├── bug_report.md
+│   │   └── feature_request.md
+│   └── PULL_REQUEST_TEMPLATE.md
 ├── backend/
-│   ├── server.js               # Express + WebSocket + UDP + offline mailbox
-│   │                           # + /keys/upload, /public-key, /update-pubkey
-│   ├── email.js
-│   ├── utils.js                # USID generation & hashing
+│   ├── server.js                # Express + WebSocket + UDP + offline mailbox
+│   │                            # + /keys/upload, /public-key, /update-pubkey
+│   ├── email.js                 # Email notification utilities
+│   ├── utils.js                 # USID generation & hashing
+│   ├── test_udp.js              # UDP broadcast test script
 │   └── db/
-│       ├── app.db              # users · contacts · mailbox
-│       ├── identity.db         # hashed_usid ↔ email/name metadata
-│       ├── keys.db             # X3DH public key bundles
-│       ├── schema.sql
-│       ├── identity_schema.sql
-│       └── key_schema.sql
+│       ├── app.db               # users · contacts · mailbox
+│       ├── identity.db          # hashed_usid ↔ email/name metadata
+│       ├── keys.db              # X3DH public key bundles
+│       ├── schema.sql           # app.db schema (users · contacts)
+│       ├── identity_schema.sql  # identity.db schema
+│       └── key_schema.sql       # keys.db schema
 ├── frontend/
-│   ├── index.html              # Three-pane layout + Safety Numbers dialog
-│   ├── css/style.css           # Dark/light adaptive UI, Signal-style bubbles
-│   └── js/app.js               # WebTorrent · WS · E2EE wiring · Safety Numbers
+│   ├── index.html               # Three-pane layout + Safety Numbers dialog
+│   ├── css/style.css            # Dark/light adaptive UI, Signal-style bubbles
+│   └── js/app.js                # WebTorrent · WS · E2EE wiring · Safety Numbers
 ├── protocol/
 │   ├── README.md                # Implementation overview
 │   ├── SECURITY_ANALYSIS.md     # Threat model & per-primitive security properties
@@ -364,16 +370,35 @@ Halonyx/
 │   ├── key_management.js        # Key pair generation, pre-key bundles
 │   ├── idb_key_store.js         # IndexedDB persistence for keys and session state
 │   ├── session.js               # Session lifecycle management
+│   ├── email_utils.js           # Email utility functions
 │   └── crypto_utils.js          # AES-256-GCM, HKDF, HMAC, X25519 primitives
 ├── simulator/
 │   ├── index.html               # Standalone "How Halonyx Works" interactive explainer
 │   └── readme.md
 ├── specification_docs/
-│   ├── security_docs/datathreat.md            # STRIDE threat model — 18 classified threats
-│   ├── benchmark/benchmark.md                  # Full-stack performance benchmarks
-│   └── compliance_doc/encryption-policy-brief.md  # EU/US/India/UK/UN encryption policy brief
-├── tests/                       # Node --test suite — crypto core + server logic
-└── start_server.bat
+│   ├── security_docs/datathreat.md              # STRIDE threat model — 18 classified threats
+│   ├── benchmark/benchmark.md                   # Full-stack performance benchmarks
+│   └── compliance_doc/encryption-policy-brief.md # EU/US/India/UK/UN encryption policy brief
+├── tests/                        # Node --test suite — crypto core + server logic
+│   ├── x25519_protocol.test.js  # X3DH primitives over Web Crypto's X25519
+│   ├── x3dh.test.js             # Full X3DH initiator/responder handshake
+│   ├── double_ratchet.test.js   # Symmetric + DH ratchet correctness
+│   ├── crypto_utils.test.js     # AES-256-GCM, HKDF, HMAC primitives
+│   ├── safety_number.test.js    # Safety number derivation & formatting
+│   ├── auth_connect.test.js     # Signup, JWT auth, WS registration flow
+│   ├── relay_metadata_static.test.js  # Server never persists plaintext relay metadata
+│   ├── simulator_static.test.js       # Simulator loads and runs standalone
+│   ├── email_utils.test.js      # Email utility functions
+│   ├── utils.test.js            # USID generation & hashing
+│   └── verify-sqlite.js         # Native sqlite3 binding sanity check
+├── docs/
+│   └── SOFTWARE_DESIGN.md       # Software design document
+├── reference_image/              # ER diagrams, architecture diagrams, screenshots
+├── start_server.bat             # Windows launcher
+├── package.json
+├── SECURITY.md
+├── LICENSE                      # AGPL-3.0
+└── README.md
 ```
 
 ---

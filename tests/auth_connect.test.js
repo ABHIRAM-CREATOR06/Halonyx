@@ -25,3 +25,15 @@ test("Connect payload matching correctly formats USID or Email hash", () => {
   const hashedShort = shortUsid.length === 64 ? shortUsid : hashUSID(shortUsid);
   assert.equal(hashedShort, hashUSID(shortUsid));
 });
+
+test("shared hashed USIDs are not hashed again for contact lookup", () => {
+  const rawUsid = "a".repeat(64);
+  const storedHashedUsid = hashUSID(rawUsid);
+  const sharedUsid = storedHashedUsid;
+  const lookupCandidates = [...new Set([
+    sharedUsid.toLowerCase().replace(/^0x/, ""),
+    hashUSID(sharedUsid.toLowerCase().replace(/^0x/, "")),
+  ])];
+
+  assert.ok(lookupCandidates.includes(storedHashedUsid));
+});

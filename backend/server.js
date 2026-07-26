@@ -213,11 +213,16 @@ app.post("/add-contact", authenticate, (req, res) => {
     return res.status(400).json({ error: "USID is required" });
   }
 
-  const hashed = hashUSID(usid);
+  // Current clients share the canonical hashed USID returned by signup/connect.
+  // Older clients may still share the original raw USID, so try both forms.
+  // Stripping an optional 0x prefix keeps the API consistent with the UI's input
+  // validation and avoids hashing a presentation-only prefix.
+  const cleanUsid = usid.trim().toLowerCase().replace(/^0x/, "");
+  const hashedCandidates = [...new Set([cleanUsid, hashUSID(cleanUsid)])];
   const userHashedUsid = req.user.hashedUsid;
 
-  // Check if trying to add themselves
-  if (hashed === userHashedUsid) {
+  // Check if trying to add themselves in either supported input format.
+  if (hashedCandidates.includes(userHashedUsid)) {
     return res
       .status(400)
       .json({ error: "You cannot add yourself as a contact" });
@@ -225,14 +230,17 @@ app.post("/add-contact", authenticate, (req, res) => {
 
   // Verify contact exists in Identity DB
   idDb.get(
-    "SELECT name FROM users_metadata WHERE hashed_usid = ?",
-    [hashed],
+    "SELECT name, hashed_usid FROM users_metadata WHERE hashed_usid IN (?, ?)",
+    hashedCandidates,
     (err, row) => {
       if (err || !row) {
         return res
           .status(404)
           .json({ error: "USID not found in identity registry" });
       }
+
+      // Always store the registry's canonical identifier, never the raw input.
+      const hashed = row.hashed_usid;
 
       // Check if contact already exists
       db.get(

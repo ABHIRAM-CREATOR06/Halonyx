@@ -25,9 +25,7 @@ async function makePair() {
   const bob = new DoubleRatchet(cryptoUtils);
 
   await alice.initialize(sharedSecret, bobInitialRatchet.publicKeyBytes, true);
-  await bob.initialize(sharedSecret, alice.dhPublicKeyBytes, false);
-  bob.dhPrivateKey = bobInitialRatchet.privateKey;
-  bob.dhPublicKeyBytes = bobInitialRatchet.publicKeyBytes;
+  await bob.initialize(sharedSecret, alice.dhPublicKeyBytes, false, bobInitialRatchet);
 
   return { alice, bob };
 }
