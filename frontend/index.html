@@ -1,678 +1,259 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Halonyx — Secure Comms</title>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-        <link
-            href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500;600&display=swap"
-            rel="stylesheet"
-        />
-        <link
-            href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined"
-            rel="stylesheet"
-        />
-        <link rel="stylesheet" href="css/style.css" />
-        <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
-    </head>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Halonyx — Enterprise Secure Communications</title>
+  <meta name="description" content="Halonyx: End-to-end encrypted enterprise messaging platform. Signal Protocol — X3DH + Double Ratchet — implemented from scratch." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="login.css" />
+</head>
+<body>
+  <!-- Animated background -->
+  <div class="bg-layer" aria-hidden="true">
+    <canvas id="network-canvas"></canvas>
+    <div class="bg-gradient"></div>
+  </div>
 
-    <body class="theme-dark">
-        <!-- Splash Screen -->
-        <div id="splash-screen" class="splash-screen">
-            <div class="splash-bg"></div>
-            <div class="splash-content" id="splash-header">
-                <div class="splash-logo-wrap">
-                    <div class="splash-hex"></div>
-                    <span class="material-icons-outlined splash-icon"
-                        >shield</span
-                    >
-                </div>
-                <h1 class="splash-title">HALONYX</h1>
-                <p class="splash-tagline">
-                    Decentralized · Encrypted · Private
-                </p>
+  <!-- Main layout -->
+  <div class="auth-wrapper">
+
+    <!-- Left panel: Brand -->
+    <aside class="brand-panel">
+      <div class="brand-inner">
+        <div class="brand-top">
+          <div class="logo-lockup">
+            <div class="logo-mark">
+              <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M20 2L36 11V29L20 38L4 29V11L20 2Z" stroke="url(#hexGrad)" stroke-width="1.5" fill="none"/>
+                <path d="M20 8L30 14V26L20 32L10 26V14L20 8Z" fill="url(#hexFill)" opacity="0.15"/>
+                <path d="M14 20C14 16.686 16.686 14 20 14C23.314 14 26 16.686 26 20C26 23.314 23.314 26 20 26" stroke="url(#hexGrad)" stroke-width="1.5" stroke-linecap="round"/>
+                <circle cx="20" cy="20" r="2.5" fill="url(#hexGrad)"/>
+                <defs>
+                  <linearGradient id="hexGrad" x1="4" y1="2" x2="36" y2="38" gradientUnits="userSpaceOnUse">
+                    <stop stop-color="#818CF8"/>
+                    <stop offset="1" stop-color="#38BDF8"/>
+                  </linearGradient>
+                  <linearGradient id="hexFill" x1="10" y1="8" x2="30" y2="32" gradientUnits="userSpaceOnUse">
+                    <stop stop-color="#818CF8"/>
+                    <stop offset="1" stop-color="#38BDF8"/>
+                  </linearGradient>
+                </defs>
+              </svg>
             </div>
-
-            <div id="registration-form" class="reg-form" style="display: none">
-                <div class="reg-card">
-                    <div class="reg-tabs">
-                        <button type="button" id="tab-create-mode" class="btn-tab active" onclick="switchAuthTab('create')">New Identity</button>
-                        <button type="button" id="tab-connect-mode" class="btn-tab" onclick="switchAuthTab('connect')">Connect / Sign In</button>
-                    </div>
-
-                    <!-- Create Mode -->
-                    <div id="auth-create-section">
-                        <div class="reg-header">
-                            <span class="material-icons-outlined">fingerprint</span>
-                            <h2>Create Secure Identity</h2>
-                            <p>
-                                Your identity is cryptographically generated and
-                                stored privately on your device.
-                            </p>
-                        </div>
-                        <div class="field-stack">
-                            <div class="field-wrap">
-                                <label>Full Name</label>
-                                <input
-                                    type="text"
-                                    id="name"
-                                    placeholder="e.g. Alex Chen"
-                                    class="field-input"
-                                    autocomplete="off"
-                                />
-                            </div>
-                            <div class="field-wrap">
-                                <label>Email Address</label>
-                                <input
-                                    type="email"
-                                    id="email"
-                                    placeholder="you@example.com"
-                                    class="field-input"
-                                    autocomplete="off"
-                                />
-                            </div>
-                        </div>
-                        <button id="signup-btn" class="btn-primary" onclick="signup()">
-                            <span class="material-icons-outlined">lock</span>
-                            Generate Secure ID
-                        </button>
-                    </div>
-
-                    <!-- Connect Mode -->
-                    <div id="auth-connect-section" style="display: none;">
-                        <div class="reg-header">
-                            <span class="material-icons-outlined">login</span>
-                            <h2>Connect Existing Identity</h2>
-                            <p>
-                                Reconnect using your existing USID key or registered Email.
-                            </p>
-                        </div>
-                        <div class="field-stack">
-                            <div class="field-wrap">
-                                <label>USID Key or Registered Email</label>
-                                <input
-                                    type="text"
-                                    id="connect-input"
-                                    placeholder="0x... or email address"
-                                    class="field-input"
-                                    autocomplete="off"
-                                />
-                            </div>
-                        </div>
-                        <button id="connect-btn" class="btn-primary" onclick="connectIdentity()">
-                            <span class="material-icons-outlined">vpn_key</span>
-                            Connect Identity
-                        </button>
-                    </div>
-
-                    <p class="reg-disclaimer" style="margin-top: 16px;">
-                        <span class="material-icons-outlined">info</span> Your
-                        USID is a cryptographic hash — keep it safe.
-                    </p>
-                </div>
-            </div>
-
-            <div
-                id="splash-loader-container"
-                class="splash-loader-wrap"
-                style="display: none"
-            >
-                <div class="spinner-ring"></div>
-                <div class="loader-status" id="loader-status">
-                    Verifying identity...
-                </div>
-            </div>
+            <span class="brand-name">HALONYX</span>
+          </div>
+          <p class="brand-tagline">Enterprise Secure Communications</p>
         </div>
 
-        <!-- Main App -->
-        <div id="app" class="app-container">
-            <!-- Sidebar -->
-            <aside id="contacts-pane" class="sidebar">
-                <div class="sidebar-top">
-                    <div class="brand">
-                        <div class="brand-icon">
-                            <span class="material-icons-outlined">shield</span>
-                        </div>
-                        <div class="brand-text">
-                            <span class="brand-name">HALONYX</span>
-                            <span class="brand-sub">Secura</span>
-                        </div>
-                    </div>
-                    <button id="show-profile" class="icon-btn" title="Profile">
-                        <span class="material-icons-outlined"
-                            >manage_accounts</span
-                        >
-                    </button>
-                </div>
-
-                <div class="search-row">
-                    <div class="search-field">
-                        <span class="material-icons-outlined">search</span>
-                        <input
-                            type="text"
-                            id="search-input"
-                            placeholder="Search..."
-                        />
-                    </div>
-                    <button
-                        id="fab-add-contact"
-                        class="add-btn"
-                        title="Add contact"
-                    >
-                        <span class="material-icons-outlined">person_add</span>
-                    </button>
-                </div>
-
-                <div class="contacts-label">CONVERSATIONS</div>
-                <nav id="contacts-screen" class="contacts-scroll">
-                    <div id="contacts-list" role="list">
-                        <div class="empty-contacts">
-                            <span class="material-icons-outlined"
-                                >group_add</span
-                            >
-                            <p>No contacts yet</p>
-                            <small>Add a contact using their USID</small>
-                        </div>
-                    </div>
-                </nav>
-
-                <div class="sidebar-footer">
-                    <button
-                        id="theme-btn"
-                        class="footer-btn"
-                        title="Toggle theme"
-                    >
-                        <span class="material-icons-outlined">light_mode</span>
-                    </button>
-                    <button
-                        id="emergency-btn-sidebar"
-                        class="footer-btn emergency-btn"
-                        title="Emergency Broadcast"
-                    >
-                        <span class="material-icons-outlined"
-                            >emergency_share</span
-                        >
-                    </button>
-                    <div class="status-pill">
-                        <span class="status-dot"></span>
-                        <span id="net-status">Connecting...</span>
-                    </div>
-                </div>
-            </aside>
-
-            <!-- Chat Pane -->
-            <main id="chat-pane" class="chat-pane">
-                <div id="no-chat-selected" class="empty-chat">
-                    <div class="empty-chat-inner">
-                        <div class="empty-hex-grid">
-                            <div class="hex-item"></div>
-                            <div class="hex-item"></div>
-                            <div class="hex-item"></div>
-                            <div class="hex-item active"></div>
-                            <div class="hex-item"></div>
-                            <div class="hex-item"></div>
-                            <div class="hex-item"></div>
-                            <div class="hex-item active"></div>
-                            <div class="hex-item"></div>
-                        </div>
-                        <h2>Select a conversation</h2>
-                        <p>End-to-end encrypted · Peer-to-peer · No servers</p>
-                    </div>
-                </div>
-
-                <div
-                    id="chat-active-view"
-                    class="chat-active"
-                    style="display: none"
-                >
-                    <header class="chat-header">
-                        <div class="chat-peer">
-                            <div class="peer-avatar" id="active-chat-avatar">
-                                <span class="material-icons-outlined"
-                                    >account_circle</span
-                                >
-                            </div>
-                            <div class="peer-info">
-                                <h3 id="app-bar-title">Contact</h3>
-                                <span id="peer-status" class="peer-status">
-                                    <span class="status-dot-sm online"></span>
-                                    Encrypted Channel
-                                </span>
-                            </div>
-                        </div>
-                        <div class="chat-actions">
-                            <button
-                                id="emergency-btn"
-                                class="icon-btn danger-btn"
-                                title="Emergency"
-                            >
-                                <span class="material-icons-outlined"
-                                    >emergency_share</span
-                                >
-                            </button>
-                            <button
-                                id="toggle-details"
-                                class="icon-btn"
-                                title="Details"
-                            >
-                                <span class="material-icons-outlined"
-                                    >info_outline</span
-                                >
-                            </button>
-                        </div>
-                    </header>
-
-                    <!-- Transfer Status Bar -->
-                    <div id="transfer-bar" class="transfer-bar hidden">
-                        <div class="transfer-info">
-                            <span class="material-icons-outlined"
-                                >swap_vert</span
-                            >
-                            <span id="transfer-label">Seeding...</span>
-                            <span
-                                id="transfer-speed"
-                                class="transfer-speed"
-                            ></span>
-                        </div>
-                        <div class="transfer-progress-wrap">
-                            <div
-                                id="transfer-progress"
-                                class="transfer-progress-inner"
-                                style="width: 0%"
-                            ></div>
-                        </div>
-                        <button id="transfer-close" class="icon-btn-sm">
-                            <span class="material-icons-outlined">close</span>
-                        </button>
-                    </div>
-
-                    <div id="chat-screen" class="messages-wrap">
-                        <!-- Key Exchange -->
-                        <div
-                            id="key-exchange-overlay"
-                            class="key-overlay hidden"
-                        >
-                            <div class="key-animation">
-                                <div class="key-node" id="node-a">
-                                    <span class="material-icons-outlined"
-                                        >lock</span
-                                    >
-                                </div>
-                                <div class="key-beam">
-                                    <div class="beam-pulse"></div>
-                                </div>
-                                <div class="key-node" id="node-b">
-                                    <span class="material-icons-outlined"
-                                        >lock_open</span
-                                    >
-                                </div>
-                            </div>
-                            <p id="exchange-status" class="key-status">
-                                Initializing Secure Channel
-                            </p>
-                            <p id="exchange-details" class="key-detail">
-                                Verifying cryptographic identities...
-                            </p>
-                        </div>
-
-                        <div id="messages-container" class="messages-area">
-                            <!-- Messages render here -->
-                        </div>
-                    </div>
-
-                    <div class="composer">
-                        <div class="composer-inner">
-                            <button
-                                id="attach-btn"
-                                class="icon-btn-sm"
-                                title="Attach file"
-                            >
-                                <span class="material-icons-outlined"
-                                    >attach_file</span
-                                >
-                            </button>
-                            <input
-                                type="file"
-                                id="file-input"
-                                style="display: none"
-                            />
-                            <div class="composer-field">
-                                <input
-                                    type="text"
-                                    id="message-input"
-                                    placeholder="Write an encrypted message..."
-                                    autocomplete="off"
-                                />
-                            </div>
-                            <button id="send-btn" class="send-btn">
-                                <span class="material-icons-outlined"
-                                    >arrow_upward</span
-                                >
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </main>
-
-            <!-- Details Pane -->
-            <aside id="details-pane" class="details-pane collapsed">
-                <div class="details-header">
-                    <span class="details-title">Peer Info</span>
-                    <button id="close-details" class="icon-btn">
-                        <span class="material-icons-outlined">close</span>
-                    </button>
-                </div>
-                <div class="details-body">
-                    <div class="details-avatar-wrap">
-                        <div class="details-avatar">
-                            <span class="material-icons-outlined"
-                                >account_circle</span
-                            >
-                        </div>
-                        <h3 id="details-name">Unknown Peer</h3>
-                        <p id="details-status" class="details-sub">Encrypted</p>
-                    </div>
-
-                    <div class="details-block">
-                        <div class="details-block-label">IDENTITY</div>
-                        <div class="usid-display">
-                            <code id="details-full-usid" class="usid-code"
-                                >...</code
-                            >
-                        </div>
-                    </div>
-
-                    <div class="details-block">
-                        <div class="details-block-label">SECURITY</div>
-                        <div class="security-row">
-                            <span
-                                class="material-icons-outlined security-icon ok"
-                                >verified_user</span
-                            >
-                            <span>Signal Protocol E2E Encryption</span>
-                        </div>
-                        <div class="security-row">
-                            <span
-                                class="material-icons-outlined security-icon ok"
-                                >hub</span
-                            >
-                            <span>WebTorrent P2P File Transfer</span>
-                        </div>
-                        <div class="security-row">
-                            <span
-                                class="material-icons-outlined security-icon ok"
-                                >key</span
-                            >
-                            <span>X3DH Key Agreement</span>
-                        </div>
-                    </div>
-
-                    <!-- Key Verification -->
-                    <div class="details-block">
-                        <div class="details-block-label">VERIFICATION</div>
-                        <!-- Verified state -->
-                        <div
-                            id="sn-verified-badge"
-                            class="sn-badge verified hidden"
-                        >
-                            <span class="material-icons-outlined"
-                                >verified</span
-                            >
-                            <span>Identity Verified</span>
-                        </div>
-                        <!-- Unverified state -->
-                        <div
-                            id="sn-unverified-badge"
-                            class="sn-badge unverified"
-                        >
-                            <span class="material-icons-outlined"
-                                >gpp_maybe</span
-                            >
-                            <span>Not yet verified</span>
-                        </div>
-                        <p class="sn-hint">
-                            Compare safety numbers with your contact to confirm
-                            no one is intercepting your messages.
-                        </p>
-                        <button
-                            id="verify-safety-btn"
-                            class="btn-verify-safety"
-                        >
-                            <span class="material-icons-outlined"
-                                >fact_check</span
-                            >
-                            Verify Safety Numbers
-                        </button>
-                    </div>
-
-                    <!-- Torrent Stats -->
-                    <div
-                        class="details-block"
-                        id="torrent-stats-block"
-                        style="display: none"
-                    >
-                        <div class="details-block-label">ACTIVE TRANSFERS</div>
-                        <div
-                            id="torrent-stats-list"
-                            class="torrent-stats-list"
-                        ></div>
-                    </div>
-                </div>
-            </aside>
-
-            <!-- Add Contact Dialog -->
-            <div id="add-contact-dialog" class="dialog-overlay">
-                <div class="dialog">
-                    <div class="dialog-icon">
-                        <span class="material-icons-outlined">person_add</span>
-                    </div>
-                    <h3 class="dialog-title">Add Secure Contact</h3>
-                    <p class="dialog-body">
-                        Enter the peer's USID to initiate an encrypted
-                        connection.
-                    </p>
-                    <div class="field-wrap mt-16">
-                        <label>USID (Hex string)</label>
-                        <input
-                            type="text"
-                            id="contact-usid"
-                            class="field-input mono"
-                            placeholder="0x..."
-                        />
-                    </div>
-                    <div class="dialog-actions">
-                        <button id="cancel-add-contact" class="btn-ghost">
-                            Cancel
-                        </button>
-                        <button id="confirm-add-contact" class="btn-primary sm">
-                            Add Contact
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Profile Dialog -->
-            <div id="profile-dialog" class="dialog-overlay">
-                <div class="dialog">
-                    <div class="dialog-icon">
-                        <span class="material-icons-outlined">badge</span>
-                    </div>
-                    <h3 class="dialog-title">Your Identity</h3>
-                    <p class="dialog-body">
-                        Share your USID with trusted peers to connect.
-                    </p>
-                    <div class="usid-copy-wrap">
-                        <code id="my-usid-code" class="usid-code full"></code>
-                        <button id="copy-usid" class="icon-btn-sm" title="Copy USID">
-                            <span class="material-icons-outlined"
-                                >content_copy</span
-                            >
-                        </button>
-                        <button id="email-usid-btn" class="icon-btn-sm" title="Send USID via Email">
-                            <span class="material-icons-outlined"
-                                >email</span
-                            >
-                        </button>
-                    </div>
-                    <div class="dialog-actions">
-                        <button id="open-email-dialog-btn" class="btn-ghost sm">
-                            <span class="material-icons-outlined">mail_outline</span>
-                            Send USID by Mail
-                        </button>
-                        <button id="close-profile" class="btn-primary sm">
-                            Done
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Email USID Dialog (No Backend Required) -->
-            <div id="email-usid-dialog" class="dialog-overlay">
-                <div class="dialog email-dialog">
-                    <div class="email-dialog-header">
-                        <div class="dialog-icon">
-                            <span class="material-icons-outlined">mark_email_unread</span>
-                        </div>
-                        <button id="close-email-dialog" class="icon-btn-sm dialog-close-btn" title="Close">
-                            <span class="material-icons-outlined">close</span>
-                        </button>
-                    </div>
-                    <h3 class="dialog-title">Send USID by Mail</h3>
-                    <p class="dialog-body">
-                        Share your cryptographic USID identity code directly via email without using any backend server.
-                    </p>
-
-                    <div class="field-stack">
-                        <div class="field-wrap">
-                            <label for="email-recipient-input">Recipient Email <small style="color:var(--fg-muted);">(Optional)</small></label>
-                            <input
-                                type="email"
-                                id="email-recipient-input"
-                                placeholder="peer@example.com"
-                                class="field-input"
-                                autocomplete="off"
-                            />
-                        </div>
-
-                        <div class="mail-preview-wrap">
-                            <div class="mail-preview-header">
-                                <span class="preview-title">MESSAGE PREVIEW</span>
-                                <button id="copy-email-template" class="btn-text-sm" title="Copy email text">
-                                    <span class="material-icons-outlined">content_copy</span> Copy Text
-                                </button>
-                            </div>
-                            <div id="email-preview-box" class="mail-preview-box"></div>
-                        </div>
-                    </div>
-
-                    <div class="email-options-grid">
-                        <button id="send-mailto-btn" class="btn-primary sm email-option-btn">
-                            <span class="material-icons-outlined">open_in_new</span>
-                            <span>Default Mail App</span>
-                        </button>
-                        <button id="send-gmail-btn" class="btn-secondary sm email-option-btn">
-                            <span class="material-icons-outlined">mail</span>
-                            <span>Gmail</span>
-                        </button>
-                        <button id="send-outlook-btn" class="btn-secondary sm email-option-btn">
-                            <span class="material-icons-outlined">mark_email_read</span>
-                            <span>Outlook</span>
-                        </button>
-                        <button id="send-yahoo-btn" class="btn-secondary sm email-option-btn">
-                            <span class="material-icons-outlined">alternate_email</span>
-                            <span>Yahoo</span>
-                        </button>
-                        <button id="send-webshare-btn" class="btn-secondary sm email-option-btn" style="display: none;">
-                            <span class="material-icons-outlined">share</span>
-                            <span>Native Share</span>
-                        </button>
-                    </div>
-
-                    <div class="dialog-actions" style="margin-top:0;">
-                        <button id="cancel-email-dialog" class="btn-ghost sm">
-                            Close
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Safety Numbers Dialog -->
-            <div id="safety-numbers-dialog" class="dialog-overlay">
-                <div class="dialog sn-dialog">
-                    <div class="sn-dialog-header">
-                        <div class="dialog-icon">
-                            <span class="material-icons-outlined"
-                                >security</span
-                            >
-                        </div>
-                        <div>
-                            <h3 class="dialog-title">Safety Numbers</h3>
-                            <p class="dialog-body">
-                                Compare this number with your contact over a
-                                voice call or in person. If it matches on both
-                                sides, your conversation is secure and private.
-                            </p>
-                        </div>
-                    </div>
-
-                    <!-- Key change warning — hidden by default -->
-                    <div
-                        id="sn-change-warning"
-                        class="sn-change-warning hidden"
-                    >
-                        <span class="material-icons-outlined">warning</span>
-                        Safety number changed since last verification. Your
-                        contact may have re-registered — verify again before
-                        continuing.
-                    </div>
-
-                    <!-- The 60-digit safety number grid -->
-                    <div class="sn-number-wrap">
-                        <div id="sn-grid" class="sn-grid">
-                            <!-- Rows of 3 five-digit groups rendered by JS -->
-                        </div>
-                    </div>
-
-                    <div class="dialog-actions sn-actions">
-                        <button id="sn-copy-btn" class="btn-ghost">
-                            <span class="material-icons-outlined"
-                                >content_copy</span
-                            >
-                            Copy
-                        </button>
-                        <button id="sn-mark-verified" class="btn-primary sm">
-                            <span class="material-icons-outlined"
-                                >check_circle</span
-                            >
-                            Mark as Verified
-                        </button>
-                        <button id="sn-close-btn" class="btn-ghost">
-                            Done
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Snackbar -->
-            <div id="snackbar" class="snackbar">
-                <span class="material-icons-outlined" id="snackbar-icon"
-                    >info</span
-                >
-                <span id="snackbar-text">Message</span>
-            </div>
+        <div class="brand-stats">
+          <div class="stat-item">
+            <span class="stat-label">Encryption</span>
+            <span class="stat-value">X3DH + Double Ratchet</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Protocol</span>
+            <span class="stat-value">Signal Protocol</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Key Exchange</span>
+            <span class="stat-value">P-256 ECDH</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">File Transfer</span>
+            <span class="stat-value">P2P via WebTorrent</span>
+          </div>
         </div>
 
-        <!-- Signal Protocol stack — load in dependency order before app.js -->
-        <script src="/protocol/crypto_utils.js"></script>
-        <script src="/protocol/email_utils.js"></script>
-        <script src="/protocol/x3dh.js"></script>
-        <script src="/protocol/double_ratchet.js"></script>
-        <script src="/protocol/idb_key_store.js"></script>
-        <script src="/protocol/key_management.js"></script>
-        <script src="/protocol/session.js"></script>
-        <script src="/protocol/signal_protocol.js"></script>
-        <script src="js/app.js?v=5.0"></script>
-    </body>
+        <div class="feature-list">
+          <div class="feature-item">
+            <div class="feature-icon">
+              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 1L12.5 6L18 7L14 11L15 17L10 14L5 17L6 11L2 7L7.5 6L10 1Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+            </div>
+            <div>
+              <div class="feature-title">Forward Secrecy</div>
+              <div class="feature-desc">Per-message ephemeral keys. Past messages stay safe even if current keys are compromised.</div>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="feature-icon">
+              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="9" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M7 9V6C7 3.791 8.343 2 10 2C11.657 2 13 3.791 13 6V9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            </div>
+            <div>
+              <div class="feature-title">Zero Server Access</div>
+              <div class="feature-desc">Server only relays ciphertext. Keys never leave your device.</div>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="feature-icon">
+              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4"/><path d="M10 6V10L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            </div>
+            <div>
+              <div class="feature-title">Safety Numbers</div>
+              <div class="feature-desc">60-digit fingerprint verification. Detects MITM key substitution out-of-band.</div>
+            </div>
+          </div>
+          <div class="feature-item">
+            <div class="feature-icon">
+              <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 4L10 2L16 4V10C16 14 13 17 10 18C7 17 4 14 4 10V4Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+            </div>
+            <div>
+              <div class="feature-title">USID Identity</div>
+              <div class="feature-desc">256-bit pseudonymous identifier. No phone number or personal data required.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="brand-footer">
+          <span class="compliance-badge">FIPS 140-2 Aligned</span>
+          <span class="compliance-badge">AGPL-3.0 Open Source</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Right panel: Auth form -->
+    <main class="auth-panel">
+      <div class="auth-card">
+
+        <!-- Tab switcher -->
+        <div class="tab-bar" role="tablist" aria-label="Authentication mode">
+          <button id="tab-create" class="tab-btn active" role="tab" aria-selected="true" aria-controls="panel-create" onclick="switchTab('create')">
+            New Identity
+          </button>
+          <button id="tab-connect" class="tab-btn" role="tab" aria-selected="false" aria-controls="panel-connect" onclick="switchTab('connect')">
+            Sign In
+          </button>
+          <div class="tab-indicator" id="tab-indicator"></div>
+        </div>
+
+        <!-- Create Identity Panel -->
+        <div id="panel-create" class="auth-panel-body active" role="tabpanel" aria-labelledby="tab-create">
+          <div class="panel-header">
+            <h1 class="panel-title">Create Secure Identity</h1>
+            <p class="panel-subtitle">Your cryptographic identity is generated locally and never stored on our servers.</p>
+          </div>
+
+          <form id="form-create" onsubmit="handleCreate(event)" novalidate>
+            <div class="field-group">
+              <label class="field-label" for="create-name">Full Name</label>
+              <div class="field-wrapper">
+                <svg class="field-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3.5" stroke="currentColor" stroke-width="1.4"/><path d="M3 17C3 13.686 6.134 11 10 11C13.866 11 17 13.686 17 17" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                <input type="text" id="create-name" class="field-input" placeholder="John Doe" autocomplete="off" spellcheck="false" required />
+              </div>
+              <span class="field-error" id="err-name"></span>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="create-email">Email Address</label>
+              <div class="field-wrapper">
+                <svg class="field-icon" viewBox="0 0 20 20" fill="none"><rect x="2" y="5" width="16" height="12" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M2 7L10 12L18 7" stroke="currentColor" stroke-width="1.4"/></svg>
+                <input type="email" id="create-email" class="field-input" placeholder="agent@org.gov" autocomplete="off" spellcheck="false" required />
+              </div>
+              <span class="field-error" id="err-email"></span>
+            </div>
+
+            <div class="security-notice">
+              <svg viewBox="0 0 16 16" fill="none"><path d="M8 1.5L13.5 4.5V9C13.5 12 11 14.5 8 15.5C5 14.5 2.5 12 2.5 9V4.5L8 1.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M5.5 8L7.5 10L10.5 6.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>Cryptographic keys and USID are generated locally using WebCrypto API before account creation.</span>
+            </div>
+
+            <button type="submit" id="btn-create" class="auth-btn primary">
+              <span class="btn-text">Generate Secure Identity</span>
+              <svg class="btn-icon" viewBox="0 0 20 20" fill="none"><path d="M4 10H16M11 5L16 10L11 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <div class="btn-loader" aria-hidden="true"><div class="spinner"></div></div>
+            </button>
+          </form>
+
+          <!-- Generated USID display (hidden initially) -->
+          <div id="usid-display" class="usid-card" style="display:none;">
+            <div class="usid-header">
+              <svg viewBox="0 0 20 20" fill="none"><path d="M4 4L10 2L16 4V10C16 14 13 17 10 18C7 17 4 14 4 10V4Z" stroke="currentColor" stroke-width="1.4"/></svg>
+              <span>Your Secure Identity (USID)</span>
+            </div>
+            <div class="usid-value" id="usid-value"></div>
+            <p class="usid-warning">
+              <strong>Critical:</strong> Copy and store this USID in a secure location. It is required to sign back in.
+            </p>
+            <div class="usid-actions">
+              <button class="usid-btn" onclick="copyUSID()">
+                <svg viewBox="0 0 20 20" fill="none"><rect x="7" y="7" width="10" height="12" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M13 7V4.5C13 3.672 12.328 3 11.5 3H3.5C2.672 3 2 3.672 2 4.5V13.5C2 14.328 2.672 15 3.5 15H7" stroke="currentColor" stroke-width="1.4"/></svg>
+                Copy USID
+              </button>
+              <button class="usid-btn primary" onclick="proceedToApp()">
+                Enter Workspace
+                <svg viewBox="0 0 20 20" fill="none"><path d="M4 10H16M11 5L16 10L11 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connect / Sign In Panel -->
+        <div id="panel-connect" class="auth-panel-body" role="tabpanel" aria-labelledby="tab-connect" style="display:none;">
+          <div class="panel-header">
+            <h1 class="panel-title">Connect Existing Identity</h1>
+            <p class="panel-subtitle">Reconnect using your registered USID or email address.</p>
+          </div>
+
+          <form id="form-connect" onsubmit="handleConnect(event)" novalidate>
+            <div class="field-group">
+              <label class="field-label" for="connect-identifier">USID or Email</label>
+              <div class="field-wrapper">
+                <svg class="field-icon" viewBox="0 0 20 20" fill="none"><path d="M10 2L12.5 7L18 8L14 12L15.5 18L10 15L4.5 18L6 12L2 8L7.5 7L10 2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+                <input type="text" id="connect-identifier" class="field-input" placeholder="0x... or agent@org.gov" autocomplete="off" spellcheck="false" required />
+              </div>
+              <span class="field-error" id="err-identifier"></span>
+            </div>
+
+            <div class="field-group" id="totp-group" style="display:none;">
+              <label class="field-label" for="connect-totp">MFA Token</label>
+              <div class="field-wrapper">
+                <svg class="field-icon" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.4"/><path d="M10 6V10L13 12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                <input type="text" id="connect-totp" class="field-input mono" placeholder="000000" maxlength="6" autocomplete="one-time-code" inputmode="numeric" />
+              </div>
+            </div>
+
+            <div class="form-options">
+              <label class="checkbox-label">
+                <input type="checkbox" id="remember-device" />
+                <span class="checkbox-custom"></span>
+                Trust this device for 30 days
+              </label>
+              <button type="button" class="link-btn" onclick="showForgotFlow()">Forgot access?</button>
+            </div>
+
+            <button type="submit" id="btn-connect" class="auth-btn primary">
+              <span class="btn-text">Connect to Workspace</span>
+              <svg class="btn-icon" viewBox="0 0 20 20" fill="none"><path d="M4 10H16M11 5L16 10L11 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <div class="btn-loader" aria-hidden="true"><div class="spinner"></div></div>
+            </button>
+          </form>
+        </div>
+
+        <div class="auth-card-footer">
+          <span class="security-chip">
+            <svg viewBox="0 0 14 14" fill="none"><path d="M7 1L11.5 3.5V7C11.5 9.5 9.5 11.5 7 12.5C4.5 11.5 2.5 9.5 2.5 7V3.5L7 1Z" stroke="currentColor" stroke-width="1.1"/></svg>
+            End-to-End Encrypted
+          </span>
+          <span class="security-chip">
+            <svg viewBox="0 0 14 14" fill="none"><rect x="2" y="6" width="10" height="7" rx="1.5" stroke="currentColor" stroke-width="1.1"/><path d="M4.5 6V4C4.5 2.619 5.619 1.5 7 1.5C8.381 1.5 9.5 2.619 9.5 4V6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+            Zero Knowledge
+          </span>
+          <span class="security-chip">
+            <svg viewBox="0 0 14 14" fill="none"><path d="M2 7C2 4.239 4.239 2 7 2C9.761 2 12 4.239 12 7C12 9.761 9.761 12 7 12" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><path d="M2 7C4 9 6 10 7 12" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+            Self-Hostable
+          </span>
+        </div>
+
+      </div>
+
+      <!-- Status toast -->
+      <div id="toast" class="toast" role="alert" aria-live="polite"></div>
+    </main>
+
+  </div>
+
+  <script src="login.js"></script>
+</body>
 </html>
