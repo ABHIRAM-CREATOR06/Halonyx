@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Halonyx — Secure Workspace</title>
+  <meta name="description" content="Halonyx secure enterprise communications workspace. End-to-end encrypted messaging." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+
+  <!-- ───────────────────── Modals ───────────────────── -->
+
+  <!-- Add Contact Modal -->
+  <div id="modal-add-contact" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-add-title" style="display:none">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2 id="modal-add-title" class="modal-title">Add Contact</h2>
+        <button class="modal-close" onclick="closeModal('modal-add-contact')" aria-label="Close">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc">Enter a USID to add a contact. The identity will be cryptographically verified before the first message.</p>
+        <div class="field-group">
+          <label class="field-label">Contact USID</label>
+          <div class="field-wrapper">
+            <input type="text" id="add-contact-usid" class="field-input mono" placeholder="0x..." autocomplete="off" spellcheck="false" />
+          </div>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Display Name (optional)</label>
+          <div class="field-wrapper">
+            <input type="text" id="add-contact-name" class="field-input" placeholder="Contact name" autocomplete="off" />
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn secondary" onclick="closeModal('modal-add-contact')">Cancel</button>
+        <button class="modal-btn primary" onclick="doAddContact()">
+          Add Contact
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Safety Numbers Modal -->
+  <div id="modal-safety" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-safety-title" style="display:none">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2 id="modal-safety-title" class="modal-title">Safety Numbers</h2>
+        <button class="modal-close" onclick="closeModal('modal-safety')" aria-label="Close">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="safety-info">
+          <div class="safety-icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 2L20 6V12C20 16.4 16.4 20 12 22C7.6 20 4 16.4 4 12V6L12 2Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 12L11 15L16 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <p>Compare these safety numbers with your contact <strong id="safety-contact-name">Agent</strong> over a separate channel. If they match, your connection is secure.</p>
+        </div>
+        <div class="safety-numbers" id="safety-numbers-display"></div>
+        <div class="safety-actions">
+          <button class="safety-mark-btn verified" onclick="markVerified()">
+            <svg viewBox="0 0 16 16" fill="none"><path d="M3 8L6.5 12L13 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Mark as Verified
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Emergency Broadcast Modal -->
+  <div id="modal-broadcast" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-broadcast-title" style="display:none">
+    <div class="modal-box broadcast-modal">
+      <div class="modal-header">
+        <div class="broadcast-header-icon">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M10 2L12 7H17L13 10.5L14.5 16L10 13L5.5 16L7 10.5L3 7H8L10 2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </div>
+        <h2 id="modal-broadcast-title" class="modal-title">Emergency Broadcast</h2>
+        <button class="modal-close" onclick="closeModal('modal-broadcast')" aria-label="Close">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="broadcast-warning">
+          <svg viewBox="0 0 16 16" fill="none"><path d="M8 1L15 14H1L8 1Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 6V9M8 11.5V12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+          This will send a system-wide alert to all connected clients via UDP broadcast. Use only in genuine emergencies.
+        </div>
+        <div class="field-group">
+          <label class="field-label">Broadcast Message</label>
+          <textarea id="broadcast-message" class="field-input textarea" rows="3" placeholder="Enter emergency alert message..." maxlength="500"></textarea>
+          <span class="char-count"><span id="broadcast-count">0</span>/500</span>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Priority Level</label>
+          <div class="priority-options">
+            <label class="priority-opt">
+              <input type="radio" name="priority" value="high" checked />
+              <span class="priority-label high">HIGH</span>
+            </label>
+            <label class="priority-opt">
+              <input type="radio" name="priority" value="critical" />
+              <span class="priority-label critical">CRITICAL</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn secondary" onclick="closeModal('modal-broadcast')">Cancel</button>
+        <button class="modal-btn danger" onclick="sendBroadcast()">
+          <svg viewBox="0 0 16 16" fill="none" style="width:14px;height:14px"><path d="M2 8L14 2L8 14V9L2 8Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+          Send Broadcast
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="modal-settings" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-settings-title" style="display:none">
+    <div class="modal-box settings-modal">
+      <div class="modal-header">
+        <h2 id="modal-settings-title" class="modal-title">Workspace Settings</h2>
+        <button class="modal-close" onclick="closeModal('modal-settings')" aria-label="Close">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M5 5L15 15M15 5L5 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body settings-body">
+        <div class="settings-section">
+          <h3 class="settings-section-title">Identity</h3>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">USID</div>
+              <div class="settings-row-value mono" id="settings-usid-display">Loading...</div>
+            </div>
+            <button class="settings-action-btn" onclick="copySettingsUSID()">Copy</button>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">Display Name</div>
+              <div class="settings-row-value" id="settings-name-display">-</div>
+            </div>
+            <button class="settings-action-btn">Edit</button>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h3 class="settings-section-title">Appearance</h3>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">Dark Mode</div>
+              <div class="settings-row-value">Default high-security theme</div>
+            </div>
+            <div class="toggle-switch">
+              <input type="checkbox" id="theme-toggle" checked onchange="toggleTheme(this)" />
+              <label for="theme-toggle" class="toggle-track">
+                <span class="toggle-thumb"></span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">Audio Notifications</div>
+              <div class="settings-row-value">Web Audio synthesized sounds</div>
+            </div>
+            <div class="toggle-switch">
+              <input type="checkbox" id="audio-toggle" checked />
+              <label for="audio-toggle" class="toggle-track">
+                <span class="toggle-thumb"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h3 class="settings-section-title">Security</h3>
+          <div class="settings-row">
+            <div>
+              <div class="settings-row-label">Key Regeneration</div>
+              <div class="settings-row-value">Generate new pre-key bundle</div>
+            </div>
+            <button class="settings-action-btn warning" onclick="regenKeys()">Regenerate</button>
+          </div>
+          <div class="settings-row danger">
+            <div>
+              <div class="settings-row-label">Session Wipe</div>
+              <div class="settings-row-value">Clear all local keys and messages</div>
+            </div>
+            <button class="settings-action-btn danger" onclick="wipeSession()">Wipe</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Key Change Warning Banner -->
+  <div id="key-change-banner" class="key-change-banner" style="display:none" role="alert">
+    <svg viewBox="0 0 16 16" fill="none"><path d="M8 1L15 14H1L8 1Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 6V9M8 11.5V12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+    <span>Security alert: Identity key for <strong id="key-change-contact">Agent</strong> has changed. Verify safety numbers before continuing.</span>
+    <button onclick="dismissKeyChange()">Dismiss</button>
+  </div>
+
+  <!-- Emergency Alert Banner (incoming) -->
+  <div id="alert-banner" class="alert-banner" style="display:none" role="alert">
+    <div class="alert-banner-inner">
+      <svg viewBox="0 0 20 20" fill="none"><path d="M10 2L12 7H17L13 10.5L14.5 16L10 13L5.5 16L7 10.5L3 7H8L10 2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+      <div>
+        <strong>EMERGENCY BROADCAST</strong>
+        <span id="alert-banner-msg"></span>
+      </div>
+      <button onclick="dismissAlert()">✕</button>
+    </div>
+  </div>
+
+  <!-- ───────────────────── App Shell ───────────────────── -->
+  <div class="app-shell">
+
+    <!-- ── Sidebar ── -->
+    <aside class="sidebar" id="sidebar">
+
+      <!-- Sidebar top -->
+      <div class="sidebar-top">
+        <div class="workspace-brand">
+          <div class="ws-logo">
+            <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M20 2L36 11V29L20 38L4 29V11L20 2Z" stroke="url(#wg1)" stroke-width="1.5" fill="none"/>
+              <path d="M14 20C14 16.686 16.686 14 20 14C23.314 14 26 16.686 26 20C26 23.314 23.314 26 20 26" stroke="url(#wg1)" stroke-width="1.5" stroke-linecap="round"/>
+              <circle cx="20" cy="20" r="2.5" fill="url(#wg1)"/>
+              <defs>
+                <linearGradient id="wg1" x1="4" y1="2" x2="36" y2="38" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#818CF8"/><stop offset="1" stop-color="#38BDF8"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <div>
+            <div class="ws-name">HALONYX</div>
+            <div class="ws-status">
+              <span class="status-dot online"></span>
+              <span id="connection-status-text">Secure</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Search -->
+        <div class="sidebar-search">
+          <svg class="search-icon" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M15 15L19 19" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <input type="text" id="contact-search" class="search-input" placeholder="Search contacts..." autocomplete="off" oninput="filterContacts(this.value)" />
+        </div>
+
+        <!-- Add contact button -->
+        <button class="add-contact-btn" onclick="openModal('modal-add-contact')" title="Add new contact">
+          <svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="8" r="4" stroke="currentColor" stroke-width="1.4"/><path d="M3 18C3 14.686 5.686 12 9 12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M15 14V20M12 17H18" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          Add Contact
+        </button>
+      </div>
+
+      <!-- Contact list -->
+      <nav class="contact-list" id="contact-list" aria-label="Contacts">
+        <!-- Dynamically populated -->
+      </nav>
+
+      <!-- Sidebar bottom -->
+      <div class="sidebar-bottom">
+        <div class="self-identity">
+          <div class="self-avatar" id="self-avatar">?</div>
+          <div class="self-info">
+            <div class="self-name" id="self-name">Loading...</div>
+            <div class="self-usid" id="self-usid">...</div>
+          </div>
+          <div class="self-actions">
+            <button class="icon-btn" onclick="openModal('modal-settings')" title="Settings">
+              <svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3" stroke="currentColor" stroke-width="1.4"/><path d="M10 2V4M10 16V18M2 10H4M16 10H18M4.22 4.22L5.64 5.64M14.36 14.36L15.78 15.78M15.78 4.22L14.36 5.64M5.64 14.36L4.22 15.78" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            </button>
+            <button class="icon-btn broadcast-btn" onclick="openModal('modal-broadcast')" title="Emergency Broadcast">
+              <svg viewBox="0 0 20 20" fill="none"><path d="M10 2L12 7H17L13 10.5L14.5 16L10 13L5.5 16L7 10.5L3 7H8L10 2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+            </button>
+            <button class="icon-btn" onclick="doLogout()" title="Sign out">
+              <svg viewBox="0 0 20 20" fill="none"><path d="M13 10H19M17 8L19 10L17 12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 4H5C3.895 4 3 4.895 3 6V14C3 15.105 3.895 16 5 16H10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ── Main area ── -->
+    <main class="main-area" id="main-area">
+
+      <!-- Mobile Topbar -->
+      <div class="mobile-topbar">
+        <button class="mobile-nav-btn" onclick="toggleMobileSidebar()" aria-label="Toggle contacts menu">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M3 5H17M3 10H17M3 15H17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+        <span class="mobile-topbar-title">HALONYX</span>
+      </div>
+
+      <!-- Empty state (no chat selected) -->
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon">
+          <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M32 4L56 18V46L32 60L8 46V18L32 4Z" stroke="url(#eg1)" stroke-width="1.5" fill="none"/>
+            <path d="M22 32C22 26.477 26.477 22 32 22C37.523 22 42 26.477 42 32C42 37.523 37.523 42 32 42" stroke="url(#eg1)" stroke-width="1.5" stroke-linecap="round"/>
+            <circle cx="32" cy="32" r="4" fill="url(#eg1)"/>
+            <defs>
+              <linearGradient id="eg1" x1="8" y1="4" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#818CF8" stop-opacity="0.6"/>
+                <stop offset="1" stop-color="#38BDF8" stop-opacity="0.6"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <h2>HALONYX Secure Workspace</h2>
+        <p>Select a contact to begin an encrypted session, or add a new contact using their USID.</p>
+        <div class="empty-badges">
+          <span class="empty-badge">
+            <svg viewBox="0 0 14 14" fill="none"><rect x="2" y="6" width="10" height="7" rx="1.5" stroke="currentColor" stroke-width="1.1"/><path d="M4.5 6V4C4.5 2.619 5.619 1.5 7 1.5C8.381 1.5 9.5 2.619 9.5 4V6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+            E2E Encrypted
+          </span>
+          <span class="empty-badge">
+            <svg viewBox="0 0 14 14" fill="none"><path d="M7 1.5L11.5 4V8C11.5 10.5 9.5 12.5 7 13.5C4.5 12.5 2.5 10.5 2.5 8V4L7 1.5Z" stroke="currentColor" stroke-width="1.1"/></svg>
+            Forward Secrecy
+          </span>
+          <span class="empty-badge">
+            <svg viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.1"/><path d="M4 7L6.5 9.5L10 5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+            Zero Knowledge
+          </span>
+        </div>
+      </div>
+
+      <!-- Chat view -->
+      <div id="chat-view" class="chat-view" style="display:none">
+
+        <!-- Chat header -->
+        <header class="chat-header">
+          <button class="mobile-nav-btn" onclick="toggleMobileSidebar()" aria-label="Toggle contacts menu">
+            <svg viewBox="0 0 20 20" fill="none"><path d="M3 5H17M3 10H17M3 15H17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
+          <div class="chat-contact-info">
+            <div class="contact-avatar large" id="chat-avatar"></div>
+            <div>
+              <div class="chat-contact-name" id="chat-contact-name"></div>
+              <div class="chat-contact-meta">
+                <span class="meta-usid" id="chat-contact-usid"></span>
+                <span class="meta-sep">·</span>
+                <span class="meta-status" id="chat-contact-status">
+                  <span class="status-dot online"></span>
+                  Online
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="chat-header-actions">
+            <button class="hdr-btn" id="file-transfer-info-btn" onclick="showFileTransferPanel()" title="File Transfers">
+              <svg viewBox="0 0 20 20" fill="none"><path d="M4 14V16C4 17.105 4.895 18 6 18H14C15.105 18 16 17.105 16 16V14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M10 2V13M7 10L10 13L13 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button class="hdr-btn" onclick="openSafetyNumbers()" title="Safety Numbers">
+              <svg viewBox="0 0 20 20" fill="none"><path d="M10 2L18 6V11C18 15.2 14.4 18.5 10 20C5.6 18.5 2 15.2 2 11V6L10 2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M7 10L9.5 12.5L13 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            </button>
+            <button class="hdr-btn" onclick="removeCurrentContact()" title="Remove contact">
+              <svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="8" r="4" stroke="currentColor" stroke-width="1.4"/><path d="M3 18C3 14.686 5.686 12 9 12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M14 14L18 18M18 14L14 18" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <!-- File transfer panel (collapsible) -->
+        <div id="file-transfer-panel" class="file-transfer-panel" style="display:none">
+          <div class="ftp-header">
+            <span>File Transfers (P2P via WebTorrent)</span>
+            <button class="ftp-close" onclick="hideFileTransferPanel()">✕</button>
+          </div>
+          <div id="active-transfers" class="active-transfers">
+            <div class="ftp-empty">No active transfers.</div>
+          </div>
+          <div class="ftp-actions">
+            <label class="ftp-upload-btn" for="file-upload-input">
+              <svg viewBox="0 0 16 16" fill="none"><path d="M2 10V13C2 13.552 2.448 14 3 14H13C13.552 14 14 13.552 14 13V10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M8 2V10M5 5L8 2L11 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Send File
+            </label>
+            <input type="file" id="file-upload-input" style="display:none" onchange="handleFileSend(this)" />
+          </div>
+        </div>
+
+        <!-- Messages area -->
+        <div class="messages-area" id="messages-area" aria-live="polite" aria-label="Messages">
+          <!-- dynamically populated -->
+        </div>
+
+        <!-- Message input -->
+        <div class="message-input-bar">
+          <button class="input-action-btn" onclick="document.getElementById('file-upload-input').click()" title="Send file">
+            <svg viewBox="0 0 20 20" fill="none"><path d="M15 12V14C15 15.657 13.657 17 12 17H5C3.343 17 2 15.657 2 14V8C2 6.343 3.343 5 5 5H8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><rect x="10" y="2" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M14 2V6M12 4H16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+          <div class="message-input-wrap">
+            <textarea id="message-input" class="message-input" placeholder="Type an encrypted message…" rows="1" onkeydown="handleMsgKey(event)" oninput="autoResize(this)"></textarea>
+          </div>
+          <button class="send-btn" id="send-btn" onclick="sendMessage()" title="Send message (Enter)">
+            <svg viewBox="0 0 20 20" fill="none"><path d="M2 10L18 2L10 18V11L2 10Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+
+      </div>
+
+    </main>
+
+  </div>
+
+  <!-- Status toast -->
+  <div id="app-toast" class="app-toast" role="alert" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
