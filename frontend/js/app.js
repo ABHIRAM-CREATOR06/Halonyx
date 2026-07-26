@@ -80,6 +80,30 @@ const pendingX3dhHandshakes = new Map();
 const sessionRecoveryRequests = new Map();
 const outgoingSessionIds = new Map();
 
+function contactAliasesKey() {
+  return `contactAliases:${myUsid || "anonymous"}`;
+}
+
+function getContactAliases() {
+  try {
+    return JSON.parse(localStorage.getItem(contactAliasesKey()) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function getContactName(usid) {
+  return getContactAliases()[usid] || `Peer ${usid.substring(0, 8)}`;
+}
+
+function saveContactName(usid, name) {
+  const aliases = getContactAliases();
+  const cleanedName = name.trim().slice(0, 40);
+  if (cleanedName) aliases[usid] = cleanedName;
+  else delete aliases[usid];
+  localStorage.setItem(contactAliasesKey(), JSON.stringify(aliases));
+}
+
 // Signal Protocol instance — created once, persists across the session
 const signalProtocol = new SignalProtocol();
 
@@ -572,14 +596,18 @@ function renderContactsList() {
   }
 
   const query = document.getElementById("search-input").value.toLowerCase();
-  const filtered = contacts.filter((c) => c.toLowerCase().includes(query));
+  const filtered = contacts.filter((c) =>
+    c.toLowerCase().includes(query) || getContactName(c).toLowerCase().includes(query),
+  );
 
   if (filtered.length === 0) {
     list.innerHTML = `<div class="empty-contacts">
             <span class="material-icons-outlined">group_add</span>
             <p>${query ? "No matches found" : "No contacts yet"}</p>
-            <small>${query ? "Try a different search" : "Add a contact using their USID"}</small>
+            <small>${query ? "Try a different search" : "Add a trusted contact using their USID"}</small>
+            ${query ? "" : '<button id="empty-add-contact" class="btn-primary sm">Add contact</button>'}
         </div>`;
+    document.getElementById("empty-add-contact")?.addEventListener("click", () => showDialog("add-contact-dialog"));
     return;
   }
 
@@ -601,12 +629,15 @@ function renderContactsList() {
                 <span class="material-icons-outlined">person</span>
             </div>
             <div class="contact-body">
-                <div class="contact-name">${c.substring(0, 14)}...</div>
+                <div class="contact-name">${escapeHTML(getContactName(c))}</div>
                 <div class="contact-preview">${escapeHTML(preview)}</div>
             </div>
-            <div class="contact-meta">
-                <span class="contact-time">${timeStr}</span>
-                <button class="contact-delete-btn" onclick="event.stopPropagation(); removeContact('${escapeAttr(c)}')" title="Remove contact">
+                <div class="contact-meta">
+                    <span class="contact-time">${timeStr}</span>
+                    <button class="contact-rename-btn" onclick="event.stopPropagation(); renameContact('${escapeAttr(c)}')" title="Rename contact" aria-label="Rename ${escapeAttr(getContactName(c))}">
+                        <span class="material-icons-outlined">edit</span>
+                    </button>
+                    <button class="contact-delete-btn" onclick="event.stopPropagation(); removeContact('${escapeAttr(c)}')" title="Remove contact">
                     <span class="material-icons-outlined">close</span>
                 </button>
             </div>
@@ -622,6 +653,22 @@ function renderContactsList() {
   }
 }
 
+function renameContact(usid) {
+  const currentName = getContactAliases()[usid] || "";
+  const nextName = prompt("Name this contact (leave blank to use their USID)", currentName);
+  if (nextName === null) return;
+  saveContactName(usid, nextName);
+  if (currentChatUsid === usid) {
+    const contactName = getContactName(usid);
+    document.getElementById("app-bar-title").textContent = contactName;
+    document.getElementById("details-name").textContent = contactName;
+    document.getElementById("contact-alias-input").value = getContactAliases()[usid] || "";
+  }
+  renderContactsList();
+  showSnackbar(nextName.trim() ? "Contact name saved" : "Contact name reset", "success");
+}
+window.renameContact = renameContact;
+
 function updateContactPreview(usid) {
   renderContactsList();
 }
@@ -629,6 +676,7 @@ function updateContactPreview(usid) {
 async function addContact() {
   const input = document.getElementById("contact-usid");
   const usid = input.value.trim();
+  const contactName = document.getElementById("contact-name").value.trim();
   const btn = document.getElementById("confirm-add-contact");
 
   console.log("[Add Contact] Starting add contact flow...");
@@ -687,6 +735,14 @@ async function addContact() {
         hideDialog("add-contact-dialog");
         input.value = "";
         await loadContacts();
+        if (contactName) {
+          const cleanUsid = usid.toLowerCase().replace(/^0x/, "");
+          const candidates = [cleanUsid, await sha256hex(cleanUsid)];
+          const addedUsid = contacts.find((contact) => candidates.includes(contact));
+          if (addedUsid) saveContactName(addedUsid, contactName);
+          document.getElementById("contact-name").value = "";
+          renderContactsList();
+        }
         if (data.refreshed) {
           showSnackbar(
             `${data.name || "Contact"} already in contacts - refreshed`,
@@ -807,15 +863,15 @@ async function removeContact(usid) {
 // ─────────────────────────────────────────
 async function openChat(hashedUsid) {
   currentChatUsid = hashedUsid;
+  const contactName = getContactName(hashedUsid);
 
   document.getElementById("no-chat-selected").style.display = "none";
   document.getElementById("chat-active-view").style.display = "flex";
-  document.getElementById("app-bar-title").textContent =
-    hashedUsid.substring(0, 16) + "…";
+  document.getElementById("app-bar-title").textContent = contactName;
 
-  document.getElementById("details-name").textContent =
-    "Peer " + hashedUsid.substring(0, 8);
+  document.getElementById("details-name").textContent = contactName;
   document.getElementById("details-full-usid").textContent = hashedUsid;
+  document.getElementById("contact-alias-input").value = getContactAliases()[hashedUsid] || "";
 
   renderContactsList();
   updateTorrentStats();
@@ -1580,11 +1636,23 @@ function setupEventListeners() {
     .getElementById("fab-add-contact")
     .addEventListener("click", () => showDialog("add-contact-dialog"));
   document
+    .getElementById("start-add-contact")
+    .addEventListener("click", () => showDialog("add-contact-dialog"));
+  document
     .getElementById("confirm-add-contact")
     .addEventListener("click", addContact);
   document
     .getElementById("cancel-add-contact")
     .addEventListener("click", () => hideDialog("add-contact-dialog"));
+  document.getElementById("save-contact-alias").addEventListener("click", () => {
+    if (!currentChatUsid) return;
+    saveContactName(currentChatUsid, document.getElementById("contact-alias-input").value);
+    const contactName = getContactName(currentChatUsid);
+    document.getElementById("app-bar-title").textContent = contactName;
+    document.getElementById("details-name").textContent = contactName;
+    renderContactsList();
+    showSnackbar("Contact name saved", "success");
+  });
 
   document.getElementById("show-profile").addEventListener("click", () => {
     document.getElementById("my-usid-code").textContent =
@@ -1645,10 +1713,6 @@ function setupEventListeners() {
   document
     .getElementById("emergency-btn")
     .addEventListener("click", sendEmergency);
-  document
-    .getElementById("emergency-btn-sidebar")
-    .addEventListener("click", sendEmergency);
-
   document.querySelectorAll(".dialog-overlay").forEach((overlay) => {
     overlay.addEventListener("click", (e) => {
       if (e.target === overlay) overlay.classList.remove("active");

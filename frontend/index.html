@@ -7,7 +7,7 @@
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link
-            href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500;600&display=swap"
+            href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap"
             rel="stylesheet"
         />
         <link
@@ -186,15 +186,6 @@
                     >
                         <span class="material-icons-outlined">light_mode</span>
                     </button>
-                    <button
-                        id="emergency-btn-sidebar"
-                        class="footer-btn emergency-btn"
-                        title="Emergency Broadcast"
-                    >
-                        <span class="material-icons-outlined"
-                            >emergency_share</span
-                        >
-                    </button>
                     <div class="status-pill">
                         <span class="status-dot"></span>
                         <span id="net-status">Connecting...</span>
@@ -218,7 +209,11 @@
                             <div class="hex-item"></div>
                         </div>
                         <h2>Select a conversation</h2>
-                        <p>End-to-end encrypted · Peer-to-peer · No servers</p>
+                        <p>Add a trusted contact, then start an end-to-end encrypted conversation.</p>
+                        <button id="start-add-contact" class="btn-primary empty-chat-cta">
+                            <span class="material-icons-outlined">person_add</span>
+                            Add your first contact
+                        </button>
                     </div>
                 </div>
 
@@ -317,7 +312,7 @@
                             </p>
                         </div>
 
-                        <div id="messages-container" class="messages-area">
+                        <div id="messages-container" class="messages-area" aria-live="polite" aria-label="Encrypted messages">
                             <!-- Messages render here -->
                         </div>
                     </div>
@@ -381,6 +376,14 @@
                             <code id="details-full-usid" class="usid-code"
                                 >...</code
                             >
+                        </div>
+                    </div>
+
+                    <div class="details-block contact-name-block">
+                        <div class="details-block-label">CONTACT NAME</div>
+                        <div class="contact-name-editor">
+                            <input id="contact-alias-input" class="field-input" type="text" maxlength="40" placeholder="Give this contact a name" autocomplete="off" />
+                            <button id="save-contact-alias" class="btn-secondary sm">Save</button>
                         </div>
                     </div>
 
@@ -474,6 +477,17 @@
                         connection.
                     </p>
                     <div class="field-wrap mt-16">
+                        <label for="contact-name">Contact Name <small>(optional)</small></label>
+                        <input
+                            type="text"
+                            id="contact-name"
+                            class="field-input"
+                            placeholder="e.g. Alex"
+                            maxlength="40"
+                            autocomplete="off"
+                        />
+                    </div>
+                    <div class="field-wrap">
                         <label>USID (Hex string)</label>
                         <input
                             type="text"
@@ -629,6 +643,7 @@
                     </div>
 
                     <!-- The 60-digit safety number grid -->
+                    <p class="sn-compare-hint">Compare every five-digit group in order. All 12 groups must match.</p>
                     <div class="sn-number-wrap">
                         <div id="sn-grid" class="sn-grid">
                             <!-- Rows of 3 five-digit groups rendered by JS -->
@@ -656,7 +671,7 @@
             </div>
 
             <!-- Snackbar -->
-            <div id="snackbar" class="snackbar">
+            <div id="snackbar" class="snackbar" role="status" aria-live="polite">
                 <span class="material-icons-outlined" id="snackbar-icon"
                     >info</span
                 >

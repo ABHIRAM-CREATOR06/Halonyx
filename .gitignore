@@ -30,3 +30,9 @@ Thumbs.db
 
 # Coverage / test artifacts
 coverage/
+
+# Private folders
+private/
+private_data/
+secrets/
+personal/
