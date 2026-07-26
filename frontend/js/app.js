@@ -73,6 +73,12 @@ let contacts = [];
 let messageHistory = JSON.parse(localStorage.getItem("messageHistory") || "{}");
 let ws;
 let identityRejected = false;
+// WebSocket frames are ordered, but their async handlers are not. Hold an
+// encrypted message until its preceding X3DH handshake has finished.
+const pendingEncryptedMessages = new Map();
+const pendingX3dhHandshakes = new Map();
+const sessionRecoveryRequests = new Map();
+const outgoingSessionIds = new Map();
 
 // Signal Protocol instance — created once, persists across the session
 const signalProtocol = new SignalProtocol();
@@ -185,6 +191,55 @@ function connectWS() {
   ws.onerror = () => setNetStatus("offline");
 }
 
+function newSessionId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function startX3dhSession(peerUsid) {
+  const initMsg = await signalProtocol.openSession(peerUsid);
+  if (!initMsg || !ws || ws.readyState !== WebSocket.OPEN) return false;
+
+  const sessionId = newSessionId();
+  outgoingSessionIds.set(peerUsid, sessionId);
+  // Retain the ID only while a competing simultaneous init could arrive.
+  setTimeout(() => {
+    if (outgoingSessionIds.get(peerUsid) === sessionId) {
+      outgoingSessionIds.delete(peerUsid);
+    }
+  }, 10000);
+
+  initMsg.to = peerUsid;
+  initMsg.sessionId = sessionId;
+  ws.send(JSON.stringify(initMsg));
+  return true;
+}
+
+async function recoverSession(peerUsid) {
+  if (sessionRecoveryRequests.has(peerUsid)) {
+    return sessionRecoveryRequests.get(peerUsid);
+  }
+
+  const recovery = (async () => {
+    try {
+      if (await startX3dhSession(peerUsid)) {
+        // A message received before a matching session cannot be recovered;
+        // a newly negotiated session applies to messages sent after this point.
+        pendingEncryptedMessages.delete(peerUsid);
+        showSnackbar("Secure session refreshed — ask the peer to resend the message", "info");
+      }
+    } catch (e) {
+      console.error("[E2EE] Session recovery failed", e);
+    } finally {
+      sessionRecoveryRequests.delete(peerUsid);
+    }
+  })();
+
+  sessionRecoveryRequests.set(peerUsid, recovery);
+  return recovery;
+}
+
 async function handleWSMessage(data) {
   switch (data.type) {
     case "registered":
@@ -204,6 +259,16 @@ async function handleWSMessage(data) {
       break;
     case "message": {
       const { from, encrypted, content, timestamp } = data;
+
+      if (encrypted && !signalProtocol.hasSession(from)) {
+        const pending = pendingEncryptedMessages.get(from) || [];
+        pending.push(data);
+        pendingEncryptedMessages.set(from, pending);
+        console.log(`[E2EE] Waiting for X3DH session from ${from.substring(0, 12)}`);
+        if (!pendingX3dhHandshakes.has(from)) void recoverSession(from);
+        break;
+      }
+
       let displayContent = content || "";
 
       if (encrypted && signalProtocol.hasSession(from)) {
@@ -212,7 +277,12 @@ async function handleWSMessage(data) {
           console.log(`[E2EE] Decrypted message from ${from.substring(0, 12)}`);
         } catch (e) {
           console.error("[E2EE] Decryption failed", e);
-          displayContent = "[Encrypted — decryption failed]";
+          // The peer may have retained a different ratchet after a reload or
+          // an interrupted key exchange. Discard only this peer session and
+          // negotiate a replacement for subsequent messages.
+          await signalProtocol.closeSession(from);
+          void recoverSession(from);
+          displayContent = "[Encrypted message — secure session is refreshing; ask the peer to resend]";
         }
       }
 
@@ -227,12 +297,46 @@ async function handleWSMessage(data) {
     }
     case "x3dh_init": {
       const { from } = data;
-      if (from && !signalProtocol.hasSession(from)) {
-        try {
+      if (from) {
+        const activeHandshake = pendingX3dhHandshakes.get(from);
+        if (activeHandshake) {
+          await activeHandshake;
+          break;
+        }
+
+        const localSessionId = outgoingSessionIds.get(from);
+        // When both users open the chat together, each sends an init. Keep
+        // the lexicographically smaller session ID and make the other peer
+        // become its responder, preventing crossed ratchet states.
+        if (localSessionId && data.sessionId && localSessionId < data.sessionId) {
+          console.log(`[E2EE] Keeping local X3DH session with ${from.substring(0, 12)}`);
+          break;
+        }
+
+        const handshake = (async () => {
+          // An init frame means the peer needs fresh key agreement. Replacing a
+          // stale local session lets either browser recover without manual data
+          // clearing when only one side has reloaded or upgraded.
+          if (signalProtocol.hasSession(from)) await signalProtocol.closeSession(from);
           await signalProtocol.acceptSession(from, data);
+        })();
+        outgoingSessionIds.delete(from);
+        pendingX3dhHandshakes.set(from, handshake);
+
+        try {
+          await handshake;
           console.log(`[E2EE] Session accepted from ${from.substring(0, 12)}`);
+
+          // Decrypt messages that arrived while the asynchronous X3DH setup ran.
+          const pending = pendingEncryptedMessages.get(from) || [];
+          pendingEncryptedMessages.delete(from);
+          for (const pendingMessage of pending) {
+            await handleWSMessage(pendingMessage);
+          }
         } catch (e) {
           console.error("[E2EE] acceptSession failed", e);
+        } finally {
+          pendingX3dhHandshakes.delete(from);
         }
       }
       break;
@@ -729,12 +833,7 @@ async function openChat(hashedUsid) {
 
   try {
     if (!signalProtocol.hasSession(hashedUsid)) {
-      const initMsg = await signalProtocol.openSession(hashedUsid);
-      if (initMsg && ws && ws.readyState === WebSocket.OPEN) {
-        initMsg.to = hashedUsid;
-        initMsg.from = myUsid;
-        ws.send(JSON.stringify(initMsg));
-      }
+      await startX3dhSession(hashedUsid);
     }
     status.textContent = "Secure Channel Ready";
     details.textContent = "All messages are end-to-end encrypted.";
@@ -1706,4 +1805,3 @@ function handleSendEmail(provider) {
     });
   }
 }
-
