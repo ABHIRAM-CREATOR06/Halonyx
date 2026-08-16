@@ -5,8 +5,10 @@ echo ==========================================
 echo   Halonyx Server Auto-Starter
 echo ==========================================
 
+cd /d "%~dp0.."
 :: Function to kill process on a specific port
 set PORTS=3000 8081 9000
+
 
 for %%p in (%PORTS%) do (
     echo Checking port %%p...
