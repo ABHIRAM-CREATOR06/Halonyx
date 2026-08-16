@@ -5,8 +5,10 @@ echo "=========================================="
 echo "  Halonyx Server Auto-Starter"
 echo "=========================================="
 
+
+cd "$(dirname "$0")/.." || { echo "Could not resolve repo root."; exit 1; }
+
 PORTS=(3000 8081 9000)
-cd "$(dirname "$0")/.." || exit 1
 
 for port in "${PORTS[@]}"; do
   echo "Checking port $port..."
