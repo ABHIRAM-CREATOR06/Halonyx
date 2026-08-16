@@ -24,33 +24,23 @@
             <div class="splash-bg"></div>
             <div class="splash-content" id="splash-header">
                 <div class="splash-logo-wrap">
-                    <div class="splash-hex"></div>
-                    <span class="material-icons-outlined splash-icon"
-                        >shield</span
-                    >
+                    <span class="material-icons-outlined splash-icon">shield</span>
                 </div>
                 <h1 class="splash-title">HALONYX</h1>
-                <p class="splash-tagline">
-                    Decentralized · Encrypted · Private
-                </p>
+                <p class="splash-tagline">Decentralized, end-to-end encrypted messaging.</p>
             </div>
 
             <div id="registration-form" class="reg-form" style="display: none">
                 <div class="reg-card">
                     <div class="reg-tabs">
                         <button type="button" id="tab-create-mode" class="btn-tab active" onclick="switchAuthTab('create')">New Identity</button>
-                        <button type="button" id="tab-connect-mode" class="btn-tab" onclick="switchAuthTab('connect')">Connect / Sign In</button>
+                        <button type="button" id="tab-connect-mode" class="btn-tab" onclick="switchAuthTab('connect')">Connect</button>
                     </div>
 
                     <!-- Create Mode -->
                     <div id="auth-create-section">
                         <div class="reg-header">
-                            <span class="material-icons-outlined">fingerprint</span>
                             <h2>Create Secure Identity</h2>
-                            <p>
-                                Your identity is cryptographically generated and
-                                stored privately on your device.
-                            </p>
                         </div>
                         <div class="field-stack">
                             <div class="field-wrap">
@@ -83,15 +73,11 @@
                     <!-- Connect Mode -->
                     <div id="auth-connect-section" style="display: none;">
                         <div class="reg-header">
-                            <span class="material-icons-outlined">login</span>
-                            <h2>Connect Existing Identity</h2>
-                            <p>
-                                Reconnect using your existing USID key or registered Email.
-                            </p>
+                            <h2>Connect Identity</h2>
                         </div>
                         <div class="field-stack">
                             <div class="field-wrap">
-                                <label>USID Key or Registered Email</label>
+                                <label>USID or Registered Email</label>
                                 <input
                                     type="text"
                                     id="connect-input"
@@ -106,11 +92,6 @@
                             Connect Identity
                         </button>
                     </div>
-
-                    <p class="reg-disclaimer" style="margin-top: 16px;">
-                        <span class="material-icons-outlined">info</span> Your
-                        USID is a cryptographic hash — keep it safe.
-                    </p>
                 </div>
             </div>
 
@@ -244,7 +225,7 @@
                                 title="Emergency"
                             >
                                 <span class="material-icons-outlined"
-                                    >emergency_share</span
+                                    >warning</span
                                 >
                             </button>
                             <button
@@ -253,7 +234,7 @@
                                 title="Details"
                             >
                                 <span class="material-icons-outlined"
-                                    >info_outline</span
+                                    >info</span
                                 >
                             </button>
                         </div>
@@ -284,33 +265,6 @@
                     </div>
 
                     <div id="chat-screen" class="messages-wrap">
-                        <!-- Key Exchange -->
-                        <div
-                            id="key-exchange-overlay"
-                            class="key-overlay hidden"
-                        >
-                            <div class="key-animation">
-                                <div class="key-node" id="node-a">
-                                    <span class="material-icons-outlined"
-                                        >lock</span
-                                    >
-                                </div>
-                                <div class="key-beam">
-                                    <div class="beam-pulse"></div>
-                                </div>
-                                <div class="key-node" id="node-b">
-                                    <span class="material-icons-outlined"
-                                        >lock_open</span
-                                    >
-                                </div>
-                            </div>
-                            <p id="exchange-status" class="key-status">
-                                Initializing Secure Channel
-                            </p>
-                            <p id="exchange-details" class="key-detail">
-                                Verifying cryptographic identities...
-                            </p>
-                        </div>
 
                         <div id="messages-container" class="messages-area" aria-live="polite" aria-label="Encrypted messages">
                             <!-- Messages render here -->

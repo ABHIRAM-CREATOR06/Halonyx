@@ -130,15 +130,41 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
     overflow-y: auto;
     background: var(--bg-ink);
     z-index: 200;
-    gap: 40px;
-    padding: 48px 0 48px;
+    gap: 20px;
+    padding: 24px 16px;
     transition:
         opacity var(--t-slow) var(--ease),
         transform var(--t-slow) var(--ease);
+}
+
+@media (min-width: 769px) {
+    .splash-screen {
+        flex-direction: row;
+        gap: 80px;
+        padding: 48px;
+    }
+    .splash-content {
+        align-items: flex-start;
+        text-align: left;
+        max-width: 360px;
+        gap: 20px;
+    }
+    .splash-title {
+        font-size: clamp(2.5rem, 4vw, 4rem) !important;
+        margin: 12px 0 6px 0;
+    }
+    .splash-tagline {
+        font-size: 0.95rem;
+        letter-spacing: 0.01em;
+        text-transform: none;
+        color: var(--fg-sub);
+        font-family: var(--font-body);
+        line-height: 1.5;
+    }
 }
 .splash-screen.hidden {
     opacity: 0;
@@ -231,11 +257,17 @@ body {
     background: var(--bg-panel);
     border: 1px solid var(--bd-hi);
     border-radius: var(--r-xl);
-    padding: 56px 48px;
+    padding: 24px 32px;
     display: flex;
     flex-direction: column;
-    gap: 40px;
+    gap: 20px;
     box-shadow: var(--shadow-card);
+}
+
+#auth-create-section, #auth-connect-section {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
 }
 
 /* Auth Tabs */
@@ -304,12 +336,12 @@ body {
 .field-stack {
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 16px;
 }
 .field-wrap {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 6px;
 }
 .field-wrap label {
     font-size: 0.83rem;
@@ -329,7 +361,7 @@ body {
     background: var(--bg-surface);
     border: 1px solid var(--bd-hi);
     border-radius: var(--r);
-    padding: 14px 16px;
+    padding: 10px 14px;
     color: var(--fg);
     font-size: 0.93rem;
     font-family: var(--font-body);
@@ -1032,6 +1064,15 @@ body.theme-light .chat-header {
 .chat-actions {
     display: flex;
     gap: 4px;
+    background: var(--bg-surface);
+    border: 1px solid var(--bd);
+    border-radius: var(--r-sm);
+    padding: 3px;
+}
+.chat-actions .icon-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
 }
 
 /* Transfer Bar */
@@ -2375,17 +2416,17 @@ button, input { font: inherit; }
 button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 
 /* Entry screen */
-.splash-screen { background: var(--surface-0); padding: 56px 0; }
+.splash-screen { background: var(--surface-0); }
 .splash-bg, .splash-hex { display: none; }
-.splash-title { font-family: var(--font-display); font-size: clamp(2.5rem,7vw,4.5rem); letter-spacing: .025em; }
-.splash-logo-wrap { width: 64px; height: 64px; border: 1px solid var(--accent-halo-border); border-radius: 50%; }
+.splash-title { font-family: var(--font-display); font-size: clamp(2rem,6vw,3.5rem); letter-spacing: .025em; margin: 0; }
+.splash-logo-wrap { width: 48px; height: 48px; border: 1px solid var(--accent-halo-border); border-radius: 50%; }
 .splash-icon, .reg-header > .material-icons-outlined { color: var(--accent-halo); }
-.reg-card { background: var(--bg-panel); border: 1px solid var(--border-hairline); border-radius: 20px; padding: 32px; gap: 28px; box-shadow: none; }
+.reg-card { background: var(--bg-panel); border: 1px solid var(--border-hairline); border-radius: 16px; padding: 20px 24px; gap: 16px; box-shadow: none; }
 .reg-tabs { border-radius: 10px; background: var(--bg-surface); border-color: var(--bd); }
 .btn-tab.active { background: var(--bg-panel); color: var(--fg); box-shadow: inset 0 -2px 0 var(--accent); }
-.reg-header h2 { font-size: 1.5rem; letter-spacing: -.04em; }
-.field-wrap label { font-size: .75rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.field-input { background: var(--bg-surface); border-color: var(--bd); border-radius: 10px; }
+.reg-header h2 { font-size: 1.25rem; letter-spacing: -.04em; margin: 0; }
+.field-wrap label { font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 4px; }
+.field-input { background: var(--bg-surface); border-color: var(--bd); border-radius: 10px; padding: 10px 14px; }
 .field-input:focus { border-color: var(--focus-ring); box-shadow: 0 0 0 3px rgba(30,174,219,.18); }
 .btn-primary { background: var(--accent); border-radius: 999px; color: var(--text-inverted); box-shadow: none; font-weight: 700; }
 .btn-primary:hover, .add-btn:hover, .send-btn:hover { background: #76ffe0; transform: none; opacity: 1; }

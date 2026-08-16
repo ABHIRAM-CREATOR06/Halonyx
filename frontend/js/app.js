@@ -424,11 +424,11 @@ function switchAuthTab(tab) {
 
   if (tab === "connect") {
     if (createSec) createSec.style.display = "none";
-    if (connectSec) connectSec.style.display = "block";
+    if (connectSec) connectSec.style.display = "flex";
     if (tabCreate) tabCreate.classList.remove("active");
     if (tabConnect) tabConnect.classList.add("active");
   } else {
-    if (createSec) createSec.style.display = "block";
+    if (createSec) createSec.style.display = "flex";
     if (connectSec) connectSec.style.display = "none";
     if (tabConnect) tabConnect.classList.remove("active");
     if (tabCreate) tabCreate.classList.add("active");
@@ -877,33 +877,15 @@ async function openChat(hashedUsid) {
   updateTorrentStats();
   updateVerifiedBadge();
 
-  const overlay = document.getElementById("key-exchange-overlay");
-  const msgs = document.getElementById("messages-container");
-  const status = document.getElementById("exchange-status");
-  const details = document.getElementById("exchange-details");
+  renderMessages();
 
-  msgs.style.display = "none";
-  overlay.classList.remove("hidden");
-  status.textContent = "Running X3DH Key Exchange";
-  details.textContent = "Fetching peer key bundle...";
-
-  try {
-    if (!signalProtocol.hasSession(hashedUsid)) {
-      await startX3dhSession(hashedUsid);
-    }
-    status.textContent = "Secure Channel Ready";
-    details.textContent = "All messages are end-to-end encrypted.";
-  } catch (e) {
-    console.error("[E2EE] openSession failed", e);
-    status.textContent = "Encryption Warning";
-    details.textContent = "E2EE unavailable — peer bundle missing or offline";
+  // Run key exchange in the background if session does not exist
+  if (!signalProtocol.hasSession(hashedUsid)) {
+    console.log("[E2EE] Starting background key exchange for:", hashedUsid);
+    startX3dhSession(hashedUsid).catch((e) => {
+      console.error("[E2EE] Background session start failed:", e);
+    });
   }
-
-  setTimeout(() => {
-    overlay.classList.add("hidden");
-    msgs.style.display = "flex";
-    renderMessages();
-  }, 900);
 }
 
 async function sendMessage() {
