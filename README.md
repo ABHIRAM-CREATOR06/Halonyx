@@ -276,7 +276,7 @@ All authenticated routes require `Authorization: Bearer <token>`. Rate-limited e
 |---|---|---|
 | `register` | Client → Server | Authenticate WS session with USID |
 | `registered` | Server → Client | Identity confirmed; offline mailbox flushed |
-| `message` | Bidirectional | Encrypted message payload (or plaintext fallback) |
+| `message` | Bidirectional | Encrypted message payload; unencrypted payloads are rejected server-side |
 | `x3dh_init` | Bidirectional | Relay X3DH handshake packet to recipient |
 | `queued` | Server → Client | Recipient offline — message stored in mailbox |
 | `emergency_broadcast` | Client → Server | UDP-bridged system-wide alert |
@@ -297,6 +297,8 @@ All authenticated routes require `Authorization: Bearer <token>`. Rate-limited e
 | Pre-Key Signing | Ed25519 | 256 bits |
 
 **Guarantees:** forward secrecy · post-compromise security · HMAC authentication · deniability · pseudonymity · MITM detection via safety numbers
+
+JWT signing keys are generated with `crypto.randomBytes(32)` at boot rather than a fixed default, and tokens carry only a hashed identifier — never the raw USID.
 
 ---
 
