@@ -338,7 +338,6 @@ Run everything with `npm test`, or just the crypto core with `npm run test:x2551
 
 ## Project Structure
 
-
 ```
 Halonyx/
 ├── .github/
