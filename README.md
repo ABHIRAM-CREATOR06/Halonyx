@@ -66,7 +66,7 @@ npm start        # production
 npm run dev      # development (auto-reload via nodemon)
 ```
 
-Open **http://localhost:3000**. On Windows, run `start_server.bat`.
+Open **http://localhost:3000**. On Windows, run `scripts/start_server.bat` (or `scripts/start_server.sh` on Unix/macOS).
 
 ### Running the tests
 
@@ -339,9 +339,13 @@ Run everything with `npm test`, or just the crypto core with `npm run test:x2551
 ## Project Structure
 
 ```
+```
 Halonyx/
 ├── .github/
-│   ├── workflows/ci.yml         # Node 20/22/24 matrix — tests, X25519 core, sqlite check, audit
+│   ├── workflows/
+│   │   ├── ci.yml               # Node 20/22/24 matrix — tests, X25519 core, sqlite check, audit
+│   │   ├── pages.yml            # GitHub Pages deployment (frontend)
+│   │   └── static.yml           # Static deployment workflow
 │   ├── ISSUE_TEMPLATE/
 │   │   ├── bug_report.md
 │   │   └── feature_request.md
@@ -377,6 +381,9 @@ Halonyx/
 ├── simulator/
 │   ├── index.html               # Standalone "How Halonyx Works" interactive explainer
 │   └── readme.md
+├── scripts/
+│   ├── start_server.bat         # Windows launcher
+│   └── start_server.sh          # Unix/macOS launcher
 ├── specification_docs/
 │   ├── security_docs/datathreat.md              # STRIDE threat model — 18 classified threats
 │   ├── benchmark/benchmark.md                   # Full-stack performance benchmarks
@@ -393,14 +400,12 @@ Halonyx/
 │   ├── email_utils.test.js      # Email utility functions
 │   ├── utils.test.js            # USID generation & hashing
 │   └── verify-sqlite.js         # Native sqlite3 binding sanity check
-├── docs/
-│   └── SOFTWARE_DESIGN.md       # Software design document
-├── reference_image/              # ER diagrams, architecture diagrams, screenshots
-├── start_server.bat             # Windows launcher
-├── package.json
+├── CODE_OF_CONDUCT.md
+├── CONTRIBUTING.md
 ├── SECURITY.md
 ├── LICENSE                      # AGPL-3.0
-└── README.md
+├── README.md
+└── package.json
 ```
 
 ---
