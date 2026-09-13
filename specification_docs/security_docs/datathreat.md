@@ -502,6 +502,53 @@ An `npm audit` run reports 22 known vulnerabilities across the dependency tree (
 
 **Status:** ⚡ Partially mitigated (visibility via CI; 6 of 9 non-`node-gyp`-chain issues fixable non-breaking; breaking-change upgrades pending).
 
+### 3.19 Threat T-19 — Missing WebSocket Origin Validation (Defense-in-Depth Gap)
+
+**Category:** Authentication / Spoofing
+**STRIDE:** Spoofing
+**Severity:** 🟡 Medium
+
+**Description:**
+The WebSocket server does not validate the `Origin` header on the upgrade handshake. Any page — including one hosted on an entirely unrelated origin — can open a raw WebSocket connection directly to the Halonyx server. Because the `register` flow currently depends on possessing a secret value (the plaintext USID; see T-08) rather than a same-origin cookie, a page on another origin cannot itself read that secret via script (same-origin policy blocks cross-origin `localStorage` access), so this is not a classic full cross-site WebSocket hijack in the cookie-session sense. It remains a defense-in-depth gap: an attacker's page can open unrestricted connections, probe server behavior toward unregistered sockets, and reach unauthenticated message paths without any origin restriction.
+
+**Attack Vector:** Cross-origin script running in a victim's browser, connecting directly to the WS endpoint.
+
+**Affected Components:** WebSocket upgrade handler in `backend/server.js`.
+
+**Impact:** Low-to-moderate in isolation (same-origin policy prevents secret exfiltration on its own), but compounds any future authentication change that comes to rely on browser-supplied context (e.g., cookies) instead of an explicit secret in the message payload — and removes a layer of defense that costs little to add now.
+
+**Mitigation:**
+- Validate the `Origin` header on the WS upgrade request against an explicit allowlist of trusted origins.
+- If T-08's proposed JWT-based registration fix is implemented, ensure the JWT is only ever accepted from the message payload — never from a cookie — preserving the current secret-in-payload model that already limits this threat's severity.
+
+**Status:** ⚠️ Unmitigated.
+
+---
+
+### 3.20 Threat T-20 — Client-Side Trust Anchor Tampering (Safety Number Suppression)
+
+**Category:** Integrity / Key Authenticity
+**STRIDE:** Tampering
+**Severity:** 🟠 High
+
+**Description:**
+The last-verified Safety Number for each contact is stored in the browser's `localStorage` (see T-10) and compared against the freshly computed value on each session to detect key substitution — this comparison is Halonyx's primary user-facing defense against the server-side MITM described in T-15. `localStorage` is fully writable by any same-origin script. An attacker with an XSS foothold (T-11), a malicious browser extension, or transient physical/device access can silently overwrite the stored safety number to match a freshly substituted key, suppressing the key-change warning entirely — without the user ever seeing a mismatch.
+
+**Attack Vector:** XSS (T-11), malicious browser extension, or local device access, exercised alongside an active key-substitution attack (T-15). Not exploitable on its own — this threat defeats the *detection* mechanism, not the underlying key exchange.
+
+**Affected Components:** `frontend/js/app.js` Safety Number storage and comparison logic.
+
+**Impact:** Defeats the Safety Number mechanism specifically. A user could be shown a "keys match" state, or no warning at all, while actually communicating with a substituted identity — silently negating the one control designed to catch exactly that.
+
+**Mitigation:**
+- Do not rely solely on unauthenticated `localStorage` for trust-state; consider binding the stored safety-number record to a value derived from non-exportable key material, so a plain overwrite cannot forge a valid "verified" state.
+- Fixing T-11 (CSP) closes the most likely delivery path for this attack.
+- Consider periodic re-prompting for manual out-of-band re-verification rather than trusting a silent match indefinitely.
+
+**Status:** ⚠️ Unmitigated.
+
+
+
 ---
 
 ## 4. Threat Summary Matrix
@@ -526,6 +573,8 @@ An `npm audit` run reports 22 known vulnerabilities across the dependency tree (
 | T-16 | WebRTC / WebTorrent IP Leak | 🟠 High | WebTorrent / TURN | ⚠️ Unmitigated |
 | T-17 | OPK Exhaustion / X3DH Fallback | 🟠 High | `signal_protocol.js` | ✅ Mitigated |
 | T-18 | Vulnerable transitive dependencies (npm audit) | 🟠 High | Dependency tree | ⚡ Partially mitigated |
+| T-19 | Missing WebSocket Origin validation | 🟡 Medium | WS upgrade handler | ⚠️ Unmitigated |
+| T-20 | Client-side trust anchor tampering (Safety Number suppression) | 🟠 High | `app.js`, `localStorage` | ⚠️ Unmitigated |
 
 ---
 
@@ -548,21 +597,22 @@ An `npm audit` run reports 22 known vulnerabilities across the dependency tree (
 9. **T-11:** Add CSP headers; audit all `innerHTML` usage.
 10. **T-15:** Implement safety number UI for key fingerprint verification.
 11. **T-18 (partial):** Run `npm audit fix` to resolve the six non-breaking dependency vulnerabilities (`brace-expansion`, `minimatch`, `path-to-regexp`, `picomatch`, `qs`, `ws`) — no compatibility risk, immediate action.
+12. **T-20:** Bind the stored Safety Number to non-exportable key material rather than trusting a plain `localStorage` value; closing T-11 (CSP) also removes this threat's most likely delivery path.
 
 ### Phase 3 — Medium Priority (Ongoing Hardening)
 
-12. **T-06:** Uniform signup response regardless of email existence.
-13. **T-07:** Add strict USID and email format validation before all DB queries.
-14. **T-14:** Enforce mailbox size cap (200 messages per recipient).
-15. ~~**T-13 (partial):** Log emergency broadcast events with sender identity and delivery count.~~ (Mitigated via console logging with source identification)
-15b. **T-13 (remaining):** Implement formal append-only audit log file separate from stdout.
-16. **T-12:** Investigate ephemeral routing tokens to reduce metadata linkability.
-17. **T-18 (remaining):** Plan and test the three breaking-change dependency upgrades (`sqlite3` → 6.0.1, `webtorrent` → latest major, `nodemailer` → 9.0.3) as a deliberate migration.
-
+13. **T-06:** Uniform signup response regardless of email existence.
+14. **T-07:** Add strict USID and email format validation before all DB queries.
+15. **T-14:** Enforce mailbox size cap (200 messages per recipient).
+16. ~~**T-13 (partial):** Log emergency broadcast events with sender identity and delivery count.~~ (Mitigated via console logging with source identification)
+16b. **T-13 (remaining):** Implement formal append-only audit log file separate from stdout.
+17. **T-12:** Investigate ephemeral routing tokens to reduce metadata linkability.
+18. **T-18 (remaining):** Plan and test the three breaking-change dependency upgrades (`sqlite3` → 6.0.1, `webtorrent` → latest major, `nodemailer` → 9.0.3) as a deliberate migration.
+19. **T-19:** Add an `Origin` allowlist check to the WebSocket upgrade handler.
 ---
 
 *Generated: 2026-06-30*
-*Last Updated: 2026-07-18 — UDP anti-spam controls (RateBucket, per-IP/global rate limiting, auto-ban, payload validation); added T-18 (vulnerable transitive dependencies via npm audit)*
+*Last Updated: 2026-09-13 — added T-19 (missing WebSocket Origin validation) and T-20 (client-side trust anchor tampering / Safety Number suppression), identified during a review of session- and identity-hijacking risk across the application*
 
 ## Security Disclaimer
 
