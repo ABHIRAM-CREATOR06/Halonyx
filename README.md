@@ -18,6 +18,7 @@
 [![WebTorrent](https://img.shields.io/badge/File%20Transfer-WebTorrent%20P2P-orange?style=flat&logo=bittorrent&logoColor=white)](https://webtorrent.io)
 [![Safety Numbers](https://img.shields.io/badge/MITM%20Protection-Safety%20Numbers-success?style=flat)](https://signal.org/blog/safety-number-updates/)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](https://github.com/ABHIRAM-CREATOR06/Halonyx/blob/main/LICENSE)
+[![Docker Ready](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker&logoColor=white)](#running-with-docker)
 [![Live](https://img.shields.io/badge/Live-halonyx.onrender.com-blueviolet?style=flat)](https://halonyx.onrender.com)
 
 [Live Demo](https://halonyx.onrender.com) · [Simulator](#interactive-simulator) · [Threat Model](specification_docs/security_docs/datathreat.md) · [Benchmarks](specification_docs/benchmark/benchmark.md) · [Policy Brief](specification_docs/compliance_doc/encryption-policy-brief.md)
@@ -66,7 +67,24 @@ npm start        # production
 npm run dev      # development (auto-reload via nodemon)
 ```
 
-Open **http://localhost:3000**. On Windows, run `scripts/start_server.bat` (or `scripts/start_server.sh` on Unix/macOS).
+Open **http://localhost:3000**. On Windows, run `scripts/setup.bat` (or `scripts/start_server.bat` / `scripts/start_server.sh` on Unix/macOS).
+
+### Running with Docker
+
+You can run Halonyx in a container using Docker or Docker Compose:
+
+**Using Docker Compose (Recommended):**
+```bash
+docker compose up -d --build
+```
+
+**Using Docker CLI:**
+```bash
+docker build -t halonyx .
+docker run -d -p 3000:3000 -v halonyx-data:/app/backend/db --name halonyx-app halonyx
+```
+
+Open **http://localhost:3000** once the container is running. Database state is persisted in the Docker volume.
 
 ### Running the tests
 
@@ -381,8 +399,9 @@ Halonyx/
 │   ├── index.html               # Standalone "How Halonyx Works" interactive explainer
 │   └── readme.md
 ├── scripts/
-│   ├── start_server.bat         # Windows launcher
-│   └── start_server.sh          # Unix/macOS launcher
+│   ├── setup.bat                # Interactive Windows setup & launch wizard
+│   ├── start_server.bat         # Windows server launcher
+│   └── start_server.sh          # Unix/macOS server launcher
 ├── specification_docs/
 │   ├── security_docs/datathreat.md              # STRIDE threat model — 18 classified threats
 │   ├── benchmark/benchmark.md                   # Full-stack performance benchmarks
@@ -404,6 +423,10 @@ Halonyx/
 ├── SECURITY.md
 ├── LICENSE                      # AGPL-3.0
 ├── README.md
+├── .dockerignore                 # Excluded paths for Docker build context
+├── .env.example                  # Environment configuration template
+├── Dockerfile                    # Production Docker container image definition
+├── docker-compose.yml            # Docker Compose multi-container orchestration
 └── package.json
 ```
 
@@ -425,6 +448,8 @@ Halonyx/
 - [x] OPK replenishment monitoring
 - [x] Interactive protocol simulator
 - [x] CI test matrix (Node 20/22/24) with crypto-core enforcement
+- [x] Containerized deployment with Docker and Docker Compose
+- [x] Interactive one-click setup script (`scripts/setup.bat`) for Windows
 - [x] Full STRIDE threat model (18 threats) + performance benchmark suite
 - [x] Cross-jurisdiction encryption policy brief
 - [ ] Safety number QR code scan
