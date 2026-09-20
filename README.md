@@ -19,9 +19,10 @@
 [![Safety Numbers](https://img.shields.io/badge/MITM%20Protection-Safety%20Numbers-success?style=flat)](https://signal.org/blog/safety-number-updates/)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](https://github.com/ABHIRAM-CREATOR06/Halonyx/blob/main/LICENSE)
 [![Docker Ready](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker&logoColor=white)](#running-with-docker)
+[![Security Audit](https://img.shields.io/badge/Security%20Audit-Cloudflare%20Security%20Suite-F38020?style=flat&logo=cloudflare&logoColor=white)](specification_docs/audit.md)
 [![Live](https://img.shields.io/badge/Live-halonyx.onrender.com-blueviolet?style=flat)](https://halonyx.onrender.com)
 
-[Live Demo](https://halonyx.onrender.com) · [Simulator](#interactive-simulator) · [Threat Model](specification_docs/security_docs/datathreat.md) · [Benchmarks](specification_docs/benchmark/benchmark.md) · [Policy Brief](specification_docs/compliance_doc/encryption-policy-brief.md)
+[Live Demo](https://halonyx.onrender.com) · [Simulator](#interactive-simulator) · [Security Audit](specification_docs/audit.md) · [Threat Model](specification_docs/security_docs/datathreat.md) · [Benchmarks](specification_docs/benchmark/benchmark.md) · [Policy Brief](specification_docs/compliance_doc/encryption-policy-brief.md)
 
 </div>
 
@@ -324,6 +325,7 @@ JWT signing keys are generated with `crypto.randomBytes(32)` at boot rather than
 
 Halonyx ships with a full doc set under [`specification_docs/`](specification_docs/), covering security, performance, and legal posture:
 
+- **[Security Audit Report](specification_docs/audit.md)** — comprehensive full-stack security review conducted using the **Cloudflare Security Suite**, evaluating Signal Protocol cryptography, HTTP authentication, WebSocket relays, database isolation, and container deployment safety.
 - **[Data Threat Model](specification_docs/security_docs/datathreat.md)** — a STRIDE-style analysis covering **18 classified threats** (T-01 through T-18) across the frontend, backend, transport, storage, and dependency supply chain — including a hardcoded JWT secret, unauthenticated WebSocket registration, WebRTC/WebTorrent IP leaks, and OPK exhaustion — each with severity ratings and a phased remediation roadmap.
 - **[Performance Benchmarks](specification_docs/benchmark/benchmark.md)** — latency and throughput for every layer of the stack: X3DH and Double Ratchet crypto operations, REST endpoints, WebSocket messaging (including offline mailbox store-and-flush), UDP emergency broadcast, SQLite read/write performance, and WebTorrent transfer over STUN/TURN.
 - **[Encryption Policy Brief](specification_docs/compliance_doc/encryption-policy-brief.md)** — a comparative look at where Halonyx's architecture stands against live encryption policy in the EU (CSAR/"Chat Control"), the US (EARN IT Act), India (IT Rules 2021 traceability), the UK (Online Safety Act / Investigatory Powers Act), and the UN Convention against Cybercrime.
