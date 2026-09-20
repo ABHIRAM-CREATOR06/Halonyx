@@ -31,7 +31,8 @@ Thumbs.db
 # Coverage / test artifacts
 coverage/
 
-# Private folders
+# Private folders & agent customizations
+.agents/
 private/
 private_data/
 secrets/
