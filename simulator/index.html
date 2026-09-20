@@ -3,878 +3,671 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>How Halonyx Works</title>
+  <title>How Halonyx Works · Protocol Simulator</title>
   <style>
     :root {
-      --primary: #0066cc;
-      --primary-focus: #0071e3;
-      --primary-on-dark: #2997ff;
-      --ink: #1d1d1f;
-      --ink-muted: #333333;
-      --ink-subtle: #7a7a7a;
-      --body-on-dark: #ffffff;
-      --body-muted: #cccccc;
+      --primary: #141414;
+      --on-primary: #ffffff;
+      --accent: #0066ff;
+      --ink: #141414;
+      --ink-soft: #262626;
+      --ink-muted: #707070;
+      --ink-faint: #adadad;
       --canvas: #ffffff;
-      --parchment: #f5f5f7;
-      --pearl: #fafafc;
-      --tile-1: #272729;
-      --tile-2: #2a2a2c;
-      --tile-3: #252527;
-      --black: #000000;
+      --canvas-soft: #f3f3f3;
+      --field: #f0f0f0;
+      --hairline-soft: #f0f0f0;
       --hairline: #e0e0e0;
-      --dark-hairline: rgba(255, 255, 255, 0.16);
       --alice: #7f77dd;
       --bob: #1d9e75;
-      --server: #888780;
-      --mallory: #b94a5b;
-      --key: #ef9f27;
-      --danger: #c8242f;
-      --success: #2f7d32;
-      --warning: #9a6200;
-      --shadow-product: rgba(0, 0, 0, 0.22) 3px 5px 30px 0;
-      --radius-sm: 8px;
-      --radius-lg: 18px;
-      --radius-pill: 9999px;
-      --space-section: 80px;
-      --container: 1180px;
-      color-scheme: light dark;
+      --server: #707070;
+      --mallory: #d32f2f;
+      --danger: #d32f2f;
+      --success: #2e7d32;
+      --warning: #ed6c02;
+      --radius-sm: 16px;
+      --radius-md: 24px;
+      --radius-full: 9999px;
+      --font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
     }
 
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     html { scroll-behavior: smooth; }
 
     body {
-      margin: 0;
       color: var(--ink);
       background: var(--canvas);
-      font-family: "SF Pro Text", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 17px;
-      font-weight: 400;
-      line-height: 1.47;
-      letter-spacing: -0.374px;
+      font-family: var(--font-family);
+      font-size: 16px;
+      font-weight: 456;
+      line-height: 1.38;
+      letter-spacing: 0;
+      -webkit-font-smoothing: antialiased;
     }
 
-    button, input {
+    button, input, select {
       font: inherit;
+      color: inherit;
     }
 
     button, a {
       -webkit-tap-highlight-color: transparent;
     }
 
-    .global-nav {
+    /* Floating Stadium Nav Pill */
+    .nav-wrapper {
       position: sticky;
-      top: 0;
-      z-index: 30;
-      height: 44px;
-      background: var(--black);
-      color: var(--body-on-dark);
+      top: 16px;
+      z-index: 100;
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto 24px auto;
     }
 
-    .global-nav__inner,
-    .sub-nav__inner,
-    .tile__inner,
-    .footer__inner {
-      width: min(var(--container), calc(100% - 40px));
-      margin: 0 auto;
-    }
-
-    .global-nav__inner {
-      height: 44px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 24px;
-      font-size: 12px;
-      line-height: 1;
-      letter-spacing: -0.12px;
-    }
-
-    .global-nav__brand {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      color: inherit;
-      text-decoration: none;
-      white-space: nowrap;
-    }
-
-    .global-nav__links {
-      display: flex;
-      align-items: center;
-      gap: 22px;
-      color: rgba(255, 255, 255, 0.78);
-    }
-
-    .global-nav__links button {
-      border: 0;
-      padding: 0;
-      color: inherit;
-      background: transparent;
-      cursor: pointer;
-      font-size: 12px;
-      line-height: 1;
-      letter-spacing: -0.12px;
-    }
-
-    .global-nav__links button:hover,
-    .global-nav__links button:focus-visible {
-      color: var(--primary-on-dark);
-      outline: none;
-    }
-
-    .sub-nav {
-      position: sticky;
-      top: 44px;
-      z-index: 25;
-      min-height: 52px;
-      background: rgba(245, 245, 247, 0.82);
-      color: var(--ink);
-      border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-      backdrop-filter: saturate(180%) blur(20px);
-    }
-
-    .sub-nav__inner {
-      min-height: 52px;
+    .nav-pill {
+      background: var(--canvas-soft);
+      border: 1px solid var(--hairline-soft);
+      border-radius: var(--radius-full);
+      padding: 8px 16px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
     }
 
-    .sub-nav__title {
-      font-family: "SF Pro Display", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      font-size: 21px;
-      font-weight: 600;
-      line-height: 1.19;
-      letter-spacing: 0.231px;
-      white-space: nowrap;
+    .nav-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--ink);
+      text-decoration: none;
+      font-weight: 652;
+      font-size: 18px;
     }
 
-    .sub-nav__actions {
+    .brand-icon {
+      width: 28px;
+      height: 28px;
+      background: var(--primary);
+      color: var(--on-primary);
+      border-radius: 30%;
       display: flex;
       align-items: center;
-      justify-content: flex-end;
-      gap: 12px;
-      min-width: 0;
-    }
-
-    .mode-toggle {
-      display: inline-flex;
-      padding: 3px;
-      border-radius: var(--radius-pill);
-      background: rgba(0, 0, 0, 0.06);
-    }
-
-    .mode-toggle button {
-      min-height: 34px;
-      border: 0;
-      border-radius: var(--radius-pill);
-      padding: 7px 14px;
-      color: var(--ink-muted);
-      background: transparent;
-      cursor: pointer;
+      justify-content: center;
       font-size: 14px;
-      line-height: 1.29;
-      letter-spacing: -0.224px;
+      font-weight: 700;
     }
 
-    .mode-toggle button[aria-pressed="true"] {
-      color: var(--body-on-dark);
-      background: var(--primary);
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
 
-    .button {
-      min-height: 44px;
-      border: 1px solid var(--primary);
-      border-radius: var(--radius-pill);
-      padding: 11px 22px;
-      color: var(--body-on-dark);
+    .nav-link-item {
+      font-size: 14px;
+      font-weight: 456;
+      color: var(--ink-muted);
+      text-decoration: none;
+      padding: 6px 12px;
+      border-radius: var(--radius-full);
+      transition: color 0.15s ease;
+    }
+    .nav-link-item:hover { color: var(--ink); }
+
+    /* Stadium Buttons & Controls */
+    .button-primary {
       background: var(--primary);
+      color: var(--on-primary);
+      border: 0;
+      border-radius: var(--radius-full);
+      padding: 8px 20px;
+      font-size: 14px;
+      font-weight: 600;
       cursor: pointer;
       text-decoration: none;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
-      font-size: 17px;
-      line-height: 1;
-      letter-spacing: -0.374px;
-      transition: transform 160ms ease, background 160ms ease, color 160ms ease;
+      gap: 6px;
+      transition: opacity 0.15s ease, transform 0.15s ease;
     }
+    .button-primary:hover { opacity: 0.9; }
+    .button-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    .button--secondary {
-      color: var(--primary);
-      background: transparent;
-    }
-
-    .button--on-dark {
-      color: var(--body-on-dark);
-      border-color: var(--primary-on-dark);
-      background: transparent;
-    }
-
-    .button--small {
-      min-height: 36px;
-      padding: 8px 15px;
+    .button-outline {
+      background: var(--canvas);
+      color: var(--ink);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-full);
+      padding: 8px 20px;
       font-size: 14px;
-      line-height: 1.29;
-      letter-spacing: -0.224px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.15s ease;
     }
+    .button-outline:hover { background: var(--canvas-soft); }
 
-    .button:active,
-    .mode-toggle button:active,
-    .dot:active {
-      transform: scale(0.95);
-    }
-
-    .button:focus-visible,
-    .mode-toggle button:focus-visible,
-    .dot:focus-visible,
-    input:focus-visible,
-    summary:focus-visible {
-      outline: 2px solid var(--primary-focus);
-      outline-offset: 2px;
-    }
-
-    .progress-track {
-      position: absolute;
-      inset: auto 0 0;
-      height: 3px;
-      background: rgba(0, 0, 0, 0.08);
-    }
-
-    .progress-fill {
-      height: 100%;
-      width: 7.14%;
-      background: var(--primary);
-      transition: width 280ms ease;
-    }
-
-    .step-dots {
-      display: flex;
+    .button-pill-soft {
+      background: var(--canvas-soft);
+      color: var(--ink);
+      border: 0;
+      border-radius: var(--radius-full);
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
       align-items: center;
       gap: 6px;
-      max-width: 34vw;
-      overflow: hidden;
+      transition: background 0.15s ease;
     }
+    .button-pill-soft:hover { background: #e8e8e8; }
 
-    .dot {
-      width: 8px;
-      height: 8px;
-      flex: 0 0 auto;
+    /* Segmented Control Track */
+    .segmented-control {
+      background: var(--hairline-soft);
+      border-radius: var(--radius-full);
+      padding: 3px;
+      display: inline-flex;
+      gap: 2px;
+    }
+    .segmented-control button {
+      background: transparent;
       border: 0;
-      border-radius: 50%;
-      background: rgba(0, 0, 0, 0.22);
+      border-radius: var(--radius-full);
+      padding: 5px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-muted);
       cursor: pointer;
-      padding: 0;
+      transition: all 0.2s ease;
+    }
+    .segmented-control button[aria-pressed="true"] {
+      background: var(--canvas);
+      color: var(--ink);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
     }
 
-    .dot[aria-current="step"] {
-      width: 26px;
-      border-radius: var(--radius-pill);
-      background: var(--primary);
+    /* Main Content Container */
+    .main-container {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto 60px auto;
     }
 
     .tile {
-      min-height: calc(100vh - 96px);
-      display: flex;
-      align-items: stretch;
       background: var(--canvas);
-      color: var(--ink);
-    }
-
-    .tile[data-surface="parchment"] {
-      background: var(--parchment);
-      color: var(--ink);
-    }
-
-    .tile[data-surface="dark"] {
-      background: var(--tile-1);
-      color: var(--body-on-dark);
-    }
-
-    .tile[data-surface="dark2"] {
-      background: var(--tile-2);
-      color: var(--body-on-dark);
-    }
-
-    .tile[data-surface="dark3"] {
-      background: var(--tile-3);
-      color: var(--body-on-dark);
-    }
-
-    .tile__inner {
-      padding: var(--space-section) 0 48px;
+      border: 1px solid var(--hairline-soft);
+      border-radius: var(--radius-md);
+      padding: 40px;
       display: grid;
-      grid-template-columns: minmax(280px, 0.82fr) minmax(520px, 1.18fr);
-      gap: 48px;
-      align-items: center;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
     }
 
     .story {
-      display: grid;
-      gap: 18px;
-      align-content: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
     }
 
-    .phase {
-      color: var(--primary);
-      font-size: 14px;
+    .phase-tag {
+      font-size: 12px;
       font-weight: 600;
-      line-height: 1.29;
-      letter-spacing: -0.224px;
-    }
-
-    .tile[data-surface^="dark"] .phase,
-    .tile[data-surface^="dark"] a {
-      color: var(--primary-on-dark);
-    }
-
-    .title {
-      margin: 0;
-      font-family: "SF Pro Display", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      font-size: clamp(34px, 4.8vw, 56px);
-      font-weight: 600;
-      line-height: 1.07;
-      letter-spacing: -0.28px;
-    }
-
-    .lead {
-      margin: 0;
-      max-width: 720px;
       color: var(--ink-muted);
-      font-family: "SF Pro Display", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      font-size: clamp(21px, 2vw, 28px);
-      font-weight: 400;
-      line-height: 1.22;
-      letter-spacing: 0.196px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+      margin-bottom: 12px;
     }
 
-    .tile[data-surface^="dark"] .lead {
-      color: var(--body-muted);
+    .heading-title {
+      font-size: 38px;
+      font-weight: 652;
+      line-height: 1.08;
+      letter-spacing: 0;
+      color: var(--ink);
+      margin-bottom: 16px;
     }
 
-    .why {
-      margin: 0;
-      max-width: 720px;
-      color: var(--ink-subtle);
+    .lead-subtitle {
+      font-size: 20px;
+      font-weight: 300;
+      line-height: 1.38;
+      color: var(--ink-soft);
+      margin-bottom: 20px;
     }
 
-    .tile[data-surface^="dark"] .why {
-      color: var(--body-muted);
+    .why-text {
+      font-size: 14px;
+      font-weight: 456;
+      color: var(--ink-muted);
+      background: var(--canvas-soft);
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      margin-bottom: 24px;
     }
 
     .step-actions {
       display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-top: 6px;
-    }
-
-    .detail {
-      border: 1px solid rgba(0, 0, 0, 0.08);
-      border-radius: var(--radius-lg);
-      background: rgba(255, 255, 255, 0.55);
-      overflow: hidden;
-    }
-
-    .tile[data-surface^="dark"] .detail {
-      border-color: var(--dark-hairline);
-      background: rgba(255, 255, 255, 0.06);
-    }
-
-    .detail summary {
-      min-height: 52px;
-      display: flex;
       align-items: center;
-      justify-content: space-between;
       gap: 12px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    .detail-accordion {
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      background: var(--canvas);
+    }
+    .detail-accordion summary {
       padding: 14px 18px;
-      cursor: pointer;
-      color: var(--primary);
       font-weight: 600;
-      list-style: none;
+      font-size: 14px;
+      cursor: pointer;
+      user-select: none;
+      color: var(--ink);
     }
-
-    .detail summary::-webkit-details-marker {
-      display: none;
+    .detail-accordion summary:hover {
+      background: var(--canvas-soft);
     }
-
-    .tile[data-surface^="dark"] .detail summary {
-      color: var(--primary-on-dark);
-    }
-
-    .detail__body {
-      margin: 0;
-      padding: 0 18px 18px;
-      overflow-x: auto;
-      white-space: pre-wrap;
-      color: inherit;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    .detail-body {
+      padding: 18px;
+      background: #0d1117;
+      color: #39d353;
+      font-family: monospace;
       font-size: 13px;
-      line-height: 1.55;
-      letter-spacing: 0;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+      border-top: 1px solid var(--hairline);
     }
 
+    /* Scene Container */
     .visual-shell {
-      min-height: 560px;
-      display: grid;
-      gap: 16px;
-      align-content: center;
+      background: var(--canvas-soft);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 480px;
+      position: relative;
     }
 
     .scene {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
       position: relative;
-      min-height: 430px;
-      border-radius: 0;
-      background: rgba(255, 255, 255, 0.62);
-      overflow: hidden;
-    }
-
-    .tile[data-surface^="dark"] .scene {
-      background: rgba(0, 0, 0, 0.18);
     }
 
     .columns {
-      position: absolute;
-      inset: 0;
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(3, 1fr);
+      width: 100%;
+      gap: 16px;
+      margin-bottom: 24px;
     }
 
     .column {
-      position: relative;
-      min-width: 0;
-      display: grid;
-      align-content: end;
-      justify-items: center;
-      padding: 28px 16px 34px;
-      border-left: 1px solid rgba(0, 0, 0, 0.06);
-    }
-
-    .column:first-child {
-      border-left: 0;
-    }
-
-    .tile[data-surface^="dark"] .column {
-      border-color: rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
     }
 
     .figure {
-      display: grid;
-      justify-items: center;
-      gap: 12px;
-      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
     }
 
     .figure svg {
-      width: 118px;
-      height: 118px;
-      filter: drop-shadow(var(--shadow-product));
-    }
-
-    .figure--server svg {
-      width: 132px;
-      height: 132px;
+      width: 80px;
+      height: 80px;
+      border-radius: 30%;
     }
 
     .figure__label {
-      padding: 8px 14px;
-      border: 1px solid rgba(0, 0, 0, 0.08);
-      border-radius: var(--radius-pill);
-      background: rgba(255, 255, 255, 0.72);
-      color: var(--ink);
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
-      line-height: 1.29;
-      letter-spacing: -0.224px;
-    }
-
-    .tile[data-surface^="dark"] .figure__label {
-      border-color: var(--dark-hairline);
-      background: rgba(255, 255, 255, 0.08);
-      color: var(--body-on-dark);
+      background: var(--canvas);
+      padding: 4px 12px;
+      border-radius: var(--radius-full);
+      border: 1px solid var(--hairline);
     }
 
     .actor-extra {
-      min-height: 38px;
-      display: grid;
-      place-items: center;
-      color: var(--ink-subtle);
-      font-size: 14px;
-      text-align: center;
+      font-size: 11px;
+      color: var(--ink-muted);
     }
-
-    .tile[data-surface^="dark"] .actor-extra {
-      color: var(--body-muted);
-    }
-
-    .line {
-      position: absolute;
-      height: 2px;
-      background: var(--primary);
-      transform-origin: left center;
-      opacity: 0.9;
-      z-index: 1;
-    }
-
-    .line::after {
-      content: "";
-      position: absolute;
-      right: -7px;
-      top: -5px;
-      width: 0;
-      height: 0;
-      border-top: 6px solid transparent;
-      border-bottom: 6px solid transparent;
-      border-left: 8px solid var(--primary);
-    }
-
-    .line--a-s { left: 20%; right: 51%; top: 38%; }
-    .line--s-b { left: 51%; right: 20%; top: 38%; }
-    .line--a-b { left: 21%; right: 21%; top: 25%; }
-    .line--direct { left: 21%; right: 21%; top: 20%; border-top: 2px dashed var(--primary); background: transparent; height: 120px; border-radius: 50%; }
-    .line--direct::after { top: 92px; }
-    .line--danger { background: var(--danger); }
-    .line--danger::after { border-left-color: var(--danger); }
 
     .token-board {
-      position: absolute;
-      left: 50%;
-      top: 24px;
-      transform: translateX(-50%);
-      width: min(390px, calc(100% - 40px));
-      display: grid;
-      gap: 10px;
-      z-index: 4;
-    }
-
-    .pill-row,
-    .message-row,
-    .db-row {
+      background: var(--canvas);
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-sm);
+      padding: 16px;
+      width: 100%;
+      text-align: center;
       display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 8px;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
     }
 
     .data-pill {
-      min-height: 36px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      padding: 8px 12px;
-      border: 1px solid rgba(0, 0, 0, 0.08);
-      border-radius: var(--radius-pill);
-      background: var(--canvas);
-      color: var(--ink);
-      font-size: 14px;
+      background: var(--canvas-soft);
+      border-radius: var(--radius-full);
+      padding: 6px 14px;
+      font-size: 13px;
       font-weight: 600;
-      line-height: 1.29;
-      letter-spacing: -0.224px;
-      white-space: nowrap;
     }
-
-    .tile[data-surface^="dark"] .data-pill {
-      border-color: var(--dark-hairline);
-      background: rgba(255, 255, 255, 0.1);
-      color: var(--body-on-dark);
-    }
-
-    .data-pill--key { border-color: rgba(239, 159, 39, 0.7); color: #8a5600; }
-    .data-pill--danger { border-color: rgba(200, 36, 47, 0.55); color: var(--danger); }
-    .data-pill--success { border-color: rgba(47, 125, 50, 0.55); color: var(--success); }
-    .tile[data-surface^="dark"] .data-pill--key { color: #ffd391; }
-    .tile[data-surface^="dark"] .data-pill--danger { color: #ffb4bc; }
-    .tile[data-surface^="dark"] .data-pill--success { color: #b8f0bb; }
-
-    .counter {
-      display: grid;
-      gap: 8px;
-      padding: 16px;
-      border-radius: var(--radius-lg);
-      background: rgba(255, 255, 255, 0.72);
-      border: 1px solid rgba(0, 0, 0, 0.08);
-      text-align: center;
-    }
-
-    .tile[data-surface^="dark"] .counter {
-      background: rgba(255, 255, 255, 0.08);
-      border-color: var(--dark-hairline);
-    }
+    .data-pill--key { background: #fff3e0; color: #e65100; }
+    .data-pill--danger { background: #ffebee; color: var(--danger); }
+    .data-pill--success { background: #e8f5e9; color: var(--success); }
 
     .opk-grid {
-      display: grid;
-      grid-template-columns: repeat(10, 1fr);
-      gap: 5px;
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      margin: 8px 0;
     }
-
     .opk-slot {
-      aspect-ratio: 1;
-      border-radius: 5px;
-      background: var(--key);
-      opacity: 0.25;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--hairline);
     }
-
-    .opk-slot.active {
-      opacity: 1;
-    }
+    .opk-slot.active { background: var(--accent); }
 
     .safety-number {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 6px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-family: monospace;
       font-size: 13px;
-      letter-spacing: 0;
-    }
-
-    .safety-number span {
-      padding: 7px 6px;
-      border: 1px solid rgba(0, 0, 0, 0.08);
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      padding: 10px;
+      background: var(--canvas-soft);
       border-radius: var(--radius-sm);
-      background: rgba(255, 255, 255, 0.72);
-      text-align: center;
-    }
-
-    .tile[data-surface^="dark"] .safety-number span {
-      border-color: var(--dark-hairline);
-      background: rgba(255, 255, 255, 0.08);
     }
 
     .message-input {
+      background: var(--field);
+      border: 0;
+      border-radius: var(--radius-sm);
+      padding: 10px 16px;
       width: 100%;
-      min-height: 44px;
-      border: 1px solid rgba(0, 0, 0, 0.08);
-      border-radius: var(--radius-pill);
-      padding: 12px 20px;
-      background: var(--canvas);
-      color: var(--ink);
-      outline: none;
+      font-size: 14px;
     }
-
-    .db-card {
-      flex: 1 1 120px;
-      min-height: 86px;
-      padding: 14px;
-      border: 1px solid rgba(0, 0, 0, 0.08);
-      border-radius: var(--radius-lg);
-      background: var(--canvas);
-      color: var(--ink);
-      text-align: center;
-      display: grid;
-      place-items: center;
-      gap: 4px;
-    }
-
-    .tile[data-surface^="dark"] .db-card {
-      border-color: var(--dark-hairline);
-      background: rgba(255, 255, 255, 0.08);
-      color: var(--body-on-dark);
-    }
-
-    .footer {
-      background: var(--parchment);
-      color: var(--ink-muted);
-      padding: 48px 0 64px;
-      font-size: 12px;
-      line-height: 1.5;
-      letter-spacing: -0.12px;
-    }
-
-    .footer__inner {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-    }
-
-    .footer a {
-      color: var(--primary);
-      text-decoration: none;
+    .message-input:focus {
+      outline: 2px solid var(--ink);
     }
 
     .nav-controls {
       display: flex;
       justify-content: space-between;
-      gap: 12px;
+      align-items: center;
+      margin-top: 20px;
     }
 
-    .status {
-      padding: 10px 14px;
-      border-radius: var(--radius-lg);
-      background: rgba(0, 102, 204, 0.08);
+    .step-dots {
+      display: flex;
+      gap: 6px;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--hairline);
+      border: 0;
+      cursor: pointer;
+    }
+    .dot[aria-current="step"] {
+      background: var(--ink);
+      transform: scale(1.25);
+    }
+
+    /* Modals for ELI5 Toys */
+    .eli5-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(6px);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .eli5-modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .eli5-modal {
+      background: var(--canvas);
       color: var(--ink);
+      width: min(600px, calc(100% - 32px));
+      max-height: 85vh;
+      overflow-y: auto;
+      border-radius: var(--radius-md);
+      padding: 32px;
+      position: relative;
+      border: 1px solid var(--hairline);
+    }
+    .eli5-modal__close {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: transparent;
+      border: 0;
+      font-size: 24px;
+      cursor: pointer;
+    }
+
+    /* 3-Pane View for Message Flow */
+    .three-pane-view {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      width: 100%;
+    }
+    .pane-card {
+      background: var(--canvas-soft);
+      border-radius: var(--radius-sm);
+      padding: 10px;
       text-align: center;
+    }
+    .pane-card__title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    /* Footer Band (Polarity Inversion) */
+    .footer-band {
+      background: var(--ink);
+      color: var(--on-primary);
+      border-top-left-radius: var(--radius-md);
+      border-top-right-radius: var(--radius-md);
+      padding: 60px 40px;
+      margin-top: 60px;
+    }
+    .footer-inner {
+      width: min(1180px, 100%);
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 20px;
       font-size: 14px;
-      font-weight: 600;
+      color: var(--ink-faint);
+    }
+    .footer-inner a {
+      color: var(--on-primary);
+      text-decoration: none;
     }
 
-    .status--danger { background: rgba(200, 36, 47, 0.1); color: var(--danger); }
-    .status--success { background: rgba(47, 125, 50, 0.1); color: var(--success); }
-    .status--warning { background: rgba(154, 98, 0, 0.12); color: var(--warning); }
-    .tile[data-surface^="dark"] .status { color: var(--body-on-dark); }
-
-    .fade-in { animation: fadeIn 360ms ease both; }
-    .flow-a-s { animation: flowAS 2.2s ease infinite; }
-    .flow-s-b { animation: flowSB 2.2s ease infinite; }
-    .pulse { animation: pulse 1.4s ease-in-out infinite; }
-    .slide-mallory { animation: slideMallory 700ms ease both; }
-    .spin { animation: spin 900ms ease both; }
-    .travel-direct { animation: directTravel 2.8s ease-in-out infinite; }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    @keyframes flowAS {
-      0%, 100% { transform: translateX(-12px); opacity: 0.35; }
-      50% { transform: translateX(12px); opacity: 1; }
-    }
-
-    @keyframes flowSB {
-      0%, 100% { transform: translateX(-12px); opacity: 0.35; }
-      50% { transform: translateX(12px); opacity: 1; }
-    }
-
-    @keyframes pulse {
-      0%, 100% { transform: scale(1); opacity: 0.75; }
-      50% { transform: scale(1.06); opacity: 1; }
-    }
-
-    @keyframes slideMallory {
-      from { transform: translate(-50%, 18px); opacity: 0; }
-      to { transform: translate(-50%, 0); opacity: 1; }
-    }
-
-    @keyframes spin {
-      to { transform: rotate(180deg); }
-    }
-
-    @keyframes directTravel {
-      0% { left: 19%; top: 26%; }
-      50% { left: 48%; top: 10%; }
-      100% { left: 78%; top: 26%; }
-    }
-
-    @media (max-width: 960px) {
-      .global-nav__links { display: none; }
-      .sub-nav__inner { align-items: flex-start; padding: 10px 0; flex-direction: column; }
-      .sub-nav { top: 44px; }
-      .step-dots { max-width: 100%; }
-      .tile__inner {
-        grid-template-columns: 1fr;
-        gap: 32px;
-        padding: 56px 0 36px;
-      }
-      .visual-shell { min-height: auto; }
-      .scene { min-height: 520px; }
-      .figure svg { width: 86px; height: 86px; }
-      .figure--server svg { width: 96px; height: 96px; }
-      .column { padding: 24px 8px 28px; }
-      .token-board { top: 18px; }
-      .safety-number { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .nav-controls { flex-direction: column-reverse; }
-      .nav-controls .button { width: 100%; }
-    }
-
-    @media (max-width: 520px) {
-      .global-nav__inner,
-      .sub-nav__inner,
-      .tile__inner,
-      .footer__inner {
-        width: min(100% - 28px, var(--container));
-      }
-      .title { font-size: 28px; }
-      .lead { font-size: 19px; }
-      .scene { min-height: 560px; }
-      .columns { grid-template-columns: 1fr; grid-template-rows: repeat(3, 1fr); }
-      .column { border-left: 0; border-top: 1px solid rgba(0, 0, 0, 0.06); align-content: center; }
-      .column:first-child { border-top: 0; }
-      .tile[data-surface^="dark"] .column { border-color: rgba(255, 255, 255, 0.08); }
-      .line { display: none; }
-      .token-board { position: relative; inset: auto; transform: none; width: auto; margin: 12px; }
-      .figure__label { font-size: 12px; padding: 6px 10px; }
-      .actor-extra { display: none; }
-      .safety-number { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after {
-        animation-duration: 1ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 1ms !important;
-        scroll-behavior: auto !important;
-      }
+    /* Responsive Breakdown */
+    @media (max-width: 900px) {
+      .tile { grid-template-columns: 1fr; }
+      .nav-links { display: none; }
+      .heading-title { font-size: 28px; }
+      .lead-subtitle { font-size: 17px; }
+      .three-pane-view { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <header class="global-nav" aria-label="Global">
-    <div class="global-nav__inner">
-      <a class="global-nav__brand" href="https://github.com/ABHIRAM-CREATOR06/Halonyx" target="_blank" rel="noreferrer">
-        <span aria-hidden="true">H</span>
+
+  <!-- Floating Stadium Nav Pill -->
+  <div class="nav-wrapper">
+    <div class="nav-pill">
+      <a class="nav-brand" href="https://github.com/ABHIRAM-CREATOR06/Halonyx" target="_blank" rel="noreferrer">
+        <div class="brand-icon">H</div>
         <span>Halonyx</span>
       </a>
-      <nav class="global-nav__links" aria-label="Sections">
-        <span>Setup</span>
-        <span>Key Exchange</span>
-        <span>Attacks</span>
-        <span>Message Flow</span>
-        <button id="endToEndFlowBtn" type="button">End-to-end flow</button>
-        <span>Architecture</span>
-      </nav>
-      <span id="stepCounter">Step 1 of 14</span>
-    </div>
-  </header>
 
-  <div class="sub-nav">
-    <div class="sub-nav__inner">
-      <div class="sub-nav__title">How Halonyx Works</div>
-      <div class="sub-nav__actions">
-        <div class="step-dots" id="stepDots" aria-label="Step progress"></div>
-        <div class="mode-toggle" aria-label="Explanation mode">
+      <nav class="nav-links" aria-label="Sections">
+        <span class="nav-link-item">Setup</span>
+        <span class="nav-link-item">Key Exchange</span>
+        <span class="nav-link-item">Attacks</span>
+        <span class="nav-link-item">Message Flow</span>
+        <button id="endToEndFlowBtn" class="button-pill-soft" type="button">End-to-end flow</button>
+        <button id="paintAnalogyBtn" class="button-pill-soft" type="button">🎨 Paint Analogy (ELI5)</button>
+        <button id="hackServerBtn" class="button-pill-soft" type="button">⚡ Hack Server</button>
+      </nav>
+
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span id="stepCounter" style="font-size:12px;font-weight:600;color:var(--ink-muted)">Step 1 of 14</span>
+        <div class="segmented-control" aria-label="Explanation mode">
           <button id="beginnerBtn" type="button" aria-pressed="true">Beginner</button>
           <button id="protocolBtn" type="button" aria-pressed="false">Protocol</button>
         </div>
       </div>
     </div>
-    <div class="progress-track" aria-hidden="true"><div class="progress-fill" id="progressFill"></div></div>
   </div>
 
-  <main class="tile" id="tile" data-surface="canvas">
-    <div class="tile__inner">
+  <!-- ELI5 Paint Mixing Toy Modal -->
+  <div class="eli5-modal-overlay" id="paintModalOverlay" role="dialog" aria-modal="true" aria-labelledby="paintModalTitle">
+    <div class="eli5-modal">
+      <button class="eli5-modal__close" id="paintModalClose" aria-label="Close">&times;</button>
+      <h2 id="paintModalTitle" style="font-size:24px;font-weight:652;margin-bottom:8px">🎨 The Paint Mixing Analogy (Diffie-Hellman).</h2>
+      <p style="font-size:15px;color:var(--ink-muted);margin-bottom:20px">How can Alice and Bob derive the <strong>exact same secret key</strong> over a public network without sending it over the wire?</p>
+
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px">
+        <div style="flex:1;min-width:140px;background:var(--canvas-soft);padding:14px;border-radius:var(--radius-sm)">
+          <strong style="color:var(--alice)">1. Alice's Secret</strong>
+          <p style="font-size:12px;margin:4px 0">Alice picks Red paint 🔴</p>
+          <div style="width:36px;height:36px;background:#e63946;border-radius:50%;margin-top:6px;"></div>
+        </div>
+
+        <div style="flex:1;min-width:140px;background:var(--canvas-soft);padding:14px;border-radius:var(--radius-sm)">
+          <strong style="color:var(--server)">2. Public Yellow</strong>
+          <p style="font-size:12px;margin:4px 0">Everyone sees Yellow 🟡</p>
+          <div style="width:36px;height:36px;background:#f1faee;border-radius:50%;margin-top:6px;border:1px solid #ccc"></div>
+        </div>
+
+        <div style="flex:1;min-width:140px;background:var(--canvas-soft);padding:14px;border-radius:var(--radius-sm)">
+          <strong style="color:var(--bob)">3. Bob's Secret</strong>
+          <p style="font-size:12px;margin:4px 0">Bob picks Blue paint 🔵</p>
+          <div style="width:36px;height:36px;background:#1d3557;border-radius:50%;margin-top:6px;"></div>
+        </div>
+      </div>
+
+      <div style="background:#f4a261;color:#fff;padding:14px;border-radius:var(--radius-sm);margin-bottom:12px;font-size:13px">
+        <strong>Swapping Over The Wire:</strong> Alice sends Orange (Red+Yellow). Bob sends Green (Blue+Yellow). The server sees ONLY Orange & Green.
+      </div>
+
+      <div style="background:#6b4226;color:#fff;padding:16px;border-radius:var(--radius-sm);text-align:center">
+        <strong style="font-size:16px">Shared Secret Derived: Brown 🟤</strong>
+        <p style="font-size:13px;margin-top:4px">Alice adds Red to Green = Brown. Bob adds Blue to Orange = Brown. Both derive Brown without EVER transmitting it!</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ELI5 Eavesdropper / Server Inspector Modal -->
+  <div class="eli5-modal-overlay" id="hackModalOverlay" role="dialog" aria-modal="true" aria-labelledby="hackModalTitle">
+    <div class="eli5-modal">
+      <button class="eli5-modal__close" id="hackModalClose" aria-label="Close">&times;</button>
+      <h2 id="hackModalTitle" style="font-size:24px;font-weight:652;margin-bottom:8px">⚡ Try Eavesdropping on Server Memory.</h2>
+      <p style="font-size:15px;color:var(--ink-muted);margin-bottom:16px">You are inspecting real-time server database logs (`app.db` & `keys.db`):</p>
+
+      <div style="background:#0d1117;color:#39d353;font-family:monospace;padding:16px;border-radius:var(--radius-sm);font-size:12px;line-height:1.6;margin-bottom:16px">
+[SERVER WEBSOCKET RELAY PACKET #10492]
+Recipient Hash : 0x8a92f031b4e9... (SHA-256 USID)
+Sender Hash    : 0x3d7b89f210a4... (SHA-256 USID)
+Payload        : 🔒 0x8f3a99b2c174e9a2b704f1a... (AES-256-GCM Encrypted Blob)
+Device Keys    : [ACCESS DENIED - Private Keys stored inside client IndexedDB only]
+      </div>
+
+      <button id="attemptDecryptBtn" type="button" class="button-primary" style="width:100%">🔓 Attempt Decryption</button>
+
+      <div id="decryptResult" style="display:none;margin-top:14px;padding:14px;background:#ffebee;color:#c62828;border-radius:var(--radius-sm);font-weight:600;font-size:13px">
+        ⛔ DECRYPTION FAILED! The server only holds ciphertext. Because Bob's private identity key never left Bob's browser, the server or any hacker cannot decrypt this message!
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Simulator Frame -->
+  <div class="main-container">
+    <main class="tile" id="tile">
       <section class="story" aria-live="polite">
-        <div class="phase" id="phaseLabel"></div>
-        <h1 class="title" id="stepTitle"></h1>
-        <p class="lead" id="stepLead"></p>
-        <p class="why" id="stepWhy"></p>
-        <div class="step-actions" id="stepActions"></div>
-        <details class="detail" id="detailPanel">
-          <summary>Show me the technical detail <span aria-hidden="true">+</span></summary>
-          <pre class="detail__body" id="technicalText"></pre>
-        </details>
+        <div>
+          <div class="phase-tag" id="phaseLabel">Phase 1 - Setup</div>
+          <h1 class="heading-title" id="stepTitle">Bob publishes his public keys.</h1>
+          <p class="lead-subtitle" id="stepLead"></p>
+          <p class="why-text" id="stepWhy"></p>
+        </div>
+
+        <div>
+          <div class="step-actions" id="stepActions"></div>
+
+          <details class="detail-accordion" id="detailPanel">
+            <summary>Show me the technical detail +</summary>
+            <pre class="detail-body" id="technicalText"></pre>
+          </details>
+        </div>
       </section>
 
       <section class="visual-shell">
         <div class="scene" id="scene" aria-label="Animated simulator scene"></div>
+
         <div class="nav-controls">
-          <button class="button button--secondary" id="prevBtn" type="button">Previous</button>
-          <button class="button" id="nextBtn" type="button">Next</button>
+          <button class="button-outline" id="prevBtn" type="button">Previous</button>
+          <div class="step-dots" id="stepDots" aria-label="Step progress"></div>
+          <button id="speechBtn" type="button" class="button-pill-soft" title="Listen to audio explanation">🔊 Listen</button>
+          <button class="button-primary" id="nextBtn" type="button">Next</button>
         </div>
       </section>
-    </div>
-  </main>
+    </main>
+  </div>
 
-  <footer class="footer">
-    <div class="footer__inner">
-      <span>Powered by Halonyx. Built at SNGCE, Kerala - APJAKTU - 2026.</span>
-      <span><a href="https://github.com/ABHIRAM-CREATOR06/Halonyx" target="_blank" rel="noreferrer">GitHub</a> · <a href="https://halonyx.onrender.com" target="_blank" rel="noreferrer">Live demo</a></span>
+  <!-- Footer Band (Polarity Inversion) -->
+  <footer class="footer-band">
+    <div class="footer-inner">
+      <div>
+        <strong style="color:#fff;font-size:16px">Halonyx Protocol Simulator.</strong>
+        <p style="margin-top:4px">Built at SNGCE, Kerala · APJAKTU · 2026</p>
+      </div>
+      <div>
+        <a href="https://github.com/ABHIRAM-CREATOR06/Halonyx" target="_blank" rel="noreferrer">GitHub</a> · 
+        <a href="https://halonyx.onrender.com" target="_blank" rel="noreferrer">Live Demo</a>
+      </div>
     </div>
   </footer>
 
@@ -1253,7 +1046,6 @@ halonyx.onrender.com`
     const prevBtn = document.getElementById("prevBtn");
     const nextBtn = document.getElementById("nextBtn");
     const stepCounter = document.getElementById("stepCounter");
-    const progressFill = document.getElementById("progressFill");
     const stepDots = document.getElementById("stepDots");
     const beginnerBtn = document.getElementById("beginnerBtn");
     const protocolBtn = document.getElementById("protocolBtn");
@@ -1273,8 +1065,8 @@ halonyx.onrender.com`
       const mallory = role === "mallory";
       const fill = color;
       const face = server
-        ? `<rect x="25" y="34" width="90" height="60" rx="10" fill="${fill}"/><rect x="38" y="48" width="64" height="24" rx="4" fill="#1d1d1f"/><circle cx="55" cy="60" r="4" fill="#fff"/><circle cx="85" cy="60" r="4" fill="#fff"/><path d="M58 78c10 6 24 6 34 0" stroke="#1d1d1f" stroke-width="5" stroke-linecap="round" fill="none"/><rect x="50" y="96" width="40" height="9" rx="4" fill="#666"/>`
-        : `<circle cx="70" cy="54" r="28" fill="${fill}"/><path d="M36 120c6-28 24-42 34-42s28 14 34 42" fill="${fill}"/><circle cx="60" cy="50" r="4" fill="#1d1d1f"/><circle cx="80" cy="50" r="4" fill="#1d1d1f"/><path d="M60 66c7 5 13 5 20 0" stroke="#1d1d1f" stroke-width="4" stroke-linecap="round" fill="none"/>`;
+        ? `<rect x="25" y="34" width="90" height="60" rx="10" fill="${fill}"/><rect x="38" y="48" width="64" height="24" rx="4" fill="#141414"/><circle cx="55" cy="60" r="4" fill="#fff"/><circle cx="85" cy="60" r="4" fill="#fff"/><path d="M58 78c10 6 24 6 34 0" stroke="#141414" stroke-width="5" stroke-linecap="round" fill="none"/>`
+        : `<circle cx="70" cy="54" r="28" fill="${fill}"/><path d="M36 120c6-28 24-42 34-42s28 14 34 42" fill="${fill}"/><circle cx="60" cy="50" r="4" fill="#141414"/><circle cx="80" cy="50" r="4" fill="#141414"/><path d="M60 66c7 5 13 5 20 0" stroke="#141414" stroke-width="4" stroke-linecap="round" fill="none"/>`;
       return `<div class="figure figure--${role}">
         <svg viewBox="0 0 140 140" role="img" aria-label="${name}">${face}</svg>
         <div class="figure__label">${name}</div>
@@ -1309,33 +1101,51 @@ halonyx.onrender.com`
     function renderScene(stepIndex) {
       switch (stepIndex) {
         case 0:
-          return baseScene(`<div class="line line--s-b flow-s-b"></div><div class="token-board"><div class="pill-row"><span class="data-pill data-pill--key">IK</span><span class="data-pill data-pill--key">SPK</span><span class="data-pill data-pill--key">10 OPKs</span></div><div class="status">Bob uploads public key bundle</div></div>`);
+          return baseScene(`<div class="token-board"><div class="pill-row"><span class="data-pill data-pill--key">IK</span><span class="data-pill data-pill--key">SPK</span><span class="data-pill data-pill--key">10 OPKs</span></div><div class="status">Bob uploads public key bundle</div></div>`);
         case 1:
           return baseScene(`<div class="token-board"><div class="counter"><strong>One-Time Pre-Keys available: ${state.opks}</strong>${opkGrid(state.opks)}<span class="${state.opks === 0 ? "status status--danger" : "status"}">${state.opks === 0 ? "OPK supply exhausted by fake sessions" : "Each slot can be used once"}</span></div></div>`);
         case 2:
-          return baseScene(`<div class="line line--a-s flow-a-s"></div><div class="line line--s-b flow-s-b"></div><div class="token-board"><div class="pill-row"><span class="data-pill data-pill--key">IK_pub</span><span class="data-pill data-pill--key">SPK_pub</span><span class="data-pill data-pill--key">OPK consumed</span></div><div class="status">OPK counter: 10 -> 9</div></div>`);
+          return baseScene(`<div class="token-board"><div class="pill-row"><span class="data-pill data-pill--key">IK_pub</span><span class="data-pill data-pill--key">SPK_pub</span><span class="data-pill data-pill--key">OPK consumed</span></div><div class="status">OPK counter: 10 -> 9</div></div>`);
         case 3:
-          return baseScene(`<div class="line line--a-b pulse"></div><div class="token-board"><div class="pill-row"><span class="data-pill">DH1 identity</span><span class="data-pill">DH2 secrecy</span><span class="data-pill">DH3 randomness</span><span class="data-pill">DH4 one-time</span></div><div class="data-pill data-pill--key pulse">Shared Key appears on both devices</div></div>`);
+          return baseScene(`<div class="token-board"><div class="pill-row"><span class="data-pill">DH1 identity</span><span class="data-pill">DH2 secrecy</span><span class="data-pill">DH3 randomness</span><span class="data-pill">DH4 one-time</span></div><div class="data-pill data-pill--key pulse">Shared Key appears on both devices</div></div>`);
         case 4:
-          return baseScene(`<div class="line line--a-b flow-a-s"></div><div class="token-board"><div class="message-row">${Array.from({ length: Math.max(state.ratchet, 1) }, (_, i) => `<span class="data-pill data-pill--key">MK ${i + 1}</span>`).join("")}</div><div class="status">Ratchet position: ${state.ratchet}</div></div>`);
+          return baseScene(`<div class="token-board"><div class="message-row">${Array.from({ length: Math.max(state.ratchet, 1) }, (_, i) => `<span class="data-pill data-pill--key">MK ${i + 1}</span>`).join("")}</div><div class="status">Ratchet position: ${state.ratchet}</div></div>`);
         case 5:
-          return baseScene(`<div class="line line--a-s line--danger flow-a-s"></div><div class="line line--s-b line--danger flow-s-b"></div><div class="token-board"><div class="data-pill data-pill--danger">Bob's key replaced by Mallory's key</div><div class="status status--danger">Messages are readable by attacker</div></div>`, { mallory: true });
+          return baseScene(`<div class="token-board"><div class="data-pill data-pill--danger">Bob's key replaced by Mallory's key</div><div class="status status--danger">Messages are readable by attacker</div></div>`, { mallory: true });
         case 6:
           return baseScene(`<div class="token-board"><div class="safety-number">${safetyNumber(state.attack)}</div><div class="status ${state.attack ? "status--danger" : "status--success"}">${state.attack ? "Mismatch: key substitution detected" : "Match: verified identity keys"}</div></div>`, { mallory: state.attack });
         case 7:
           return baseScene(`<div class="token-board"><div class="pill-row"><span class="data-pill data-pill--success">Session 1 verified</span><span class="data-pill ${state.attack ? "data-pill--danger" : "data-pill--key"}">Session 2 key ${state.attack ? "changed" : "unchanged"}</span></div><div class="status ${state.attack ? "status--warning" : "status--success"}">${state.attack ? "Verify before continuing" : "Matches last session"}</div></div>`, { mallory: state.attack });
         case 8:
-          return baseScene(`<div class="line line--a-s flow-a-s"></div><div class="line line--s-b flow-s-b"></div><div class="token-board"><input class="message-input" id="messageInput" maxlength="60" value="${esc(state.message)}" aria-label="Message to encrypt"><div class="data-pill">Plain: ${esc(state.message || "Hi Bob")}</div><div class="data-pill data-pill--key">Ciphertext: ${esc(scramble(state.message))}</div>${state.message.trim().toLowerCase() === "halonyx" ? '<div class="status status--success pulse">Halonyx mode unlocked</div>' : ""}</div>`);
+          return baseScene(`
+            <div class="three-pane-view">
+              <div class="pane-card" style="border:1px solid var(--alice)">
+                <div class="pane-card__title" style="color:var(--alice)">📱 Alice's Device</div>
+                <div style="background:#fff;padding:6px;border-radius:6px;border:1px solid #ccc;color:#333;font-weight:600">${esc(state.message || "Hi Bob")}</div>
+                <div style="font-size:10px;color:var(--ink-subtle);margin-top:4px">Plaintext Message</div>
+              </div>
+              <div class="pane-card" style="border:1px solid var(--server)">
+                <div class="pane-card__title" style="color:var(--server)">🖥️ Server Relay</div>
+                <div style="background:#141414;color:#39d353;padding:6px;border-radius:6px;font-family:monospace;font-size:10px;word-break:break-all">🔒 ${esc(scramble(state.message))}</div>
+                <div style="font-size:10px;color:var(--danger);margin-top:4px">Server sees Ciphertext only</div>
+              </div>
+              <div class="pane-card" style="border:1px solid var(--bob)">
+                <div class="pane-card__title" style="color:var(--bob)">📱 Bob's Device</div>
+                <div style="background:#fff;padding:6px;border-radius:6px;border:1px solid #ccc;color:#333;font-weight:600">${esc(state.message || "Hi Bob")}</div>
+                <div style="font-size:10px;color:var(--success);margin-top:4px">Decrypted via Bob's key</div>
+              </div>
+            </div>
+            <div class="token-board"><input class="message-input" id="messageInput" maxlength="60" value="${esc(state.message)}" aria-label="Message to encrypt">${state.message.trim().toLowerCase() === "halonyx" ? '<div class="status status--success pulse">Halonyx mode unlocked</div>' : ""}</div>`);
         case 9:
-          return baseScene(`<div class="line line--a-s flow-a-s"></div><div class="line line--s-b ${state.bobOnline ? "flow-s-b" : ""}"></div><div class="token-board"><div class="pill-row"><span class="data-pill">encrypted_blob</span><span class="data-pill">${state.bobOnline ? "delivered" : "queued"}</span><span class="data-pill">${state.bobOnline ? "mailbox empty" : "mailbox holds blob"}</span></div><div class="status ${state.bobOnline ? "status--success" : "status--warning"}">${state.bobOnline ? "Bob reconnected: forwarded and deleted" : "Bob offline: server cannot read queued blob"}</div></div>`);
+          return baseScene(`<div class="token-board"><div class="pill-row"><span class="data-pill">encrypted_blob</span><span class="data-pill">${state.bobOnline ? "delivered" : "queued"}</span><span class="data-pill">${state.bobOnline ? "mailbox empty" : "mailbox holds blob"}</span></div><div class="status ${state.bobOnline ? "status--success" : "status--warning"}">${state.bobOnline ? "Bob reconnected: forwarded and deleted" : "Bob offline: server cannot read queued blob"}</div></div>`);
         case 10:
-          return baseScene(`<div class="line line--direct"></div><div class="data-pill data-pill--key travel-direct" style="position:absolute;z-index:5">file</div><div class="token-board"><div class="status">Server receives magnet URI only</div><div class="status status--warning">Known trade-off: WebRTC can expose IP addresses</div></div>`);
+          return baseScene(`<div class="token-board"><div class="status">Server receives magnet URI only</div><div class="status status--warning">Known trade-off: WebRTC can expose IP addresses</div></div>`);
         case 11:
-          return baseScene(`<div class="token-board" style="width:min(520px,calc(100% - 40px))"><div class="db-row"><div class="db-card"><strong>identity.db</strong><span>name, email</span></div><div class="db-card"><strong>app.db</strong><span>mailbox blobs</span></div><div class="db-card"><strong>keys.db</strong><span>public bundles</span></div></div><div class="status">Linked only by SHA-256(USID)</div></div>`);
+          return baseScene(`<div class="token-board"><div class="pill-row"><div class="data-pill">identity.db</div><div class="data-pill">app.db</div><div class="data-pill">keys.db</div></div><div class="status">Linked only by SHA-256(USID)</div></div>`);
         case 12:
-          return baseScene(`<div class="token-board"><div class="data-pill pulse">256-bit random USID</div><div class="data-pill">SHA-256(USID) stored</div><div class="status">No phone number required for message identity</div></div>`);
+          return baseScene(`<div class="token-board"><div class="data-pill">256-bit random USID</div><div class="data-pill">SHA-256(USID) stored</div><div class="status">No phone number required for message identity</div></div>`);
         case 13:
-          return baseScene(`<div class="token-board" style="width:min(560px,calc(100% - 40px))"><div class="db-row"><div class="db-card">X3DH</div><div class="db-card">Double Ratchet</div><div class="db-card">Safety Numbers</div><div class="db-card">Offline Mailbox</div><div class="db-card">P2P Files</div><div class="db-card">USID Identity</div></div><div class="status status--success">A secure system is many protections working together</div></div>`);
+          return baseScene(`<div class="token-board"><div class="pill-row"><span class="data-pill">X3DH</span><span class="data-pill">Double Ratchet</span><span class="data-pill">Safety Numbers</span></div><div class="status status--success">A secure system is many protections working together</div></div>`);
         default:
           return baseScene();
       }
@@ -1343,19 +1153,19 @@ halonyx.onrender.com`
 
     function renderActions(step) {
       if (step.action === "replenish") {
-        return `<button class="button button--small" id="drainBtn" type="button">Drain one OPK</button><button class="button button--secondary button--small" id="replenishBtn" type="button">Replenish</button>`;
+        return `<button class="button-primary" id="drainBtn" type="button">Drain one OPK</button><button class="button-outline" id="replenishBtn" type="button">Replenish</button>`;
       }
       if (step.action === "ratchet") {
-        return `<button class="button button--small" id="sendRatchetBtn" type="button">Send message</button><span class="status">Each click derives a new message key.</span>`;
+        return `<button class="button-primary" id="sendRatchetBtn" type="button">Send message</button><span style="font-size:13px;color:var(--ink-muted)">Each click derives a new message key.</span>`;
       }
       if (step.action === "attack") {
-        return `<button class="button button--small" id="attackBtn" type="button">${state.attack ? "Turn attack off" : "Attack mode"}</button>`;
+        return `<button class="button-primary" id="attackBtn" type="button">${state.attack ? "Turn attack off" : "Attack mode"}</button>`;
       }
       if (step.action === "message") {
-        return `<span class="status">Type inside the scene to watch encryption change.</span>`;
+        return `<span style="font-size:13px;color:var(--ink-muted)">Type inside the scene to watch encryption change.</span>`;
       }
       if (step.action === "offline") {
-        return `<button class="button button--small" id="onlineBtn" type="button">${state.bobOnline ? "Make Bob offline" : "Reconnect Bob"}</button>`;
+        return `<button class="button-primary" id="onlineBtn" type="button">${state.bobOnline ? "Make Bob offline" : "Reconnect Bob"}</button>`;
       }
       return "";
     }
@@ -1417,9 +1227,57 @@ halonyx.onrender.com`
       document.getElementById("stepTitle")?.scrollIntoView({ block: "center" });
     }
 
-    function render() {
+    const speechBtn = document.getElementById("speechBtn");
+    function toggleSpeech() {
+      if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+        alert("Audio synthesis is not supported in this browser.");
+        return;
+      }
+      if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+        if (speechBtn) speechBtn.innerHTML = "🔊 Listen";
+        return;
+      }
       const step = STEPS[state.step];
-      tile.dataset.surface = step.surface;
+      const text = `${step.title}. ${step[state.mode]}`;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.onend = () => { if (speechBtn) speechBtn.innerHTML = "🔊 Listen"; };
+      if (speechBtn) speechBtn.innerHTML = "⏹️ Stop";
+      window.speechSynthesis.speak(utterance);
+    }
+
+    const paintModalOverlay = document.getElementById("paintModalOverlay");
+    const paintAnalogyBtn = document.getElementById("paintAnalogyBtn");
+    const paintModalClose = document.getElementById("paintModalClose");
+
+    paintAnalogyBtn?.addEventListener("click", () => paintModalOverlay?.classList.add("active"));
+    paintModalClose?.addEventListener("click", () => paintModalOverlay?.classList.remove("active"));
+    paintModalOverlay?.addEventListener("click", e => { if (e.target === paintModalOverlay) paintModalOverlay.classList.remove("active"); });
+
+    const hackModalOverlay = document.getElementById("hackModalOverlay");
+    const hackServerBtn = document.getElementById("hackServerBtn");
+    const hackModalClose = document.getElementById("hackModalClose");
+    const attemptDecryptBtn = document.getElementById("attemptDecryptBtn");
+    const decryptResult = document.getElementById("decryptResult");
+
+    hackServerBtn?.addEventListener("click", () => {
+      if (decryptResult) decryptResult.style.display = "none";
+      hackModalOverlay?.classList.add("active");
+    });
+    hackModalClose?.addEventListener("click", () => hackModalOverlay?.classList.remove("active"));
+    hackModalOverlay?.addEventListener("click", e => { if (e.target === hackModalOverlay) hackModalOverlay.classList.remove("active"); });
+    attemptDecryptBtn?.addEventListener("click", () => {
+      if (decryptResult) decryptResult.style.display = "block";
+    });
+
+    speechBtn?.addEventListener("click", toggleSpeech);
+
+    function render() {
+      if (typeof window !== "undefined" && "speechSynthesis" in window && window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+        if (speechBtn) speechBtn.innerHTML = "🔊 Listen";
+      }
+      const step = STEPS[state.step];
       phaseLabel.textContent = step.phase;
       stepTitle.textContent = step.title;
       stepLead.textContent = step[state.mode];
@@ -1428,11 +1286,8 @@ halonyx.onrender.com`
       technicalText.textContent = `${step.technical}\n\n${glossaryText}`;
       scene.innerHTML = renderScene(state.step);
       stepCounter.textContent = `Step ${state.step + 1} of ${STEPS.length}`;
-      progressFill.style.width = `${((state.step + 1) / STEPS.length) * 100}%`;
       prevBtn.disabled = state.step === 0;
       nextBtn.textContent = state.step === STEPS.length - 1 ? "Start over" : "Next";
-      prevBtn.classList.toggle("button--on-dark", step.surface.startsWith("dark"));
-      nextBtn.classList.toggle("button--on-dark", false);
       renderDots();
       attachActions();
     }
