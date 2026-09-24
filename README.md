@@ -1,6 +1,4 @@
-<div align="center">
-
-<pre>
+<div align="center"> <pre>
 ██╗  ██╗ █████╗ ██╗      ██████╗ ███╗   ██╗██╗   ██╗██╗  ██╗
 ██║  ██║██╔══██╗██║     ██╔═══██╗████╗  ██║╚██╗ ██╔╝╚██╗██╔╝
 ███████║███████║██║     ██║   ██║██╔██╗ ██║ ╚████╔╝  ╚███╔╝
@@ -28,7 +26,24 @@
 
 ---
 
-Halonyx is a self-hostable, end-to-end encrypted messenger built on the **Signal Protocol** — implemented from scratch rather than wrapped around `libsignal`. Every message is encrypted client-side with X3DH + Double Ratchet before it ever reaches the server; the relay only ever sees ciphertext. Files move directly peer-to-peer over **WebTorrent (BitTorrent over WebRTC)**, so the server is never in the data path for transfers either. **Safety Numbers** close the one gap E2EE alone can't: a compromised or malicious server substituting keys during setup.
+## Also by the Developers of Halonyx
+
+<div align="center"> <a href="https://github.com/ABHIRAM-CREATOR06/Atlas">
+<img src="https://img.shields.io/badge/ATLAS-Explore%20Repository-2563EB?style=for-the-badge&logo=github&logoColor=white" alt="Atlas — Explore Repository">
+</a>
+&nbsp;&nbsp;
+<a href="https://github.com/ABHIRAM-CREATOR06/Halonyx-Web">
+  <img src="https://img.shields.io/badge/HALONYX--WEB-Explore%20Repository-7C3AED?style=for-the-badge&logo=github&logoColor=white" alt="Halonyx-Web — Explore Repository">
+</a>   
+
+
+<sub>More projects by the developer of Halonyx</sub>
+
+</div>
+
+---
+
+Halonyx is a self-hostable, end-to-end encrypted messenger built on the **Signal Protocol** — implemented from scratch rather than wrapped around `libsignal`. Every message is encrypted client-side with X3DH + Double Ratchet before it ever reaches the server; the relay only ever sees ciphertext. Files move directly peer-to-peer over **WebTorrent (BitTorrent over WebRTC )**, so the server is never in the data path for transfers either. **Safety Numbers** close the one gap E2EE alone can't: a compromised or malicious server substituting keys during setup.
 
 It's a final-year project built as a deep, from-first-principles exploration of applied cryptography and is not a production messenger. The [threat model](specification_docs/security_docs/datathreat.md) and [compliance brief](specification_docs/compliance_doc/encryption-policy-brief.md) below are written with that honesty in mind.
 
@@ -37,21 +52,37 @@ It's a final-year project built as a deep, from-first-principles exploration of 
 ## Features
 
 - **USID Identity** — 256-bit pseudonymous identifier; no username or phone number required
+
 - **End-to-End Encryption** — full Signal Protocol: X3DH key exchange + Double Ratchet on every message
+
 - **Forward Secrecy** — per-message ephemeral keys; past messages stay safe even if current keys are compromised
+
 - **Post-Compromise Security** — DH ratchet step on every reply; session heals automatically after a breach
+
 - **Safety Numbers** — 60-digit fingerprint of both parties' identity keys; detects MITM key substitution out-of-band
+
 - **Key Change Detection** — automatic warning when a contact's identity key changes between sessions
+
 - **P2P File Transfer** — files shared via WebTorrent (BitTorrent over WebRTC); server is never in the data path
+
 - **Live Transfer Stats** — real-time upload/download speed, progress bar, and seeding ratio per torrent
+
 - **Offline Mailbox** — messages to offline peers are queued server-side and flushed on reconnect; at-most-once delivery
+
 - **Real-Time Delivery** — WebSocket messaging with queued-message status indicator (clock icon on undelivered messages)
+
 - **Dual Database Isolation** — identity metadata and operational data in separate SQLite databases, linked only by `SHA-256(USID)`
+
 - **Emergency Broadcast** — UDP-bridged system-wide alert reachable from any connected client
+
 - **Web Audio Notifications** — send and receive sounds synthesized via Web Audio API; no audio files required
+
 - **Dark / Light Theme** — fully adaptive UI with smooth transitions
+
 - **Contact Management** — add by USID, remove, search, duplicate auto-cleanup
+
 - **Rate Limiting** — per-IP rate limits on signup and key upload endpoints (`express-rate-limit` v8)
+
 - **Interactive Simulator** — a browser-based "How Halonyx Works" explainer that walks through X3DH and the Double Ratchet step by step
 
 ---
@@ -65,32 +96,34 @@ git clone https://github.com/ABHIRAM-CREATOR06/Halonyx.git
 cd Halonyx
 npm install
 npm start        # production
-npm run dev      # development (auto-reload via nodemon)
+npm run dev      # development (auto-reload via nodemon )
 ```
 
-Open **http://localhost:3000**. On Windows, run `scripts/setup.bat` (or `scripts/start_server.bat` / `scripts/start_server.sh` on Unix/macOS).
+Open [**http://localhost:3000**](http://localhost:3000). On Windows, run `scripts/setup.bat` (or `scripts/start_server.bat` / `scripts/start_server.sh` on Unix/macOS ).
 
 ### Running with Docker
 
 You can run Halonyx in a container using Docker or Docker Compose:
 
 **Using Docker Compose (Recommended):**
+
 ```bash
 docker compose up -d --build
 ```
 
 **Using Docker CLI:**
+
 ```bash
 docker build -t halonyx .
 docker run -d -p 3000:3000 -v halonyx-data:/app/backend/db --name halonyx-app halonyx
 ```
 
-Open **http://localhost:3000** once the container is running. Database state is persisted in the Docker volume.
+Open [**http://localhost:3000**](http://localhost:3000) once the container is running. Database state is persisted in the Docker volume.
 
 ### Running the tests
 
 ```bash
-npm test                 # full suite (node --test)
+npm test                 # full suite (node --test )
 npm run test:x25519      # X3DH + Double Ratchet crypto core only
 ```
 
@@ -129,6 +162,7 @@ File Transfers
 Each user uploads a public key bundle on registration. The bundle is stored in `keys.db` and served via authenticated REST endpoints. It is used for:
 
 - **X3DH session initialisation** — recipient's pre-key bundle fetched before first message
+
 - **Safety Number computation** — identity public key (P-256) fetched to derive the 60-digit verification fingerprint
 
 ```
@@ -166,11 +200,16 @@ Recipient reconnects → Server
 Files are never uploaded to the Halonyx server. Instead:
 
 1. Sender **seeds** the file using WebTorrent — BitTorrent running entirely in the browser via WebRTC
-2. A **magnet URI** is sent to the recipient through the encrypted message channel
-3. Recipient's browser **leeches** directly from the sender over WebRTC data channels
-4. Public trackers (`openwebtorrent.com`, `webtorrent.dev`) handle peer discovery only — they never see file contents
-5. NAT traversal is supported via **STUN** and **TURN** servers (e.g., `openrelay.metered.ca`), so P2P connections succeed even behind strict firewalls or symmetric NATs
-6. Live upload speed, download speed, progress percentage, and seeding ratio are displayed in real time
+
+1. A **magnet URI** is sent to the recipient through the encrypted message channel
+
+1. Recipient's browser **leeches** directly from the sender over WebRTC data channels
+
+1. Public trackers (`openwebtorrent.com`, `webtorrent.dev`) handle peer discovery only — they never see file contents
+
+1. NAT traversal is supported via **STUN** and **TURN** servers (e.g., `openrelay.metered.ca`), so P2P connections succeed even behind strict firewalls or symmetric NATs
+
+1. Live upload speed, download speed, progress percentage, and seeding ratio are displayed in real time
 
 ```
 Sender Browser                        Recipient Browser
@@ -205,7 +244,9 @@ The server relays an opaque `x3dh_init` packet to the recipient, who runs the re
 After X3DH establishes the root key, every message advances the Double Ratchet:
 
 - **Symmetric ratchet** — each message derives a unique key from the current chain key; keys are used once and discarded
+
 - **DH ratchet** — every reply triggers a new DH exchange, deriving fresh root and chain keys
+
 - Compromising message N reveals nothing about messages 1…N-1 (forward secrecy) or N+1…∞ (post-compromise security)
 
 ### Key Persistence (IndexedDB)
@@ -213,7 +254,9 @@ After X3DH establishes the root key, every message advances the Double Ratchet:
 Identity keys, signed pre-keys, one-time pre-keys, and Double Ratchet session state all persist across page reloads via IndexedDB:
 
 - Private keys stored as non-exportable `CryptoKey` objects — never serialised to raw bytes
+
 - Session state (root key, chain keys, ratchet DH keys) restored on reconnect
+
 - Each USID maps 1:1 to a stable cryptographic identity across sessions
 
 ---
@@ -227,7 +270,8 @@ Safety Numbers close the MITM gap. Even with perfect E2E encryption, a malicious
 Each user generates a **P-256 ECDH identity key pair** at registration. The public key is uploaded to the server. To verify a session:
 
 1. Alice fetches Bob's identity public key from `GET /public-key/:hashedUsid`
-2. Both parties independently compute:
+
+1. Both parties independently compute:
 
 ```
 safetyNumber = SHA-256(
@@ -237,15 +281,18 @@ safetyNumber = SHA-256(
 → formatted as 12 groups of 5 digits across 4 rows (60 digits total)
 ```
 
-3. Alice and Bob compare the number over a voice call or in person
-4. If they match → no MITM, session is cryptographically verified
-5. If they differ → a key was substituted → attack detected
+1. Alice and Bob compare the number over a voice call or in person
+
+1. If they match → no MITM, session is cryptographically verified
+
+1. If they differ → a key was substituted → attack detected
 
 ### Key Change Detection
 
 The last-seen safety number is stored in `localStorage`. On every subsequent verification:
 
 - **Same number** → keys unchanged, session is clean
+
 - **Different number** → contact may have re-registered, or a MITM substituted a key → prominent warning shown before proceeding
 
 ### MITM Attack Visualised
@@ -274,7 +321,7 @@ With Safety Numbers (protected):
 ### REST
 
 | Endpoint | Method | Auth | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `/signup` | POST | — | Register — returns `usid` + JWT (rate limited) |
 | `/add-contact` | POST | ✓ | Add a contact by USID |
 | `/contacts` | GET | ✓ | Fetch contact list (hashed USIDs) |
@@ -292,7 +339,7 @@ All authenticated routes require `Authorization: Bearer <token>`. Rate-limited e
 ### WebSocket
 
 | Type | Direction | Description |
-|---|---|---|
+| --- | --- | --- |
 | `register` | Client → Server | Authenticate WS session with USID |
 | `registered` | Server → Client | Identity confirmed; offline mailbox flushed |
 | `message` | Bidirectional | Encrypted message payload; unencrypted payloads are rejected server-side |
@@ -306,7 +353,7 @@ All authenticated routes require `Authorization: Bearer <token>`. Rate-limited e
 ## Security
 
 | Primitive | Algorithm | Key Size |
-|---|---|---|
+| --- | --- | --- |
 | Symmetric Encryption | AES-256-GCM | 256 bits |
 | Key Derivation | HKDF-SHA256 | 256 bits |
 | Hashing | SHA-256 | 256 bits |
@@ -325,11 +372,15 @@ JWT signing keys are generated with `crypto.randomBytes(32)` at boot rather than
 
 Halonyx ships with a full doc set under [`specification_docs/`](specification_docs/), covering security, performance, and legal posture:
 
-- **[Security Audit Report](specification_docs/audit.md)** — comprehensive full-stack security review conducted using the **Cloudflare Security Suite**, evaluating Signal Protocol cryptography, HTTP authentication, WebSocket relays, database isolation, and container deployment safety.
-- **[Data Threat Model](specification_docs/security_docs/datathreat.md)** — a STRIDE-style analysis covering **18 classified threats** (T-01 through T-18) across the frontend, backend, transport, storage, and dependency supply chain — including a hardcoded JWT secret, unauthenticated WebSocket registration, WebRTC/WebTorrent IP leaks, and OPK exhaustion — each with severity ratings and a phased remediation roadmap.
-- **[Performance Benchmarks](specification_docs/benchmark/benchmark.md)** — latency and throughput for every layer of the stack: X3DH and Double Ratchet crypto operations, REST endpoints, WebSocket messaging (including offline mailbox store-and-flush), UDP emergency broadcast, SQLite read/write performance, and WebTorrent transfer over STUN/TURN.
-- **[Encryption Policy Brief](specification_docs/compliance_doc/encryption-policy-brief.md)** — a comparative look at where Halonyx's architecture stands against live encryption policy in the EU (CSAR/"Chat Control"), the US (EARN IT Act), India (IT Rules 2021 traceability), the UK (Online Safety Act / Investigatory Powers Act), and the UN Convention against Cybercrime.
-- **[Protocol Implementation Notes](protocol/README.md)** and **[Protocol Security Analysis](protocol/SECURITY_ANALYSIS.md)** — a component-by-component breakdown of the Signal Protocol implementation (X3DH, Double Ratchet, key management, session handling) and its security properties, assumptions, and limitations.
+- [**Security Audit Report**](specification_docs/audit.md) — comprehensive full-stack security review conducted using the **Cloudflare Security Suite**, evaluating Signal Protocol cryptography, HTTP authentication, WebSocket relays, database isolation, and container deployment safety.
+
+- [**Data Threat Model**](specification_docs/security_docs/datathreat.md) — a STRIDE-style analysis covering **18 classified threats** (T-01 through T-18) across the frontend, backend, transport, storage, and dependency supply chain — including a hardcoded JWT secret, unauthenticated WebSocket registration, WebRTC/WebTorrent IP leaks, and OPK exhaustion — each with severity ratings and a phased remediation roadmap.
+
+- [**Performance Benchmarks**](specification_docs/benchmark/benchmark.md) — latency and throughput for every layer of the stack: X3DH and Double Ratchet crypto operations, REST endpoints, WebSocket messaging (including offline mailbox store-and-flush), UDP emergency broadcast, SQLite read/write performance, and WebTorrent transfer over STUN/TURN.
+
+- [**Encryption Policy Brief**](specification_docs/compliance_doc/encryption-policy-brief.md) — a comparative look at where Halonyx's architecture stands against live encryption policy in the EU (CSAR/"Chat Control"), the US (EARN IT Act), India (IT Rules 2021 traceability), the UK (Online Safety Act / Investigatory Powers Act), and the UN Convention against Cybercrime.
+
+- [**Protocol Implementation Notes**](protocol/README.md) and [**Protocol Security Analysis**](protocol/SECURITY_ANALYSIS.md) — a component-by-component breakdown of the Signal Protocol implementation (X3DH, Double Ratchet, key management, session handling) and its security properties, assumptions, and limitations.
 
 ---
 
@@ -437,28 +488,51 @@ Halonyx/
 ## Roadmap
 
 - [x] End-to-end encrypted messaging (Signal Protocol — X3DH + Double Ratchet)
+
 - [x] P2P file transfer (WebTorrent / BitTorrent over WebRTC)
+
 - [x] Offline message mailbox with at-most-once delivery
+
 - [x] Key bundle endpoints (upload, fetch, update)
+
 - [x] IndexedDB key persistence across page reloads
+
 - [x] Safety Numbers — 60-digit MITM detection fingerprint
+
 - [x] Key change detection with session warning
+
 - [x] Live torrent stats (speed, progress, ratio)
+
 - [x] Web Audio notification sounds
+
 - [x] Dark / light theme
+
 - [x] Contact remove + duplicate cleanup
+
 - [x] OPK replenishment monitoring
+
 - [x] Interactive protocol simulator
+
 - [x] CI test matrix (Node 20/22/24) with crypto-core enforcement
+
 - [x] Containerized deployment with Docker and Docker Compose
+
 - [x] Interactive one-click setup script (`scripts/setup.bat`) for Windows
+
 - [x] Full STRIDE threat model (18 threats) + performance benchmark suite
+
 - [x] Cross-jurisdiction encryption policy brief
+
 - [ ] Safety number QR code scan
+
 - [ ] Post-quantum cryptography (CRYSTALS-Dilithium / SPHINCS+)
+
 - [ ] Multi-device session sync
+
 - [ ] Group messaging via Sender Keys
+
 - [ ] Voice & video (WebRTC)
+
 - [ ] Push notifications (Web Push / VAPID)
 
 ---
@@ -468,7 +542,7 @@ Halonyx/
 Built at **SNGCE, Kerala** · APJ Abdul Kalam Technological University · 2026
 
 | Name | Role |
-|---|---|
+| --- | --- |
 | Abhiram P | Backend · Signal Protocol · Safety Numbers |
 | Geo Jose | Frontend · UI/UX · Theme System |
 | Anirudh | Frontend · Testing · WebTorrent Integration |
@@ -481,6 +555,6 @@ Built at **SNGCE, Kerala** · APJ Abdul Kalam Technological University · 2026
 AGPL-3.0. See [LICENSE](LICENSE).
 
 > Built as a deep exploration of applied cryptography and secure communication.
-> Not intended for production deployment.
+Not intended for production deployment.
 
 <div align="center"><sub>Connect Securely. Leave No Trace.</sub></div>
