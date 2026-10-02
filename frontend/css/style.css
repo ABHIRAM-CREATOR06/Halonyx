@@ -2722,3 +2722,311 @@ body.theme-dark {
     --bd-hi: rgba(255, 255, 255, 0.18);
     --border-hairline: rgba(255, 255, 255, 0.11);
 }
+
+/* ==========================================================================
+   BEEPER-STYLE REPLIES & THREAD CHAIN PANEL
+   ========================================================================== */
+
+/* Hover Action Bar on Message Bubbles */
+.msg-bubble {
+    position: relative;
+}
+
+.msg-hover-actions {
+    position: absolute;
+    top: -14px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    background: var(--bg-panel);
+    border: 1px solid var(--bd-hi);
+    border-radius: 16px;
+    padding: 2px 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    z-index: 10;
+}
+
+.msg-row.sent .msg-hover-actions {
+    left: 8px;
+}
+
+.msg-row.received .msg-hover-actions {
+    right: 8px;
+}
+
+.msg-bubble:hover .msg-hover-actions {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.msg-action-btn {
+    width: 26px;
+    height: 26px;
+    border: none;
+    background: transparent;
+    color: var(--fg-muted);
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.msg-action-btn:hover {
+    background: var(--bg-surface);
+    color: var(--fg);
+}
+
+/* Composer Reply Preview Bar */
+.reply-preview-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    background: var(--bg-surface);
+    border: 1px solid var(--bd);
+    border-radius: var(--r-lg);
+    position: relative;
+    overflow: hidden;
+    animation: fadeUp 0.15s ease both;
+}
+
+.reply-preview-accent {
+    width: 3px;
+    align-self: stretch;
+    background: var(--message-blue);
+    border-radius: 2px;
+}
+
+.reply-preview-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.reply-preview-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--message-blue);
+}
+
+.reply-icon-svg {
+    display: inline-flex;
+    align-items: center;
+}
+
+.reply-preview-text {
+    font-size: 0.8rem;
+    color: var(--fg-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+}
+
+.reply-preview-close {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    color: var(--fg-muted);
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.reply-preview-close:hover {
+    background: var(--bg-elevated);
+    color: var(--fg);
+}
+
+/* Rendered Reply Quote Block in Message Bubbles */
+.reply-quote-block {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 10px;
+    margin-bottom: 6px;
+    background: rgba(0, 0, 0, 0.12);
+    border-left: 3px solid var(--message-blue);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.78rem;
+    transition: background 0.15s ease;
+}
+
+.msg-row.sent .reply-quote-block {
+    background: rgba(255, 255, 255, 0.15);
+    border-left-color: #fff;
+}
+
+.reply-quote-block:hover {
+    opacity: 0.9;
+}
+
+.reply-quote-author {
+    font-weight: 600;
+    font-size: 0.72rem;
+    color: var(--message-blue);
+}
+
+.msg-row.sent .reply-quote-author {
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.reply-quote-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.3;
+    opacity: 0.88;
+}
+
+.reply-quote-muted {
+    font-style: italic;
+    opacity: 0.7;
+}
+
+/* Jump-to-Message Pulse Highlight */
+.reply-pulse-highlight {
+    animation: pulseHighlight 1.5s ease-out;
+}
+
+@keyframes pulseHighlight {
+    0% {
+        box-shadow: 0 0 0 4px var(--message-blue);
+        transform: scale(1.02);
+    }
+    50% {
+        box-shadow: 0 0 0 6px rgba(52, 120, 246, 0.4);
+    }
+    100% {
+        box-shadow: none;
+        transform: scale(1);
+    }
+}
+
+/* Thread Chip */
+.msg-thread-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    color: var(--message-blue);
+    background: rgba(52, 120, 246, 0.1);
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-top: 4px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.msg-thread-chip:hover {
+    background: rgba(52, 120, 246, 0.2);
+}
+
+/* Slide-over Reply Chain Panel */
+.reply-chain-panel {
+    width: 320px;
+    background: var(--bg-panel);
+    border-left: 1px solid var(--bd);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    z-index: 2;
+    transition: width 0.25s ease, opacity 0.25s ease;
+}
+
+.reply-chain-panel.hidden {
+    display: none !important;
+}
+
+.reply-chain-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--bd);
+    height: 60px;
+}
+
+.reply-chain-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--fg);
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.reply-chain-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.thread-item {
+    background: var(--bg-surface);
+    border: 1px solid var(--bd);
+    border-radius: var(--r-lg);
+    padding: 10px 12px;
+    font-size: 0.85rem;
+    position: relative;
+}
+
+.thread-item.root-item {
+    border-color: var(--message-blue);
+}
+
+.thread-author {
+    font-weight: 600;
+    font-size: 0.75rem;
+    color: var(--message-blue);
+    margin-bottom: 4px;
+}
+
+.thread-body {
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.thread-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 6px;
+    font-size: 0.68rem;
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+}
+
+.thread-reply-btn {
+    border: none;
+    background: transparent;
+    color: var(--message-blue);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.thread-reply-btn:hover {
+    text-decoration: underline;
+}

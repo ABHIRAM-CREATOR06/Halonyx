@@ -70,7 +70,8 @@ let myUsid = localStorage.getItem("usid");
 let currentTheme = localStorage.getItem("theme") || "theme-dark";
 let currentChatUsid = null;
 let contacts = [];
-let messageHistory = JSON.parse(localStorage.getItem("messageHistory") || "{}");
+let messageHistory = {};
+let activeReplyTarget = null;
 let ws;
 let identityRejected = false;
 // WebSocket frames are ordered, but their async handlers are not. Hold an
@@ -79,6 +80,272 @@ const pendingEncryptedMessages = new Map();
 const pendingX3dhHandshakes = new Map();
 const sessionRecoveryRequests = new Map();
 const outgoingSessionIds = new Map();
+
+function messageHistoryKey() {
+  return `messageHistory:${myUsid || "anonymous"}`;
+}
+
+let _historyCryptoKey = null;
+
+async function getHistoryCryptoKey() {
+  if (_historyCryptoKey) return _historyCryptoKey;
+  if (!myUsid || typeof crypto === "undefined" || !crypto.subtle) return null;
+  try {
+    const keyMaterial = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode("HalonyxMessageHistoryEncryption:" + myUsid)
+    );
+    _historyCryptoKey = await crypto.subtle.importKey(
+      "raw",
+      keyMaterial,
+      { name: "AES-GCM" },
+      false,
+      ["encrypt", "decrypt"]
+    );
+    return _historyCryptoKey;
+  } catch (e) {
+    console.error("[MessageHistory] CryptoKey derivation error", e);
+    return null;
+  }
+}
+
+async function saveMessageHistoryAsync() {
+  const key = messageHistoryKey();
+  const rawJson = JSON.stringify(messageHistory);
+
+  try {
+    const cryptoKey = await getHistoryCryptoKey();
+    if (cryptoKey) {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const encoded = new TextEncoder().encode(rawJson);
+      const ciphertext = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        cryptoKey,
+        encoded
+      );
+      const hexIv = Array.from(iv).map((b) => b.toString(16).padStart(2, "0")).join("");
+      const hexEnc = Array.from(new Uint8Array(ciphertext)).map((b) => b.toString(16).padStart(2, "0")).join("");
+      const encryptedRecord = JSON.stringify({ v: 1, enc: hexEnc, iv: hexIv });
+      localStorage.setItem(key, encryptedRecord);
+      return;
+    }
+  } catch (e) {
+    console.error("[MessageHistory] Encryption failed, fallback to plain storage", e);
+  }
+
+  localStorage.setItem(key, rawJson);
+}
+
+function saveMessageHistory() {
+  saveMessageHistoryAsync().catch((e) => console.error("[MessageHistory] Save error", e));
+}
+
+async function loadMessageHistoryAsync() {
+  const key = messageHistoryKey();
+  try {
+    const storedStr = localStorage.getItem(key) || localStorage.getItem("messageHistory");
+    if (!storedStr) return {};
+
+    let storedObj;
+    try {
+      storedObj = JSON.parse(storedStr);
+    } catch (_) {
+      return {};
+    }
+
+    if (storedObj && storedObj.v === 1 && storedObj.enc && storedObj.iv) {
+      const cryptoKey = await getHistoryCryptoKey();
+      if (cryptoKey) {
+        const ivBytes = new Uint8Array(storedObj.iv.match(/.{1,2}/g).map((b) => parseInt(b, 16)));
+        const encBytes = new Uint8Array(storedObj.enc.match(/.{1,2}/g).map((b) => parseInt(b, 16)));
+        const decryptedBuf = await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: ivBytes },
+          cryptoKey,
+          encBytes
+        );
+        const decryptedJson = new TextDecoder().decode(decryptedBuf);
+        return JSON.parse(decryptedJson);
+      }
+    }
+
+    if (storedObj && typeof storedObj === "object") {
+      return storedObj;
+    }
+  } catch (e) {
+    console.error("[MessageHistory] Decryption/Load error", e);
+  }
+  return {};
+}
+
+function loadMessageHistory() {
+  loadMessageHistoryAsync()
+    .then((loaded) => {
+      messageHistory = loaded;
+      migrateLegacyHistory();
+      if (currentChatUsid) renderMessages();
+    })
+    .catch((e) => console.error("[MessageHistory] Load error", e));
+  return messageHistory;
+}
+
+function migrateLegacyHistory() {
+  let modified = false;
+  Object.keys(messageHistory).forEach((chatUsid) => {
+    const list = messageHistory[chatUsid];
+    if (Array.isArray(list)) {
+      list.forEach((m, idx) => {
+        if (!m.id) {
+          m.id = EnvelopeModule.generateUUID();
+          modified = true;
+        }
+        if (!m.rxTs) {
+          m.rxTs = m.timestamp ? new Date(m.timestamp).getTime() : Date.now() + idx;
+          modified = true;
+        }
+      });
+      list.sort((a, b) => (a.rxTs || 0) - (b.rxTs || 0));
+    }
+  });
+  if (modified) saveMessageHistory();
+}
+
+function setReplyTarget(msg) {
+  if (!msg || !msg.id) return;
+  const authorName = msg.from === "me" ? "You" : getContactName(msg.from);
+  const senderHash = msg.from === "me" ? myUsid : msg.from;
+  const snippet = msg.content ? String(msg.content).substring(0, 200) : "";
+
+  activeReplyTarget = {
+    id: msg.id,
+    snippet: snippet,
+    senderHash: senderHash,
+    authorName: authorName,
+  };
+
+  const previewBar = document.getElementById("reply-preview-bar");
+  const previewAuthor = document.getElementById("reply-preview-author");
+  const previewText = document.getElementById("reply-preview-text");
+
+  if (previewBar && previewAuthor && previewText) {
+    previewAuthor.textContent = `Replying to ${authorName}`;
+    previewText.textContent = snippet;
+    previewBar.classList.remove("hidden");
+  }
+
+  const input = document.getElementById("message-input");
+  if (input) input.focus();
+}
+
+function setReplyTargetById(msgId) {
+  if (!currentChatUsid || !messageHistory[currentChatUsid]) return;
+  const msg = messageHistory[currentChatUsid].find((m) => m.id === msgId);
+  if (msg) setReplyTarget(msg);
+}
+
+function cancelReplyTarget() {
+  activeReplyTarget = null;
+  const previewBar = document.getElementById("reply-preview-bar");
+  if (previewBar) previewBar.classList.add("hidden");
+}
+
+function copyMessageText(text) {
+  if (!text) return;
+  navigator.clipboard
+    .writeText(text)
+    .then(() => showSnackbar("Message text copied", "info"))
+    .catch(() => showSnackbar("Failed to copy text", "error"));
+}
+
+function jumpToMessage(msgId) {
+  const targetEl = document.getElementById(`msg-${msgId}`);
+  if (targetEl) {
+    targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    targetEl.classList.remove("reply-pulse-highlight");
+    void targetEl.offsetWidth; // force reflow
+    targetEl.classList.add("reply-pulse-highlight");
+    setTimeout(() => targetEl.classList.remove("reply-pulse-highlight"), 1600);
+  } else {
+    showSnackbar("Original message unavailable in local history", "info");
+  }
+}
+
+function countReplies(history, msgId) {
+  let count = 0;
+  if (!Array.isArray(history)) return 0;
+  history.forEach((m) => {
+    if (m.replyTo && m.replyTo.id === msgId) count++;
+  });
+  return count;
+}
+
+function openReplyChain(startMsgId) {
+  const history = messageHistory[currentChatUsid] || [];
+  if (history.length === 0) return;
+
+  const visited = new Set();
+  let current = history.find((m) => m.id === startMsgId);
+  if (!current) return;
+
+  visited.add(current.id);
+  let depth = 0;
+  while (current.replyTo && current.replyTo.id && depth < 50) {
+    const parent = history.find((m) => m.id === current.replyTo.id);
+    if (!parent || visited.has(parent.id)) break;
+    visited.add(parent.id);
+    current = parent;
+    depth++;
+  }
+  const rootMsg = current;
+
+  const threadSet = new Set([rootMsg.id]);
+  let addedNew = true;
+  depth = 0;
+  while (addedNew && depth < 50) {
+    addedNew = false;
+    depth++;
+    history.forEach((m) => {
+      if (m.replyTo && threadSet.has(m.replyTo.id) && !threadSet.has(m.id)) {
+        threadSet.add(m.id);
+        addedNew = true;
+      }
+    });
+  }
+
+  const threadMsgs = history.filter((m) => threadSet.has(m.id));
+
+  const panel = document.getElementById("reply-chain-panel");
+  const body = document.getElementById("reply-chain-body");
+  if (!panel || !body) return;
+
+  let html = "";
+  threadMsgs.forEach((m) => {
+    const author = m.from === "me" ? "You" : getContactName(m.from);
+    const timeStr = formatTime(m.timestamp);
+    const isRoot = m.id === rootMsg.id;
+
+    html += `
+      <div class="thread-item ${isRoot ? "root-item" : ""}">
+        <div class="thread-author">${escapeHTML(author)} ${isRoot ? '<small style="opacity:0.7">(Original)</small>' : ""}</div>
+        <div class="thread-body">${escapeHTML(m.content)}</div>
+        <div class="thread-meta">
+          <span>${timeStr}</span>
+          <button class="thread-reply-btn" onclick="setReplyTargetById('${escapeAttr(m.id)}'); hideReplyChain();">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg>
+            Reply
+          </button>
+        </div>
+      </div>
+    `;
+  });
+
+  body.innerHTML = html;
+  panel.classList.remove("hidden");
+}
+
+function hideReplyChain() {
+  const panel = document.getElementById("reply-chain-panel");
+  if (panel) panel.classList.add("hidden");
+}
 
 function contactAliasesKey() {
   return `contactAliases:${myUsid || "anonymous"}`;
@@ -164,6 +431,8 @@ function checkIdentity() {
   const regForm = document.getElementById("registration-form");
 
   if (token && myUsid) {
+    messageHistory = loadMessageHistory();
+    migrateLegacyHistory();
     loader.style.display = "flex";
     // Generate/load identity key pair for safety numbers
     generateOrLoadIdentityKeyPair().catch(console.error);
@@ -310,7 +579,25 @@ async function handleWSMessage(data) {
         }
       }
 
-      saveMessage(from, { from, content: displayContent, timestamp });
+      // Normalize envelope or plaintext payload
+      const { envelope } = EnvelopeModule.normalizeMessage(displayContent);
+
+      // Amendment 6: Look up duplicate IDs in message history and reject duplicates
+      const existingHist = messageHistory[from] || [];
+      if (existingHist.some((m) => m.id === envelope.id)) {
+        console.warn(`[WS] Duplicate message ID ${envelope.id} rejected`);
+        break;
+      }
+
+      saveMessage(from, {
+        id: envelope.id,
+        from: from,
+        content: envelope.body,
+        timestamp: envelope.ts || timestamp || new Date().toISOString(),
+        rxTs: Date.now(),
+        replyTo: envelope.replyTo,
+      });
+
       if (currentChatUsid === from) {
         renderMessages();
       } else {
@@ -374,7 +661,7 @@ async function handleWSMessage(data) {
             break;
           }
         }
-        localStorage.setItem("messageHistory", JSON.stringify(messageHistory));
+        saveMessageHistory();
         renderMessages();
       }
       showSnackbar("Peer offline — message queued for delivery", "info");
@@ -458,6 +745,8 @@ async function connectIdentity() {
       myUsid = data.usid;
       localStorage.setItem("token", token);
       localStorage.setItem("usid", myUsid);
+      messageHistory = loadMessageHistory();
+      migrateLegacyHistory();
 
       document.getElementById("registration-form").style.display = "none";
       document.getElementById("splash-loader-container").style.display = "flex";
@@ -521,6 +810,8 @@ async function signup() {
       myUsid = data.usid;
       localStorage.setItem("token", token);
       localStorage.setItem("usid", myUsid);
+      messageHistory = loadMessageHistory();
+      migrateLegacyHistory();
 
       document.getElementById("registration-form").style.display = "none";
       document.getElementById("splash-loader-container").style.display = "flex";
@@ -694,8 +985,10 @@ async function addContact() {
   }
 
   if (
-    usid.toLowerCase() === myUsid.toLowerCase() ||
-    usid.toLowerCase() === myUsid.toLowerCase().replace("0x", "")
+    myUsid && (
+      usid.toLowerCase() === myUsid.toLowerCase() ||
+      usid.toLowerCase() === myUsid.toLowerCase().replace("0x", "")
+    )
   ) {
     console.warn("[Add Contact] User tried to add themselves");
     showSnackbar("You cannot add yourself as a contact", "error");
@@ -894,35 +1187,56 @@ async function sendMessage() {
   if (!content || !currentChatUsid || !ws || ws.readyState !== WebSocket.OPEN)
     return;
 
+  const replyTarget = activeReplyTarget;
+  const replyToMeta = replyTarget ? {
+    id: replyTarget.id,
+    snippet: replyTarget.snippet,
+    senderHash: replyTarget.senderHash,
+  } : null;
+
+  const envelope = EnvelopeModule.createEnvelope(content, replyToMeta);
+  const rawEnvelopeStr = JSON.stringify(envelope);
+
   let payload;
   if (signalProtocol.hasSession(currentChatUsid)) {
     try {
-      const encrypted = await signalProtocol.encrypt(currentChatUsid, content);
+      const encrypted = await signalProtocol.encrypt(currentChatUsid, rawEnvelopeStr);
       payload = { type: "message", to: currentChatUsid, encrypted };
-      console.log("[E2EE] Message encrypted and sent");
+      console.log("[E2EE] Envelope encrypted and sent");
     } catch (e) {
-      console.error("[E2EE] Encryption failed, falling back to plaintext", e);
+      console.error("[E2EE] Encryption failed, falling back to plaintext envelope", e);
+      const content = rawEnvelopeStr;
       payload = { type: "message", to: currentChatUsid, content };
     }
   } else {
+    const content = rawEnvelopeStr;
     payload = { type: "message", to: currentChatUsid, content };
   }
 
   ws.send(JSON.stringify(payload));
   saveMessage(currentChatUsid, {
+    id: envelope.id,
     from: "me",
-    content,
-    timestamp: new Date().toISOString(),
+    content: envelope.body,
+    timestamp: envelope.ts,
+    rxTs: Date.now(),
+    replyTo: envelope.replyTo,
   });
+
   input.value = "";
+  cancelReplyTarget();
   renderMessages();
   playSendSound();
 }
 
 function saveMessage(chatUsid, msg) {
   if (!messageHistory[chatUsid]) messageHistory[chatUsid] = [];
+  if (!msg.id) msg.id = EnvelopeModule.generateUUID();
+  if (!msg.rxTs) msg.rxTs = Date.now();
   messageHistory[chatUsid].push(msg);
-  localStorage.setItem("messageHistory", JSON.stringify(messageHistory));
+  // Amendment 6: Order messages by local receive time rxTs
+  messageHistory[chatUsid].sort((a, b) => (a.rxTs || 0) - (b.rxTs || 0));
+  saveMessageHistory();
 }
 
 function renderMessages() {
@@ -955,6 +1269,52 @@ function renderMessages() {
       minute: "2-digit",
     });
 
+    const replyCount = countReplies(history, msg.id);
+
+    // Render Reply Quote Block if msg.replyTo exists
+    let quoteHTML = "";
+    if (msg.replyTo && msg.replyTo.id) {
+      const parentMsg = history.find((m) => m.id === msg.replyTo.id);
+      let quoteAuthor = "";
+      let quoteText = "";
+      let isMuted = false;
+
+      if (parentMsg) {
+        quoteAuthor = parentMsg.from === "me" ? "You" : getContactName(parentMsg.from);
+        quoteText = parentMsg.content;
+      } else {
+        const authorHash = msg.replyTo.senderHash;
+        quoteAuthor = (authorHash && (authorHash === myUsid || authorHash === "me"))
+          ? "You"
+          : (authorHash ? getContactName(authorHash) : "Peer");
+        quoteText = msg.replyTo.snippet || "Original message unavailable";
+        isMuted = !msg.replyTo.snippet;
+      }
+
+      quoteHTML = `
+        <div class="reply-quote-block" onclick="event.stopPropagation(); jumpToMessage('${escapeAttr(msg.replyTo.id)}')">
+          <div class="reply-quote-author">${escapeHTML(quoteAuthor)}</div>
+          <div class="reply-quote-text${isMuted ? " reply-quote-muted" : ""}">${escapeHTML(quoteText)}</div>
+        </div>`;
+    }
+
+    const hoverActionsHTML = `
+      <div class="msg-hover-actions">
+        <button class="msg-action-btn" onclick="event.stopPropagation(); setReplyTargetById('${escapeAttr(msg.id)}')" title="Reply">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg>
+        </button>
+        <button class="msg-action-btn" onclick="event.stopPropagation(); copyMessageText('${escapeAttr(msg.content)}')" title="Copy">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        </button>
+      </div>`;
+
+    const threadChipHTML = replyCount > 0
+      ? `<div class="msg-thread-chip" onclick="event.stopPropagation(); openReplyChain('${escapeAttr(msg.id)}')">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg>
+          <span>${replyCount} ${replyCount === 1 ? "reply" : "replies"}</span>
+        </div>`
+      : "";
+
     if (msg.content.startsWith("magnet:?")) {
       const pid =
         "p_" +
@@ -967,8 +1327,10 @@ function renderMessages() {
         : "Shared File";
 
       html += `
-        <div class="msg-row ${rowCls}">
+        <div class="msg-row ${rowCls}" id="msg-${escapeAttr(msg.id)}">
           <div class="file-bubble">
+            ${hoverActionsHTML}
+            ${quoteHTML}
             <div class="file-icon"><span class="material-icons-outlined">folder_zip</span></div>
             <div class="file-details">
               <div class="file-name" id="fn-${pid}">${escapeHTML(fileName)}</div>
@@ -983,6 +1345,7 @@ function renderMessages() {
                   : `<button class="file-action-btn" onclick="openMagnet('${escapeAttr(msg.content)}')" title="Copy magnet"><span class="material-icons-outlined">link</span></button>`
               }
             </div>
+            ${threadChipHTML}
           </div>
         </div>`;
     } else {
@@ -991,10 +1354,13 @@ function renderMessages() {
           ? `<span class="msg-status-icon material-icons-outlined" title="Queued — peer offline">schedule</span>`
           : "";
       html += `
-        <div class="msg-row ${rowCls}">
+        <div class="msg-row ${rowCls}" id="msg-${escapeAttr(msg.id)}">
           <div class="msg-bubble${msg.status === "queued" ? " msg-queued" : ""}">
+            ${hoverActionsHTML}
+            ${quoteHTML}
             ${escapeHTML(msg.content)}
             <span class="msg-time">${time}${statusIcon}</span>
+            ${threadChipHTML}
           </div>
         </div>`;
     }
@@ -1718,6 +2084,16 @@ function setupEventListeners() {
   document
     .getElementById("sn-close-btn")
     ?.addEventListener("click", () => hideDialog("safety-numbers-dialog"));
+
+  document.getElementById("reply-preview-close")?.addEventListener("click", cancelReplyTarget);
+  document.getElementById("close-reply-chain")?.addEventListener("click", hideReplyChain);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      cancelReplyTarget();
+      hideReplyChain();
+    }
+  });
 }
 
 // ─────────────────────────────────────────

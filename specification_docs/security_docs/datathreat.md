@@ -547,7 +547,30 @@ The last-verified Safety Number for each contact is stored in the browser's `loc
 
 **Status:** ⚠️ Unmitigated.
 
+---
 
+### 3.21 Threat T-21 — Plaintext Client-Side Message History in localStorage
+
+**Category:** Confidentiality / Local Storage Security
+**STRIDE:** Information Disclosure
+**Severity:** 🟠 High
+
+**Description:**
+Prior implementations stored decrypted message transcript logs in unencrypted browser `localStorage` (`messageHistory:${myUsid}`). Anyone with physical access to the device, local file system access, or an XSS vulnerability (T-11) could read the entire plain-text conversation history directly from browser storage, bypassing E2EE protections at rest on the client device.
+
+**Attack Vector:** Local device extraction, malicious browser extensions, or XSS execution reading `localStorage`.
+
+**Affected Components:** `frontend/js/app.js` (`saveMessageHistoryAsync`, `loadMessageHistoryAsync`).
+
+**Impact:** Compromise of local message confidentiality at rest on the client browser.
+
+**Mitigation:**
+- Implemented client-side AES-256-GCM encryption for stored message history.
+- Dynamic key derivation via Web Crypto API `crypto.subtle.digest('SHA-256', usid)` to derive a 256-bit symmetric encryption key per user identity.
+- Encrypted envelope payload format (`{ v: 1, enc: "<hex>", iv: "<hex>" }`) using a unique, cryptographically random 12-byte initialization vector (IV) for every write operation.
+- Automatic non-destructive migration of unencrypted legacy local history records into AES-256-GCM encrypted format upon application launch.
+
+**Status:** ✅ **Mitigated.** Client message history in `localStorage` is fully encrypted at rest using Web Crypto AES-256-GCM.
 
 ---
 
@@ -575,6 +598,7 @@ The last-verified Safety Number for each contact is stored in the browser's `loc
 | T-18 | Vulnerable transitive dependencies (npm audit) | 🟠 High | Dependency tree | ⚡ Partially mitigated |
 | T-19 | Missing WebSocket Origin validation | 🟡 Medium | WS upgrade handler | ⚠️ Unmitigated |
 | T-20 | Client-side trust anchor tampering (Safety Number suppression) | 🟠 High | `app.js`, `localStorage` | ⚠️ Unmitigated |
+| T-21 | Plaintext Client-Side Message History in `localStorage` | 🟠 High | `app.js`, `localStorage` | ✅ Mitigated |
 
 ---
 

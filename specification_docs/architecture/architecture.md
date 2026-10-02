@@ -26,6 +26,7 @@ The system has three primary zones:
 | HTTP API and static hosting | [`backend/server.js`](backend/server.js) | Express routes, JWT authentication, static frontend and protocol assets |
 | Real-time relay | [`backend/server.js`](backend/server.js) | WebSocket registration, message forwarding, X3DH-init relay, offline mailbox flush |
 | Protocol coordinator | [`protocol/signal_protocol.js`](protocol/signal_protocol.js) | Identity initialization, public bundle upload, session lifecycle, encryption and decryption |
+| Envelope protocol | [`protocol/envelope.js`](protocol/envelope.js) | Pure UMD module for `v:1` payload formatting, validation, quote envelope building, and legacy message normalization |
 | Initial key agreement | [`protocol/x3dh.js`](protocol/x3dh.js) | X3DH-style key bundle generation and shared-secret derivation |
 | Ongoing session protection | [`protocol/double_ratchet.js`](protocol/double_ratchet.js) | Message-key advancement, ratchet state, forward-secrecy and post-compromise goals |
 | Browser key persistence | [`protocol/idb_key_store.js`](protocol/idb_key_store.js) | IndexedDB persistence for CryptoKey objects and session state |
@@ -38,7 +39,7 @@ The system has three primary zones:
 
 The browser creates a `SignalProtocol` instance during startup. It opens IndexedDB, restores the user identity and any compatible ratchet sessions, and uploads a public bundle when a new identity is created. Private keys are held as browser `CryptoKey` objects; the server receives public bundle material only.
 
-The browser uses `localStorage` for the JWT token, USID, contact aliases, theme settings, and message-history rendering state. IndexedDB stores identity keys, pre-keys, one-time pre-keys, and Double Ratchet session state. This distinction is important: browser-local message history is a separate persistence path from the server’s encrypted offline mailbox.
+The browser uses `localStorage` for the JWT token, USID, contact aliases, theme settings, and client message history. IndexedDB stores identity keys, pre-keys, one-time pre-keys, and Double Ratchet session state. To protect client confidentiality at rest (mitigating Threat T-21), client message history in `localStorage` (`messageHistory:${myUsid}`) is encrypted using AES-256-GCM via the Web Crypto API, using a 256-bit symmetric key derived from the user's USID (`SHA-256`) and a unique 12-byte IV per write operation. Browser-local message history remains a separate, encrypted persistence path from the server’s encrypted offline mailbox.
 
 The client uses the same origin for REST and WebSocket traffic. The WebSocket scheme is selected from the page scheme: `wss://` for HTTPS deployments and `ws://` for HTTP development deployments. WebTorrent is initialized in the browser with WebRTC tracker and ICE-server configuration.
 
@@ -84,9 +85,33 @@ The cryptographic boundary is deliberately placed in the browser:
 
 - **Safety verification:** the client computes safety numbers from identity material and warns when the observed identity changes.
 
-- **Server-visible material:** the server receives identity references, JWTs, public bundles, routing metadata, and encrypted mailbox content. It is not designed to receive private browser keys.
+- **Envelope protocol & reply isolation:** [`protocol/envelope.js`](protocol/envelope.js) encapsulates message payloads inside a versioned JSON envelope (`v: 1`). Parent message metadata (`replyTo.id`, `replyTo.senderHash`, `replyTo.snippet`) is placed **inside** the encrypted Signal payload before ratchet encryption. The server relay (`backend/server.js`) and database storage never see or process reply fields, preserving absolute E2EE metadata isolation.
+
+- **Server-visible material:** the server receives identity references, JWTs, public bundles, routing metadata, and encrypted mailbox content. It is not designed to receive private browser keys or message reply context.
 
 The protocol documentation in [`protocol/README.md`](protocol/README.md) and [`protocol/SECURITY_ANALYSIS.md`](protocol/SECURITY_ANALYSIS.md) contains the project’s detailed cryptographic assumptions and limitations.
+
+### Signal Envelope & Inline Reply Architecture
+
+```json
+{
+  "v": 1,
+  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "text": "I agree, let's proceed.",
+  "timestamp": 1718000000000,
+  "replyTo": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "senderHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "snippet": "Should we deploy the update?"
+  }
+}
+```
+
+1. **Envelope Validation & Normalization**: The `EnvelopeModule` forces strict schema checks (`parseAndValidateEnvelope`). Messages failing schema validation or plain strings are safely normalized to `v: 1` plain text payloads without reply attributes.
+2. **Dynamic Quote Resolution**: Parent messages are looked up client-side by `(peerUsid, parentId)`. If the parent message is present in local history, the quote block dynamically resolves to the parent's actual content; if unresolvable, it safely falls back to the muted `replyTo.snippet`.
+3. **Chain Traversal & Cycle Protection**: Interactive thread-chain panel traversal uses a `visited` set and a depth threshold of 50 to prevent infinite recursion or cyclical parent references from untrusted peers.
+
+---
 
 ## Storage isolation
 

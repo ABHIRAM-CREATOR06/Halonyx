@@ -272,6 +272,21 @@
                     </div>
 
                     <div class="composer">
+                        <div id="reply-preview-bar" class="reply-preview-bar hidden">
+                            <div class="reply-preview-accent"></div>
+                            <div class="reply-preview-content">
+                                <div class="reply-preview-header">
+                                    <span class="reply-icon-svg">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg>
+                                    </span>
+                                    <span id="reply-preview-author">Replying to ...</span>
+                                </div>
+                                <div id="reply-preview-text" class="reply-preview-text">...</div>
+                            </div>
+                            <button id="reply-preview-close" class="reply-preview-close" title="Cancel reply (Esc)" aria-label="Cancel reply">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </button>
+                        </div>
                         <div class="composer-inner">
                             <button
                                 id="attach-btn"
@@ -303,6 +318,22 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Slide-over Reply Chain Panel -->
+                <aside id="reply-chain-panel" class="reply-chain-panel hidden">
+                    <div class="reply-chain-header">
+                        <div class="reply-chain-title-wrap">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg>
+                            <span class="reply-chain-title">Thread Chain</span>
+                        </div>
+                        <button id="close-reply-chain" class="icon-btn" title="Close thread panel">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                    </div>
+                    <div id="reply-chain-body" class="reply-chain-body">
+                        <!-- Thread messages rendered here -->
+                    </div>
+                </aside>
             </main>
 
             <!-- Details Pane -->
@@ -636,6 +667,7 @@
         <!-- Signal Protocol stack — load in dependency order before app.js -->
         <script src="/protocol/crypto_utils.js"></script>
         <script src="/protocol/email_utils.js"></script>
+        <script src="/protocol/envelope.js"></script>
         <script src="/protocol/x3dh.js"></script>
         <script src="/protocol/double_ratchet.js"></script>
         <script src="/protocol/idb_key_store.js"></script>

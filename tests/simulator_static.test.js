@@ -11,7 +11,7 @@ test("simulator inline JavaScript parses", () => {
 });
 
 test("simulator contains the 14-step architecture from agent.md", () => {
-  const stepsBlock = scripts.match(/const STEPS = \[([\s\S]*?)\];\n\n    const tile/);
+  const stepsBlock = scripts.match(/const STEPS = \[([\s\S]*?)\];\s*const tile/);
   assert.ok(stepsBlock, "STEPS block should be present");
 
   const stepCount = (stepsBlock[1].match(/\n\s*title:/g) || []).length;

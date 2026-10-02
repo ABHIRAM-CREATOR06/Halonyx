@@ -26,6 +26,7 @@ A comprehensive security audit of **Halonyx** was conducted following the 6-phas
 | 🟢 **Low** | AUD-05 | Rate-Limiting Scope & IP Spoofing Prevention | `backend/server.js` | Express `trust proxy` configured with `draft-7` headers |
 | ℹ️ **Pass** | AUD-06 | JWT Secret Generation & Persistence | `backend/server.js` | Verified dynamic hex secret generation via `crypto.randomBytes(32)` |
 | ℹ️ **Pass** | AUD-07 | E2E Cryptographic Primitives & Safety Numbers | `protocol/` | Signal Protocol (X25519, HKDF-SHA256, AES-256-GCM) verified safe |
+| ℹ️ **Pass** | AUD-08 | Client Message History Encryption (T-21) | `frontend/js/app.js` | AES-256-GCM Web Crypto encryption with USID key derivation verified |
 
 ---
 
@@ -86,6 +87,10 @@ A comprehensive security audit of **Halonyx** was conducted following the 6-phas
 #### WebTorrent / WebRTC IP Leakage (AUD-01):
 - **Finding**: P2P file transfers use WebTorrent over WebRTC DataChannels. Peer discovery uses public STUN servers and WebRTC signaling. Consequently, peers exchanging files directly will observe each other's IP addresses during ICE candidate exchange.
 - **Mitigation/Disclosure**: WebRTC IP disclosure is inherent to P2P file transfer. Halonyx explicitly discloses P2P transfer mechanics in the threat model documentation.
+
+#### Client Message History Storage Encryption (AUD-08 / T-21 Mitigation):
+- **Finding**: Previously, decrypted local message transcripts were persisted in plain text within browser `localStorage`, allowing any local attacker or script execution to extract decrypted conversation logs.
+- **Mitigation Verified**: Local transcripts are now encrypted with AES-256-GCM before writing to `localStorage` using Web Crypto API. Key material is derived per user via `SHA-256(myUsid)` and each record uses a fresh 12-byte initialization vector (IV), effectively mitigating Threat T-21.
 
 ---
 

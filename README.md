@@ -71,6 +71,8 @@ It's a final-year project built as a deep, from-first-principles exploration of 
 
 - **Real-Time Delivery** — WebSocket messaging with queued-message status indicator (clock icon on undelivered messages)
 
+- **Beeper-Style Replies** — E2EE inline quote-replies, hover action bars, composer reply preview, jump-to-original with pulse highlight, and thread chain slide-over panel
+
 - **Dual Database Isolation** — identity metadata and operational data in separate SQLite databases, linked only by `SHA-256(USID)`
 
 - **Emergency Broadcast** — UDP-bridged system-wide alert reachable from any connected client
