@@ -2,7 +2,7 @@
 
 **Project:** Halonyx Secure Messaging Application    
 **Document Type:** Performance Benchmark Report  
-**Date:** 2026-07-18  
+**Date:** 2026-10-06  
 
 ---
 
@@ -435,9 +435,9 @@ Total observed latency for a message to travel from sender's `sendMessage()` cal
 
 ---
 
-*Document Version: 1.2 — Halonyx Benchmark Report*  
+*Document Version: 1.3 — Halonyx Benchmark Report*  
 *Generated: 2026-05-11*  
-*Last Updated: 2026-10-02 — Added Signal Envelope Protocol (v:1) benchmarks, client-side AES-256-GCM local storage encryption benchmarks (T-21 mitigation), updated end-to-end latency model*
+*Last Updated: 2026-10-06 — Updated microbenchmark measurements (Node v22 runtime, AES-256-GCM 0.073ms, HKDF 0.096ms, Envelope Creation 3.6µs, Safety Number 0.092ms), integrated security audit coverage and test suite stats.*
 
 ## Benchmark Tooling
 
