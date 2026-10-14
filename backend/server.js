@@ -719,14 +719,86 @@ const clients = new Map(); // hashed_usid -> WebSocket
 // WS emergency rate limit: 1 emergency broadcast per 60s per user, ban after 3 violations
 const wsEmergencyLimiter = new RateBucket({ windowMs: 60000, maxHits: 1, banAfter: 3, banDurationMs: 300000 });
 
+// Helper: Normalize identifier to 64-character canonical SHA-256 hashed USID
+function resolveCanonicalUsid(targetUsid) {
+  if (!targetUsid || typeof targetUsid !== "string") return "";
+  const clean = targetUsid.trim().toLowerCase().replace(/^0x/, "");
+  if (clean.length === 64) return clean;
+  return hashUSID(clean);
+}
+
+// Helper: Resilient lookup of active WebSocket connection by direct, normalized, or hashed USID
+function resolveRecipientWs(targetUsid) {
+  if (!targetUsid || typeof targetUsid !== "string") return null;
+  const clean = targetUsid.trim().toLowerCase().replace(/^0x/, "");
+  if (!clean) return null;
+
+  // 1. Direct clean lookup
+  let targetWs = clients.get(clean);
+  if (targetWs && targetWs.readyState === WebSocket.OPEN) return targetWs;
+
+  // 2. Hash lookup (in case sender routed via unhashed raw USID)
+  const hashed = hashUSID(clean);
+  targetWs = clients.get(hashed);
+  if (targetWs && targetWs.readyState === WebSocket.OPEN) return targetWs;
+
+  // 3. Scan active clients for case-insensitive / prefixed match
+  for (const [key, clientSocket] of clients.entries()) {
+    if (clientSocket && clientSocket.readyState === WebSocket.OPEN) {
+      const cleanKey = key.trim().toLowerCase().replace(/^0x/, "");
+      if (cleanKey === clean || cleanKey === hashed) {
+        return clientSocket;
+      }
+    }
+  }
+
+  return null;
+}
+
+// Keep-Alive Heartbeat: send periodic WebSocket protocol ping to prevent cloud reverse proxy idle drop
+const PING_INTERVAL_MS = 25000;
+const pingInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      console.log("[WS] Terminating inactive socket (heartbeat timeout)");
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    try {
+      ws.ping();
+    } catch (_) {
+      ws.terminate();
+    }
+  });
+}, PING_INTERVAL_MS);
+
+if (pingInterval.unref) pingInterval.unref();
 
 wss.on("connection", (ws) => {
   let userHashedUsid = null;
+  ws.isAlive = true;
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
+
   console.log("[WS] New raw connection established");
 
   ws.on("message", (message) => {
     try {
       const data = JSON.parse(message.toString());
+
+      // Application-level keepalive heartbeat
+      if (data.type === "ping") {
+        ws.isAlive = true;
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));
+        }
+        return;
+      }
+      if (data.type === "pong") {
+        ws.isAlive = true;
+        return;
+      }
 
       if (data.type === "register") {
         const { usid } = data;
@@ -737,6 +809,13 @@ wss.on("connection", (ws) => {
         // client can silently update its localStorage without forcing a re-login.
         function finaliseRegistration(row, canonicalHashedUsid, migrateUsid) {
           userHashedUsid = canonicalHashedUsid;
+
+          // Gracefully supersede any existing connection for this identity to prevent split-brain
+          const prevWs = clients.get(userHashedUsid);
+          if (prevWs && prevWs !== ws && prevWs.readyState === WebSocket.OPEN) {
+            try { prevWs.close(1000, "Superseded by new session"); } catch (_) {}
+          }
+
           clients.set(userHashedUsid, ws);
           console.log(`[WS] User Registered: ${row.name} (${userHashedUsid.substring(0, 8)}...)`);
 
@@ -746,8 +825,8 @@ wss.on("connection", (ws) => {
 
           // ── Offline Mailbox Flush ──────────────────────────────────
           db.all(
-            "SELECT * FROM mailbox WHERE recipient_hashed_usid = ? ORDER BY timestamp ASC",
-            [canonicalHashedUsid],
+            "SELECT * FROM mailbox WHERE recipient_hashed_usid = ? OR recipient_hashed_usid = ? ORDER BY timestamp ASC",
+            [canonicalHashedUsid, String(usid || "")],
             (mbErr, pending) => {
               if (mbErr || !pending || pending.length === 0) return;
               console.log(`[Mailbox] Flushing ${pending.length} queued message(s) to ${canonicalHashedUsid.substring(0, 8)}...`);
@@ -762,8 +841,8 @@ wss.on("connection", (ws) => {
                 }));
               });
               db.run(
-                "DELETE FROM mailbox WHERE recipient_hashed_usid = ?",
-                [canonicalHashedUsid],
+                "DELETE FROM mailbox WHERE recipient_hashed_usid = ? OR recipient_hashed_usid = ?",
+                [canonicalHashedUsid, String(usid || "")],
                 (delErr) => {
                   if (delErr) console.error("[Mailbox] Failed to purge mailbox:", delErr);
                   else console.log(`[Mailbox] Purged ${pending.length} message(s) for ${canonicalHashedUsid.substring(0, 8)}...`);
@@ -774,31 +853,25 @@ wss.on("connection", (ws) => {
           // ──────────────────────────────────────────────────────────
         }
 
-        // Step 1: Try direct lookup — client sent a hashed USID (new format).
+        const cleanUsid = typeof usid === "string" ? usid.trim().toLowerCase().replace(/^0x/, "") : "";
+        if (!cleanUsid) {
+          ws.send(JSON.stringify({ type: "error", message: "Invalid USID" }));
+          return;
+        }
+
+        // Direct or hash lookup in Identity DB
         idDb.get(
-          "SELECT name FROM users_metadata WHERE hashed_usid = ?",
-          [usid],
+          "SELECT name, hashed_usid FROM users_metadata WHERE hashed_usid = ? OR hashed_usid = ?",
+          [cleanUsid, hashUSID(cleanUsid)],
           (err, row) => {
             if (!err && row) {
-              return finaliseRegistration(row, usid, false);
+              const canonical = row.hashed_usid;
+              const migrate = (usid !== canonical) ? canonical : false;
+              return finaliseRegistration(row, canonical, migrate);
             }
 
-            // Step 2: Fallback — client sent a raw USID (old format). Hash it and retry.
-            const hashed = hashUSID(usid);
-            idDb.get(
-              "SELECT name FROM users_metadata WHERE hashed_usid = ?",
-              [hashed],
-              (err2, row2) => {
-                if (err2 || !row2) {
-                  console.log(`[WS] Registration REJECTED: ${usid.substring(0, 8)}... (Not in Identity DB)`);
-                  ws.send(JSON.stringify({ type: "error", message: "Identity not verified" }));
-                  return;
-                }
-                // Old raw USID — finalise with canonical hashed form and ask client to migrate.
-                console.log(`[WS] Migrating old raw USID for ${row2.name} to hashed format.`);
-                finaliseRegistration(row2, hashed, hashed);
-              }
-            );
+            console.log(`[WS] Registration REJECTED: ${cleanUsid.substring(0, 8)}... (Not in Identity DB)`);
+            ws.send(JSON.stringify({ type: "error", message: "Identity not verified" }));
           }
         );
         return;
@@ -806,13 +879,19 @@ wss.on("connection", (ws) => {
 
       if (data.type === "message") {
         const { to, content, encrypted } = data;
-        if (!userHashedUsid) return;
+        if (!userHashedUsid || !to) return;
+
+        const canonicalTo = resolveCanonicalUsid(to);
+        if (canonicalTo === userHashedUsid) return; // Prevent self-loopback
 
         console.log(
           `[WS] Message: ${userHashedUsid.substring(0, 8)} → ${to ? to.substring(0, 8) : "?"}`,
         );
 
-        const recipientWs = clients.get(to);
+        const recipientWs = clients.get(to) && clients.get(to).readyState === WebSocket.OPEN
+          ? clients.get(to)
+          : resolveRecipientWs(to);
+
         if (recipientWs && recipientWs.readyState === WebSocket.OPEN) {
           recipientWs.send(
             JSON.stringify({
@@ -833,7 +912,7 @@ wss.on("connection", (ws) => {
           const storeContent = typeof encrypted === 'string' ? encrypted : JSON.stringify(encrypted);
           db.run(
             "INSERT INTO mailbox (recipient_hashed_usid, sender_hashed_usid, content) VALUES (?, ?, ?)",
-            [to, userHashedUsid, storeContent],
+            [canonicalTo, userHashedUsid, storeContent],
             (mbErr) => {
               if (mbErr) {
                 ws.send(
@@ -846,6 +925,7 @@ wss.on("connection", (ws) => {
                 ws.send(
                   JSON.stringify({
                     type: "queued",
+                    recipient: to,
                     message: "Recipient offline — message queued",
                   }),
                 );
@@ -859,7 +939,9 @@ wss.on("connection", (ws) => {
       if (data.type === "x3dh_init") {
         const { to } = data;
         if (!userHashedUsid || !to) return;
-        const recipientWs = clients.get(to);
+        const recipientWs = clients.get(to) && clients.get(to).readyState === WebSocket.OPEN
+          ? clients.get(to)
+          : resolveRecipientWs(to);
         if (recipientWs && recipientWs.readyState === WebSocket.OPEN) {
           recipientWs.send(JSON.stringify({ ...data, from: userHashedUsid }));
           console.log(
@@ -907,10 +989,16 @@ wss.on("connection", (ws) => {
 
   ws.on("close", () => {
     if (userHashedUsid) {
-      clients.delete(userHashedUsid);
-      console.log(
-        `[WS] User Disconnected: ${userHashedUsid.substring(0, 8)}...`,
-      );
+      if (clients.get(userHashedUsid) === ws) {
+        clients.delete(userHashedUsid);
+        console.log(
+          `[WS] User Disconnected: ${userHashedUsid.substring(0, 8)}...`,
+        );
+      } else {
+        console.log(
+          `[WS] Stale socket closed for: ${userHashedUsid.substring(0, 8)}... (active socket retained)`,
+        );
+      }
     }
   });
 });

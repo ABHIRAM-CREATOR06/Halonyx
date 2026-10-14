@@ -68,6 +68,10 @@
     return groups;
   }
 
+  function normUsid(u) {
+    return String(u || "").trim().toLowerCase().replace(/^0x/, "");
+  }
+
   /**
    * Creates a new encrypted group descriptor.
    */
@@ -80,15 +84,31 @@
       ? memberUsids.map((m) => String(m).trim()).filter(Boolean)
       : [];
 
-    const memberSet = new Set(cleanMembers);
-    if (cleanCreator) memberSet.add(cleanCreator);
+    const seen = new Set();
+    const uniqueMembers = [];
+
+    for (const m of cleanMembers) {
+      const norm = normUsid(m);
+      if (norm && !seen.has(norm)) {
+        seen.add(norm);
+        uniqueMembers.push(m);
+      }
+    }
+
+    if (cleanCreator) {
+      const normCreator = normUsid(cleanCreator);
+      if (normCreator && !seen.has(normCreator)) {
+        seen.add(normCreator);
+        uniqueMembers.push(cleanCreator);
+      }
+    }
 
     const group = {
       id: generateGroupId(),
       name: name.trim().substring(0, 100),
       description: description ? String(description).trim().substring(0, 250) : "",
       creator: cleanCreator,
-      members: Array.from(memberSet),
+      members: uniqueMembers,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       unreadCount: 0,
@@ -134,8 +154,12 @@
   function addMember(groupId, memberUsid, userUsid) {
     const group = getGroup(groupId, userUsid);
     if (!group) return null;
-    const cleanMember = String(memberUsid).trim();
-    if (!cleanMember || group.members.includes(cleanMember)) return group;
+    const cleanMember = String(memberUsid || "").trim();
+    if (!cleanMember) return group;
+
+    const norm = normUsid(cleanMember);
+    const exists = group.members.some((m) => normUsid(m) === norm);
+    if (exists) return group;
 
     group.members.push(cleanMember);
     group.updatedAt = new Date().toISOString();
@@ -145,7 +169,8 @@
   function removeMember(groupId, memberUsid, userUsid) {
     const group = getGroup(groupId, userUsid);
     if (!group) return null;
-    group.members = group.members.filter((m) => m !== memberUsid);
+    const norm = normUsid(memberUsid);
+    group.members = group.members.filter((m) => normUsid(m) !== norm);
     group.updatedAt = new Date().toISOString();
     return addOrUpdateGroup(group, userUsid);
   }
@@ -155,11 +180,17 @@
    */
   function getOtherMembers(group, myUsid) {
     if (!group || !Array.isArray(group.members)) return [];
-    const myClean = String(myUsid || "").trim().toLowerCase();
-    return group.members.filter((m) => {
-      const clean = String(m).trim().toLowerCase();
-      return clean && clean !== myClean && clean !== myClean.replace("0x", "");
-    });
+    const myClean = normUsid(myUsid);
+    const seen = new Set();
+    const result = [];
+    for (const m of group.members) {
+      const clean = normUsid(m);
+      if (clean && clean !== myClean && !seen.has(clean)) {
+        seen.add(clean);
+        result.push(m);
+      }
+    }
+    return result;
   }
 
   /**
@@ -175,15 +206,40 @@
     let isNew = false;
 
     if (!existing) {
+      const seen = new Set();
+      const initialMembers = [];
+      const rawList = Array.isArray(groupMeta.members) && groupMeta.members.length > 0
+        ? groupMeta.members
+        : [senderHashedUsid, userUsid];
+
+      for (const m of rawList) {
+        const clean = String(m || "").trim();
+        const norm = normUsid(clean);
+        if (norm && !seen.has(norm)) {
+          seen.add(norm);
+          initialMembers.push(clean);
+        }
+      }
+
+      const normSender = normUsid(senderHashedUsid);
+      if (normSender && !seen.has(normSender)) {
+        seen.add(normSender);
+        initialMembers.push(senderHashedUsid);
+      }
+
+      const normUser = normUsid(userUsid);
+      if (normUser && !seen.has(normUser)) {
+        seen.add(normUser);
+        initialMembers.push(userUsid);
+      }
+
       // Auto-register discovered group
       existing = {
         id: groupMeta.id,
         name: groupMeta.name || "Group " + groupMeta.id.substring(4, 10),
         description: "",
         creator: senderHashedUsid,
-        members: Array.isArray(groupMeta.members) && groupMeta.members.length > 0
-          ? Array.from(new Set([...groupMeta.members, senderHashedUsid, userUsid]))
-          : [senderHashedUsid, userUsid],
+        members: initialMembers,
         createdAt: envelope.ts || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         unreadCount: 0,
@@ -192,9 +248,15 @@
     } else {
       // Merge newly announced members if present
       if (Array.isArray(groupMeta.members)) {
-        const merged = new Set(existing.members);
-        groupMeta.members.forEach((m) => merged.add(m));
-        existing.members = Array.from(merged);
+        const seen = new Set(existing.members.map((m) => normUsid(m)));
+        groupMeta.members.forEach((m) => {
+          const clean = String(m || "").trim();
+          const norm = normUsid(clean);
+          if (norm && !seen.has(norm)) {
+            seen.add(norm);
+            existing.members.push(clean);
+          }
+        });
       }
       if (groupMeta.name && groupMeta.name !== existing.name) {
         existing.name = groupMeta.name;

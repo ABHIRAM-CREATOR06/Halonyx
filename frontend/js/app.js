@@ -646,6 +646,28 @@ function checkIdentity() {
 // ─────────────────────────────────────────
 // WebSocket
 // ─────────────────────────────────────────
+let heartbeatTimer = null;
+
+function startHeartbeat() {
+  stopHeartbeat();
+  heartbeatTimer = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ type: "ping" }));
+      } catch (e) {
+        console.warn("[WS] Heartbeat ping error:", e);
+      }
+    }
+  }, 25000);
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
 function connectWS() {
   if (!myUsid) return;
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -654,6 +676,7 @@ function connectWS() {
   ws.onopen = () => {
     ws.send(JSON.stringify({ type: "register", usid: myUsid }));
     setNetStatus("online");
+    startHeartbeat();
   };
 
   ws.onmessage = (event) => {
@@ -666,13 +689,17 @@ function connectWS() {
   };
 
   ws.onclose = () => {
+    stopHeartbeat();
     setNetStatus("offline");
     if (!identityRejected && token) {
       setTimeout(connectWS, 3000);
     }
   };
 
-  ws.onerror = () => setNetStatus("offline");
+  ws.onerror = () => {
+    stopHeartbeat();
+    setNetStatus("offline");
+  };
 }
 
 function newSessionId() {
@@ -880,20 +907,30 @@ async function handleWSMessage(data) {
       }
       break;
     }
+    case "pong":
+      // Keepalive acknowledged
+      break;
     case "queued": {
       const activeChatKey = currentChatType === "group" ? currentChatGroupId : currentChatUsid;
       if (activeChatKey && messageHistory[activeChatKey]) {
         const hist = messageHistory[activeChatKey];
         for (let i = hist.length - 1; i >= 0; i--) {
           if (hist[i].from === "me" && !hist[i].status) {
-            hist[i].status = "queued";
+            if (currentChatType === "direct") {
+              hist[i].status = "queued";
+            }
             break;
           }
         }
         saveMessageHistory();
         renderMessages();
       }
-      showSnackbar("Peer offline — message queued for delivery", "info");
+      if (currentChatType === "group" && data.recipient) {
+        const peerName = getContactName(data.recipient);
+        showSnackbar(`Member ${peerName} offline — queued for delivery`, "info");
+      } else {
+        showSnackbar("Peer offline — message queued for delivery", "info");
+      }
       break;
     }
     case "emergency_broadcast":
