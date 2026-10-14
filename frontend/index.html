@@ -121,6 +121,11 @@
                             <span class="brand-sub">Secura</span>
                         </div>
                     </div>
+                    <button id="show-dlp-config" class="icon-btn" title="Enterprise Data Loss Prevention">
+                        <span class="material-icons-outlined"
+                            >security</span
+                        >
+                    </button>
                     <button id="show-profile" class="icon-btn" title="Profile">
                         <span class="material-icons-outlined"
                             >manage_accounts</span
@@ -144,9 +149,25 @@
                     >
                         <span class="material-icons-outlined">person_add</span>
                     </button>
+                    <button
+                        id="open-create-group-btn"
+                        class="add-btn"
+                        title="Create Encrypted Group"
+                    >
+                        <span class="material-icons-outlined">group_add</span>
+                    </button>
                 </div>
 
-                <div class="contacts-label">CONVERSATIONS</div>
+                <!-- Channel / Direct category nav tabs -->
+                <div class="sidebar-category-nav">
+                    <button class="cat-nav-btn active" id="cat-tab-all" data-filter="all">All</button>
+                    <button class="cat-nav-btn" id="cat-tab-direct" data-filter="direct">Direct</button>
+                    <button class="cat-nav-btn" id="cat-tab-groups" data-filter="groups">
+                        Groups <span id="groups-pill-count" class="cat-badge hidden">0</span>
+                    </button>
+                </div>
+
+                <div class="contacts-label" id="contacts-label-text">CONVERSATIONS</div>
                 <nav id="contacts-screen" class="contacts-scroll">
                     <div id="contacts-list" role="list">
                         <div class="empty-contacts">
@@ -220,6 +241,24 @@
                         </div>
                         <div class="chat-actions">
                             <button
+                                id="group-info-btn"
+                                class="icon-btn hidden"
+                                title="Group Details & Members"
+                            >
+                                <span class="material-icons-outlined"
+                                    >diversity_3</span
+                                >
+                            </button>
+                            <button
+                                id="dlp-status-btn"
+                                class="icon-btn"
+                                title="Enterprise DLP Controls"
+                            >
+                                <span class="material-icons-outlined"
+                                    >shield</span
+                                >
+                            </button>
+                            <button
                                 id="emergency-btn"
                                 class="icon-btn danger-btn"
                                 title="Emergency"
@@ -287,6 +326,16 @@
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                             </button>
                         </div>
+                        <!-- Enterprise DLP Inline Warning Banner -->
+                        <div id="dlp-inline-warning" class="dlp-inline-warning hidden">
+                            <div class="dlp-inline-warning-content">
+                                <span class="material-icons-outlined warning-icon">gpp_maybe</span>
+                                <span id="dlp-inline-warning-text">Sensitive secret detected</span>
+                            </div>
+                            <button id="dlp-inline-redact-btn" class="btn-text-sm" type="button" title="Auto-redact secret">
+                                Auto-Redact
+                            </button>
+                        </div>
                         <div class="composer-inner">
                             <button
                                 id="attach-btn"
@@ -319,19 +368,56 @@
                     </div>
                 </div>
 
-                <!-- Slide-over Reply Chain Panel -->
-                <aside id="reply-chain-panel" class="reply-chain-panel hidden">
+                <!-- Slack-Style Slide-over Thread Panel -->
+                <aside id="reply-chain-panel" class="reply-chain-panel hidden" aria-label="Thread sidebar">
                     <div class="reply-chain-header">
                         <div class="reply-chain-title-wrap">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg>
-                            <span class="reply-chain-title">Thread Chain</span>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                            <div class="thread-header-info">
+                                <span class="reply-chain-title">Thread</span>
+                                <span id="thread-participants-badge" class="thread-participants-badge">0 replies</span>
+                            </div>
                         </div>
-                        <button id="close-reply-chain" class="icon-btn" title="Close thread panel">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                        </button>
+                        <div class="thread-header-actions">
+                            <button id="jump-to-thread-root" class="icon-btn-sm" title="Jump to root message in main chat">
+                                <span class="material-icons-outlined">filter_center_focus</span>
+                            </button>
+                            <button id="close-reply-chain" class="icon-btn-sm" title="Close thread panel">
+                                <span class="material-icons-outlined">close</span>
+                            </button>
+                        </div>
                     </div>
                     <div id="reply-chain-body" class="reply-chain-body">
                         <!-- Thread messages rendered here -->
+                    </div>
+
+                    <!-- Dedicated Slack-Style In-Thread Composer -->
+                    <div class="thread-composer-wrap">
+                        <div id="thread-dlp-warning" class="dlp-inline-warning hidden">
+                            <div class="dlp-inline-warning-content">
+                                <span class="material-icons-outlined warning-icon">gpp_maybe</span>
+                                <span id="thread-dlp-warning-text">Sensitive secret detected</span>
+                            </div>
+                            <button id="thread-dlp-redact-btn" class="btn-text-sm" type="button">Auto-Redact</button>
+                        </div>
+                        <div class="thread-composer-inner">
+                            <input
+                                type="text"
+                                id="thread-message-input"
+                                placeholder="Reply in thread..."
+                                autocomplete="off"
+                            />
+                            <button id="thread-send-btn" class="send-btn sm" title="Send reply in thread">
+                                <span class="material-icons-outlined">arrow_upward</span>
+                            </button>
+                        </div>
+                        <div class="thread-composer-footer">
+                            <label class="thread-also-send-label">
+                                <input type="checkbox" id="thread-also-send-cb" checked />
+                                <span>Also show in main chat feed</span>
+                            </label>
+                            <span class="thread-kbd-hint">↵ to send</span>
+                        </div>
                     </div>
                 </aside>
             </main>
@@ -655,6 +741,330 @@
                 </div>
             </div>
 
+            <!-- Enterprise DLP Violation / Alert Dialog -->
+            <div id="dlp-alert-dialog" class="dialog-overlay hidden">
+                <div class="dialog dlp-dialog">
+                    <div class="dlp-dialog-header">
+                        <div class="dialog-icon dlp-warning-icon">
+                            <span class="material-icons-outlined">security</span>
+                        </div>
+                        <button id="close-dlp-alert" class="icon-btn-sm dialog-close-btn" title="Close">
+                            <span class="material-icons-outlined">close</span>
+                        </button>
+                    </div>
+                    <h3 class="dialog-title" id="dlp-alert-title">Enterprise DLP Interception</h3>
+                    <p class="dialog-body" id="dlp-alert-body">
+                        Sensitive enterprise data was detected in this message prior to E2EE encryption.
+                    </p>
+
+                    <div class="dlp-violation-details">
+                        <div class="dlp-meta-pill-row">
+                            <span id="dlp-rule-badge" class="badge-pill badge-danger">AWS Access Key</span>
+                            <span id="dlp-severity-badge" class="badge-pill badge-critical">CRITICAL</span>
+                            <span id="dlp-category-badge" class="badge-pill badge-neutral">Cloud Keys</span>
+                        </div>
+                        <div class="dlp-snippet-box">
+                            <div class="dlp-snippet-label">DETECTED PATTERN (MASKED):</div>
+                            <code id="dlp-snippet-code" class="dlp-snippet-code">AKIA••••••••••••MPLE</code>
+                        </div>
+                        <p id="dlp-remediation-tip" class="dlp-remediation-tip">
+                            Halonyx Client-Side DLP prevented transmission over the Signal Protocol ratchet to prevent secret leakage.
+                        </p>
+                    </div>
+
+                    <div class="dialog-actions dlp-actions" id="dlp-alert-actions">
+                        <button id="dlp-edit-btn" class="btn-primary sm">
+                            Edit Message
+                        </button>
+                        <button id="dlp-redact-send-btn" class="btn-secondary sm">
+                            Auto-Redact & Send
+                        </button>
+                        <button id="dlp-override-send-btn" class="btn-ghost sm danger-text" style="display: none;">
+                            Override & Send
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enterprise DLP Settings & Compliance Dashboard -->
+            <div id="dlp-settings-dialog" class="dialog-overlay hidden">
+                <div class="dialog dlp-settings-modal">
+                    <div class="dlp-settings-header">
+                        <div class="dlp-title-group">
+                            <div class="dialog-icon">
+                                <span class="material-icons-outlined">verified_user</span>
+                            </div>
+                            <div>
+                                <h3 class="dialog-title">Enterprise DLP & Compliance</h3>
+                                <p class="dialog-body-sub">Pre-encryption security inspection & compliance monitoring</p>
+                            </div>
+                        </div>
+                        <button id="close-dlp-settings" class="icon-btn-sm dialog-close-btn" title="Close">
+                            <span class="material-icons-outlined">close</span>
+                        </button>
+                    </div>
+
+                    <!-- Tabs -->
+                    <div class="dlp-tabs">
+                        <button class="dlp-tab-btn active" id="tab-btn-policies" data-tab="policies">Policies & Rules</button>
+                        <button class="dlp-tab-btn" id="tab-btn-custom" data-tab="custom">Custom Regex</button>
+                        <button class="dlp-tab-btn" id="tab-btn-audit" data-tab="audit">Compliance Audit Log</button>
+                    </div>
+
+                    <!-- Tab 1: Policies -->
+                    <div class="dlp-tab-content active" id="dlp-tab-policies">
+                        <div class="dlp-setting-row">
+                            <div class="dlp-setting-info">
+                                <span class="dlp-setting-title">Enable Client-Side DLP</span>
+                                <span class="dlp-setting-desc">Inspect all outgoing messages before Signal Protocol ratchet encryption</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="dlp-master-toggle" checked />
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div class="dlp-section-heading">ENFORCEMENT MODE</div>
+                        <div class="dlp-mode-grid">
+                            <label class="dlp-mode-card active" id="card-mode-block">
+                                <input type="radio" name="dlp-mode" value="BLOCK" checked />
+                                <div class="dlp-mode-card-content">
+                                    <div class="dlp-mode-name"><span class="status-dot-sm danger"></span> Strict Block (Recommended)</div>
+                                    <div class="dlp-mode-desc">Completely aborts transmission and alerts sender whenever a secret is detected.</div>
+                                </div>
+                            </label>
+                            <label class="dlp-mode-card" id="card-mode-warn">
+                                <input type="radio" name="dlp-mode" value="WARN" />
+                                <div class="dlp-mode-card-content">
+                                    <div class="dlp-mode-name"><span class="status-dot-sm warn"></span> Warn & Confirm</div>
+                                    <div class="dlp-mode-desc">Intercepts send with an alert and prompts for explicit user override or one-click redaction.</div>
+                                </div>
+                            </label>
+                            <label class="dlp-mode-card" id="card-mode-redact">
+                                <input type="radio" name="dlp-mode" value="REDACT" />
+                                <div class="dlp-mode-card-content">
+                                    <div class="dlp-mode-name"><span class="status-dot-sm info"></span> Auto-Redact</div>
+                                    <div class="dlp-mode-desc">Automatically masks detected secrets with [REDACTED-DLP] tokens prior to encryption.</div>
+                                </div>
+                            </label>
+                        </div>
+
+                        <div class="dlp-section-heading">RULE CATEGORIES</div>
+                        <div class="dlp-categories-list">
+                            <div class="dlp-category-item">
+                                <div class="dlp-cat-left">
+                                    <span class="material-icons-outlined">vpn_key</span>
+                                    <div>
+                                        <strong>Cloud & API Keys</strong>
+                                        <p>AWS Access/Secret Keys, GitHub PATs, Slack Tokens, OpenAI Keys, Private Keys, JWTs</p>
+                                    </div>
+                                </div>
+                                <label class="switch sm">
+                                    <input type="checkbox" id="cat-cloud-keys" checked />
+                                    <span class="slider round"></span>
+                                </label>
+                            </div>
+                            <div class="dlp-category-item">
+                                <div class="dlp-cat-left">
+                                    <span class="material-icons-outlined">credit_card</span>
+                                    <div>
+                                        <strong>Payment & Financial Data</strong>
+                                        <p>Visa, MasterCard, Amex, Discover card numbers (validated via Luhn algorithm)</p>
+                                    </div>
+                                </div>
+                                <label class="switch sm">
+                                    <input type="checkbox" id="cat-payment-cards" checked />
+                                    <span class="slider round"></span>
+                                </label>
+                            </div>
+                            <div class="dlp-category-item">
+                                <div class="dlp-cat-left">
+                                    <span class="material-icons-outlined">badge</span>
+                                    <div>
+                                        <strong>PII & Credentials</strong>
+                                        <p>US Social Security Numbers (SSN), hardcoded inline password/secret assignments</p>
+                                    </div>
+                                </div>
+                                <label class="switch sm">
+                                    <input type="checkbox" id="cat-pii" checked />
+                                    <span class="slider round"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: Custom Rules -->
+                    <div class="dlp-tab-content" id="dlp-tab-custom" style="display:none;">
+                        <div class="dlp-custom-form">
+                            <div class="field-wrap">
+                                <label>Rule Name</label>
+                                <input type="text" id="custom-rule-name" placeholder="e.g. Internal Project Codename" class="field-input" />
+                            </div>
+                            <div class="field-wrap">
+                                <label>Regular Expression Pattern</label>
+                                <input type="text" id="custom-rule-pattern" placeholder="e.g. PROJECT-[A-Z]{3}-\d{4}" class="field-input font-mono" />
+                            </div>
+                            <div class="field-row">
+                                <div class="field-wrap">
+                                    <label>Severity</label>
+                                    <select id="custom-rule-severity" class="field-input">
+                                        <option value="high">High</option>
+                                        <option value="critical">Critical</option>
+                                        <option value="medium">Medium</option>
+                                    </select>
+                                </div>
+                                <button id="add-custom-rule-btn" class="btn-primary sm" style="align-self:flex-end;">
+                                    <span class="material-icons-outlined">add</span> Add Rule
+                                </button>
+                            </div>
+                        </div>
+                        <div class="dlp-section-heading">ACTIVE CUSTOM RULES</div>
+                        <div id="custom-rules-list" class="custom-rules-list">
+                            <!-- Custom rules rendered dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Tab 3: Audit Log -->
+                    <div class="dlp-tab-content" id="dlp-tab-audit" style="display:none;">
+                        <div class="dlp-audit-toolbar">
+                            <span id="audit-log-counter" class="audit-counter">0 incidents logged locally</span>
+                            <div class="audit-btns">
+                                <button id="export-audit-log-btn" class="btn-ghost sm">
+                                    <span class="material-icons-outlined">download</span> Export JSON
+                                </button>
+                                <button id="clear-audit-log-btn" class="btn-ghost sm danger-text">
+                                    <span class="material-icons-outlined">delete_sweep</span> Clear
+                                </button>
+                            </div>
+                        </div>
+                        <div id="dlp-audit-table-wrap" class="dlp-audit-table-wrap">
+                            <!-- Audit records rendered dynamically -->
+                        </div>
+                    </div>
+
+                    <div class="dialog-actions" style="margin-top:16px;">
+                        <button id="save-dlp-settings-btn" class="btn-primary sm">
+                            Done
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Create Encrypted Group Dialog -->
+            <div id="create-group-dialog" class="dialog-overlay hidden">
+                <div class="dialog group-modal">
+                    <div class="group-dialog-header">
+                        <div class="dialog-icon">
+                            <span class="material-icons-outlined">groups</span>
+                        </div>
+                        <div>
+                            <h3 class="dialog-title">Create Encrypted Group</h3>
+                            <p class="dialog-body-sub">End-to-end encrypted multi-party channel</p>
+                        </div>
+                        <button id="close-create-group" class="icon-btn-sm dialog-close-btn" title="Close">
+                            <span class="material-icons-outlined">close</span>
+                        </button>
+                    </div>
+
+                    <div class="field-stack" style="margin-top:14px;">
+                        <div class="field-wrap">
+                            <label for="group-name-input">Group Name *</label>
+                            <input
+                                type="text"
+                                id="group-name-input"
+                                placeholder="e.g. Core Security Team"
+                                class="field-input"
+                                autocomplete="off"
+                            />
+                        </div>
+                        <div class="field-wrap">
+                            <label for="group-desc-input">Topic / Description <small style="color:var(--fg-muted);">(Optional)</small></label>
+                            <input
+                                type="text"
+                                id="group-desc-input"
+                                placeholder="e.g. Incident response & architecture discussion"
+                                class="field-input"
+                                autocomplete="off"
+                            />
+                        </div>
+                        <div class="field-wrap">
+                            <label>Select Members from Contacts</label>
+                            <div id="group-contacts-selector" class="group-contacts-selector">
+                                <!-- Checkboxes populated dynamically -->
+                            </div>
+                        </div>
+                        <div class="field-wrap">
+                            <label for="group-extra-usid">Add by USID <small style="color:var(--fg-muted);">(Optional)</small></label>
+                            <input
+                                type="text"
+                                id="group-extra-usid"
+                                placeholder="0x... hex USID"
+                                class="field-input font-mono"
+                                autocomplete="off"
+                            />
+                        </div>
+                    </div>
+
+                    <div class="dialog-actions" style="margin-top:20px;">
+                        <button id="cancel-create-group" class="btn-ghost sm">
+                            Cancel
+                        </button>
+                        <button id="confirm-create-group" class="btn-primary sm">
+                            <span class="material-icons-outlined">check</span>
+                            Create Group
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Group Details & Member Management Dialog -->
+            <div id="group-details-dialog" class="dialog-overlay hidden">
+                <div class="dialog group-modal">
+                    <div class="group-dialog-header">
+                        <div class="dialog-icon">
+                            <span class="material-icons-outlined">diversity_3</span>
+                        </div>
+                        <div>
+                            <h3 class="dialog-title" id="gd-name">Group Name</h3>
+                            <p class="dialog-body-sub" id="gd-desc">Group topic</p>
+                        </div>
+                        <button id="close-group-details" class="icon-btn-sm dialog-close-btn" title="Close">
+                            <span class="material-icons-outlined">close</span>
+                        </button>
+                    </div>
+
+                    <div class="gd-meta-box">
+                        <div class="gd-id-row">
+                            <span class="gd-label">GROUP ID:</span>
+                            <code class="usid-code sm" id="gd-id">grp_...</code>
+                        </div>
+                        <div class="gd-members-heading">
+                            <span>MEMBERS (<span id="gd-member-count">0</span>)</span>
+                        </div>
+                        <div id="gd-members-list" class="gd-members-list">
+                            <!-- Members list rendered here -->
+                        </div>
+                    </div>
+
+                    <div class="field-wrap" style="margin-top:14px;">
+                        <label>Add Member by USID</label>
+                        <div class="gd-add-member-row">
+                            <input type="text" id="gd-add-member-input" placeholder="0x... USID" class="field-input font-mono" />
+                            <button id="gd-add-member-btn" class="btn-primary sm">Add</button>
+                        </div>
+                    </div>
+
+                    <div class="dialog-actions gd-footer-actions">
+                        <button id="gd-leave-group-btn" class="btn-ghost sm danger-text">
+                            <span class="material-icons-outlined">logout</span> Leave Group
+                        </button>
+                        <button id="gd-done-btn" class="btn-primary sm">
+                            Done
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Snackbar -->
             <div id="snackbar" class="snackbar" role="status" aria-live="polite">
                 <span class="material-icons-outlined" id="snackbar-icon"
@@ -674,6 +1084,8 @@
         <script src="/protocol/key_management.js"></script>
         <script src="/protocol/session.js"></script>
         <script src="/protocol/signal_protocol.js"></script>
+        <script src="js/groups.js"></script>
+        <script src="js/dlp.js"></script>
         <script src="js/app.js?v=5.0"></script>
     </body>
 </html>

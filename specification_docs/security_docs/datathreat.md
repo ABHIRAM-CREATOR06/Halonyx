@@ -29,6 +29,8 @@ This document identifies and analyzes data threats applicable to the Halonyx sec
 | Public key bundle | `keys.db`, `app.db`, API | **Low** | Public by design; integrity matters more than confidentiality |
 | Mailbox messages (offline) | `app.db / mailbox` table | **High** | Stored unencrypted on server for offline delivery |
 | UDP broadcast content | Network (plaintext UDP) | **High** | Emergency messages sent as cleartext over UDP |
+| Group metadata & membership | Client `localStorage` / inside envelope | **High** | Group IDs, member lists, and names; kept client-side inside encrypted Signal envelopes; server blind |
+| Sensitive credentials & PII | Client memory (pre-encryption) | **Critical** | API tokens, private keys, credit cards scanned and blocked by client DLP before envelope sealing |
 | Third-party dependency code | `node_modules` | **Medium–High** | Transitive packages executing with full server/client privileges |
 
 ---
@@ -574,6 +576,64 @@ Prior implementations stored decrypted message transcript logs in unencrypted br
 
 ---
 
+### 3.22 Threat T-22 — Group Metadata Leakage & Cross-Session Compromise
+
+**Category:** Confidentiality / Multi-Party Cryptographic Isolation  
+**STRIDE:** Information Disclosure, Tampering  
+**Severity:** 🟠 High  
+
+**Description:**  
+Group messaging architectures frequently introduce vulnerabilities by centralizing group membership lists, admin roles, or channel identities on the server. Furthermore, implementations using a single shared symmetric key risk catastrophic compromise: if one member's key is extracted, all past and future group transcripts across all participants are breached. If the server manages group state, server compromises expose group rosters and social graph topology.
+
+**Attack Vector:** Server-side database dump, network eavesdropping on group control messages, or client compromise of a single group member.
+
+**Affected Components:** `frontend/js/groups.js`, `protocol/envelope.js`, `backend/server.js`.
+
+**Impact:** Exposure of group participant rosters, eavesdropping on multi-party discussions, and loss of cryptographic forward secrecy across group conversations.
+
+**Mitigation:**
+- Implemented **Signal Groups v1 pairwise Double Ratchet fan-out** (`frontend/js/groups.js`).
+- **Complete Server Blindness:** The backend server (`backend/server.js`) maintains **zero database tables and zero awareness of groups**. Group creation, membership updates, and discovery happen exclusively inside client-side encrypted payloads.
+- **Cryptographic Isolation:** Every group message is encrypted into $N-1$ unique ciphertexts using the sender's individual Double Ratchet session with each group recipient. A compromise of one peer session does not expose messages to or from any other peer.
+- **Metadata Shielding:** Group IDs, channel names, and member rosters are embedded inside the `v: 1` Signal envelope (`group: { id, name, members, action }`) before ratchet encryption.
+- **Decentralized Auto-Discovery:** Group invitations (`action: 'join'`) and updates are discovered and registered client-side upon decrypting the envelope, eliminating central directory dependencies.
+
+**Status:** ✅ **Mitigated.** Multi-party group communication maintains strict pairwise Double Ratchet isolation and complete server blindness.
+
+---
+
+### 3.23 Threat T-23 — Accidental Credential Exfiltration & Data Loss (DLP Bypass)
+
+**Category:** Data Loss / Secret Exfiltration  
+**STRIDE:** Information Disclosure  
+**Severity:** 🟠 High  
+
+**Description:**  
+Users frequently paste sensitive development credentials, production cloud keys, internal tokens, private cryptographic keys, or payment information into messaging channels during operational incidents. Once encrypted and sent across the Double Ratchet channel, these secrets become indelibly recorded in recipient conversation logs and offline mailboxes.
+
+**Attack Vector:** User error, developer copy-paste of environment variables, or automated clipboard script exfiltration.
+
+**Affected Components:** `frontend/js/dlp.js`, `frontend/js/app.js` (`sendMessage`, `sendGroupMessage`).
+
+**Impact:** Exposure of high-privilege credentials (AWS root/IAM keys, GitHub PATs, Slack bot tokens, SSH private keys) or payment card details (PCI-DSS violation) across chat history.
+
+**Mitigation:**
+- Implemented an **Enterprise Client-Side DLP Engine** (`frontend/js/dlp.js`) executing strictly *before* `SignalProtocol.encryptMessage()`.
+- **Pre-Encryption Interception:** Message payloads are scanned prior to envelope serialization and encryption. If a rule triggers, transmission is blocked client-side.
+- **High-Fidelity Regex Detection:**
+  - AWS Access Key IDs (`AKIA[0-9A-Z]{16}`)
+  - GitHub Personal Access Tokens (`ghp_[a-zA-Z0-9]{36}`, `gho_`, `github_pat_`)
+  - Slack Bot/User Tokens (`xox[baprs]-[0-9a-zA-Z-]{10,72}`)
+  - Cryptographic Private Keys (`-----BEGIN (RSA|EC|OPENSSH|PGP) PRIVATE KEY-----`)
+  - Generic High-Entropy API Secrets (Hex 32-64 chars, Base64 tokens)
+- **PCI-DSS Credit Card Validation:** Detects Visa, MasterCard, and American Express numbers and validates against the **Luhn algorithm (Mod-10 checksum)** to prevent false positives while blocking genuine card leaks.
+- **Configurable Policy Enforcement:** Supports hard `BLOCK` (aborts send and presents UI modal) and `WARN` (requests explicit confirmation).
+- **Masked Audit Trail:** Violations are recorded in `localStorage` audit history using masked rule tags (`[REDACTED-DLP: <Rule>]`), guaranteeing that audit logs never become a secondary secret exposure vector.
+
+**Status:** ✅ **Mitigated.** Pre-encryption DLP engine intercepts and blocks sensitive tokens and card data before cryptographic transmission.
+
+---
+
 ## 4. Threat Summary Matrix
 
 | ID | Threat | Severity | Component | Status |
@@ -599,6 +659,8 @@ Prior implementations stored decrypted message transcript logs in unencrypted br
 | T-19 | Missing WebSocket Origin validation | 🟡 Medium | WS upgrade handler | ⚠️ Unmitigated |
 | T-20 | Client-side trust anchor tampering (Safety Number suppression) | 🟠 High | `app.js`, `localStorage` | ⚠️ Unmitigated |
 | T-21 | Plaintext Client-Side Message History in `localStorage` | 🟠 High | `app.js`, `localStorage` | ✅ Mitigated |
+| T-22 | Group Metadata Leakage & Cross-Session Compromise | 🟠 High | `groups.js`, `envelope.js` | ✅ Mitigated |
+| T-23 | Accidental Credential Exfiltration & Data Loss (DLP Bypass) | 🟠 High | `dlp.js`, `app.js` | ✅ Mitigated |
 
 ---
 
@@ -636,7 +698,7 @@ Prior implementations stored decrypted message transcript logs in unencrypted br
 ---
 
 *Generated: 2026-06-30*
-*Last Updated: 2026-09-13 — added T-19 (missing WebSocket Origin validation) and T-20 (client-side trust anchor tampering / Safety Number suppression), identified during a review of session- and identity-hijacking risk across the application*
+*Last Updated: 2026-10-14 — added T-22 (Group Metadata Leakage & Cross-Session Compromise) and T-23 (Accidental Credential Exfiltration & Data Loss / DLP Bypass), verifying pairwise Double Ratchet group fan-out isolation and pre-encryption DLP policy engine*
 
 ## Security Disclaimer
 

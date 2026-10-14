@@ -20,6 +20,8 @@ This document provides a comprehensive security analysis of the Signal Protocol 
 - ✅ Forward secrecy
 - ✅ Future secrecy (via continuous key updates)
 - ✅ Identity protection (partial)
+- ✅ Multi-party group isolation (pairwise Double Ratchet fan-out)
+- ✅ Pre-encryption credential & PII exfiltration (client-side DLP)
 
 ## Cryptographic Analysis
 
@@ -168,10 +170,10 @@ Outcome: Attack detected via key fingerprint mismatch
 
 ## Future Security Enhancements
 
-1. **Post-Quantum Cryptography**: Prepare for quantum-resistant algorithms
-2. **Multi-Device Support**: Extended session management
-3. **Group Messaging**: Sender Keys for efficient group encryption
-4. **Verification Protocol**: QR code and fingerprint verification UI
+1. **Post-Quantum Cryptography**: Prepare for quantum-resistant algorithms (e.g. ML-KEM/Kyber hybrid key exchange)
+2. **Multi-Device Support**: Extended multi-identity session management and device synchronization
+3. **Sender Keys (Signal Groups v2)**: Optimize large-scale group fan-out for groups with $N > 50$ members
+4. **Verification Protocol**: Interactive QR code and fingerprint visual verification UI
 
 ## Conclusion
 

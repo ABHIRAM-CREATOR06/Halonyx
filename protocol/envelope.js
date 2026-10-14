@@ -35,7 +35,7 @@
    * @param {string} replyTo.senderHash - Canonical hashed USID of original parent author
    * @returns {Object} envelope
    */
-  function createEnvelope(body, replyTo) {
+  function createEnvelope(body, replyTo, group) {
     const envelope = {
       v: 1,
       id: generateUUID(),
@@ -48,6 +48,17 @@
         id: String(replyTo.id).substring(0, 64),
         snippet: String(replyTo.snippet || '').substring(0, 200),
         senderHash: String(replyTo.senderHash || '').substring(0, 64),
+      };
+    }
+
+    if (group && typeof group === 'object' && group.id) {
+      envelope.group = {
+        id: String(group.id).substring(0, 64),
+        name: String(group.name || '').substring(0, 100),
+        action: group.action ? String(group.action).substring(0, 32) : undefined,
+        members: Array.isArray(group.members)
+          ? group.members.slice(0, 100).map((m) => String(m).substring(0, 64))
+          : undefined,
       };
     }
 
@@ -111,6 +122,21 @@
       }
     }
 
+    // Optional group field validation
+    if (obj.group !== undefined && obj.group !== null) {
+      if (typeof obj.group !== 'object' || Array.isArray(obj.group)) {
+        return null;
+      }
+
+      if (typeof obj.group.id !== 'string' || obj.group.id.trim().length === 0 || obj.group.id.length > 64) {
+        return null;
+      }
+
+      if (obj.group.name !== undefined && (typeof obj.group.name !== 'string' || obj.group.name.length > 100)) {
+        return null;
+      }
+    }
+
     return {
       v: 1,
       id: obj.id,
@@ -120,6 +146,12 @@
         id: obj.replyTo.id,
         snippet: obj.replyTo.snippet,
         senderHash: obj.replyTo.senderHash,
+      } : undefined,
+      group: obj.group ? {
+        id: obj.group.id,
+        name: obj.group.name || '',
+        action: obj.group.action ? String(obj.group.action) : undefined,
+        members: Array.isArray(obj.group.members) ? obj.group.members.map(String) : undefined,
       } : undefined,
     };
   }

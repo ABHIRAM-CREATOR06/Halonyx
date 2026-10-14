@@ -23,10 +23,12 @@ The system has three primary zones:
 | Runtime responsibility | Main implementation | Architectural role |
 | --- | --- | --- |
 | Browser UI | [`frontend/index.html`](frontend/index.html), [`frontend/js/app.js`](frontend/js/app.js), [`frontend/css/style.css`](frontend/css/style.css) | User interface, local state, REST and WebSocket client, file-transfer controls |
+| E2EE Group Messaging | [`frontend/js/groups.js`](frontend/js/groups.js) | Pairwise Double Ratchet group fan-out coordinator, group metadata lifecycle, member sync, and recipient auto-discovery |
+| Data Loss Prevention (DLP) | [`frontend/js/dlp.js`](frontend/js/dlp.js) | Client-side pre-encryption DLP inspection, pattern matching (API tokens, private keys, Luhn credit cards), and masked local audit logging |
 | HTTP API and static hosting | [`backend/server.js`](backend/server.js) | Express routes, JWT authentication, static frontend and protocol assets |
 | Real-time relay | [`backend/server.js`](backend/server.js) | WebSocket registration, message forwarding, X3DH-init relay, offline mailbox flush |
 | Protocol coordinator | [`protocol/signal_protocol.js`](protocol/signal_protocol.js) | Identity initialization, public bundle upload, session lifecycle, encryption and decryption |
-| Envelope protocol | [`protocol/envelope.js`](protocol/envelope.js) | Pure UMD module for `v:1` payload formatting, validation, quote envelope building, and legacy message normalization |
+| Envelope protocol | [`protocol/envelope.js`](protocol/envelope.js) | Pure UMD module for `v:1` payload formatting, validation, quote envelope building, group metadata encapsulation, and legacy message normalization |
 | Initial key agreement | [`protocol/x3dh.js`](protocol/x3dh.js) | X3DH-style key bundle generation and shared-secret derivation |
 | Ongoing session protection | [`protocol/double_ratchet.js`](protocol/double_ratchet.js) | Message-key advancement, ratchet state, forward-secrecy and post-compromise goals |
 | Browser key persistence | [`protocol/idb_key_store.js`](protocol/idb_key_store.js) | IndexedDB persistence for CryptoKey objects and session state |
@@ -91,25 +93,103 @@ The cryptographic boundary is deliberately placed in the browser:
 
 The protocol documentation in [`protocol/README.md`](protocol/README.md) and [`protocol/SECURITY_ANALYSIS.md`](protocol/SECURITY_ANALYSIS.md) contains the project’s detailed cryptographic assumptions and limitations.
 
-### Signal Envelope & Inline Reply Architecture
+### Signal Envelope & Metadata Shielding Architecture
+
+Halonyx uses an application-layer envelope encapsulation scheme (`protocol/envelope.js`, schema `v: 1`) to shield structured conversation metadata inside the end-to-end encrypted payload:
 
 ```json
 {
   "v": 1,
   "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "text": "I agree, let's proceed.",
+  "text": "I agree, let's deploy the hotfix.",
   "timestamp": 1718000000000,
   "replyTo": {
     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     "senderHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "snippet": "Should we deploy the update?"
+  },
+  "group": {
+    "id": "group_1718000000000_abc123",
+    "name": "Core Infrastructure",
+    "members": [
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "8790c5c4f24efc8a52865910fa9ab4f21d3f3f0cfc1c4f52636f01524383ab7a"
+    ],
+    "action": "message"
   }
 }
 ```
 
-1. **Envelope Validation & Normalization**: The `EnvelopeModule` forces strict schema checks (`parseAndValidateEnvelope`). Messages failing schema validation or plain strings are safely normalized to `v: 1` plain text payloads without reply attributes.
-2. **Dynamic Quote Resolution**: Parent messages are looked up client-side by `(peerUsid, parentId)`. If the parent message is present in local history, the quote block dynamically resolves to the parent's actual content; if unresolvable, it safely falls back to the muted `replyTo.snippet`.
-3. **Chain Traversal & Cycle Protection**: Interactive thread-chain panel traversal uses a `visited` set and a depth threshold of 50 to prevent infinite recursion or cyclical parent references from untrusted peers.
+1. **Envelope Validation & Normalization**: The `EnvelopeModule` forces strict schema checks (`parseAndValidateEnvelope`). Messages failing schema validation or legacy raw text strings are safely normalized to `v: 1` plain text payloads without reply or group attributes.
+2. **Metadata Shielding**: Both parent thread reply pointers (`replyTo`) and group channel affiliations (`group`) exist **strictly inside the encrypted ciphertext**. The server relay and database never see group identifiers, member lists, or reply hierarchies.
+3. **Dynamic Quote Resolution**: Parent messages are looked up client-side by `(peerUsid, parentId)`. If the parent message is present in local history, the quote block dynamically resolves to the parent's actual content; if unresolvable, it safely falls back to the sanitized `replyTo.snippet`.
+4. **Cycle & Depth Protection**: Interactive thread-chain panel traversal uses a `visited` set and a depth threshold of 50 to prevent infinite recursion or cyclical parent references from untrusted peers.
+
+### E2EE Group Messaging Architecture (Pairwise Double Ratchet Fan-Out)
+
+Halonyx implements **Signal Groups v1** pairwise fan-out encryption (`frontend/js/groups.js`):
+
+```
+                     ┌──────────────────┐
+                     │ Sender (Client)  │
+                     └─────────┬────────┘
+                               │
+       ┌───────────────────────┼───────────────────────┐
+       │ (Ratchet A→B)         │ (Ratchet A→C)         │ (Ratchet A→D)
+       ▼                       ▼                       ▼
+┌──────────────┐        ┌──────────────┐        ┌──────────────┐
+│ Ciphertext B │        │ Ciphertext C │        │ Ciphertext D │
+└──────┬───────┘        └──────┬───────┘        └──────┬───────┘
+       │                       │                       │
+       └───────────────────────┼───────────────────────┘
+                               │ (3 standard 1:1 WS messages)
+                               ▼
+                    ┌─────────────────────┐
+                    │ Halonyx Server Relay│  (Zero-Knowledge:
+                    │   (backend/server)  │   Server sees only standard 1:1 frames;
+                    └──────────┬──────────┘   no group tables or group IDs)
+                               │
+       ┌───────────────────────┼───────────────────────┐
+       ▼                       ▼                       ▼
+┌──────────────┐        ┌──────────────┐        ┌──────────────┐
+│  Peer Bob    │        │  Peer Carol  │        │  Peer Dave   │
+│ (Decrypts B) │        │ (Decrypts C) │        │ (Decrypts D) │
+└──────────────┘        └──────────────┘        └──────────────┘
+```
+
+1. **Zero-Knowledge Server Blindness**: The server maintains **no database tables, no state, and no endpoints** for groups. Group creation, membership synchronization, and group discovery take place exclusively inside the encrypted payload layer.
+2. **Pairwise Double Ratchet Isolation**: A group message to $N$ recipients is encrypted into $N-1$ unique ciphertexts using the sender's independent Double Ratchet session with each peer. Compromise of a single peer ratchet does not compromise messages to other group members, ensuring full Perfect Forward Secrecy (PFS) and Post-Compromise Security (PCS).
+3. **Decentralized Member Auto-Discovery**: When a peer decrypts an incoming envelope containing a `group` block, the client's `GroupManager` automatically registers or updates the group in `localStorage`. Group invitations and membership additions require no server intervention.
+4. **Group Action Lifecycle**: Member additions (`action: 'join'`) and removals (`action: 'leave'`) are signaled via cryptographically sealed envelopes fanned out across all active participants.
+
+### Enterprise Client-Side Data Loss Prevention (DLP)
+
+Halonyx integrates an enterprise-grade client-side DLP engine (`frontend/js/dlp.js`) positioned strictly **prior to ratchet encryption**:
+
+```
+[ User Input ] ──► [ DLP Scanner (dlp.js) ] ──┬──► (VIOLATION / BLOCK) ──► Abort Send & Alert UI
+                                              │
+                                              └──► (CLEAN / ALLOW) ─────► [ Envelope & Double Ratchet ] ──► [ WebSocket ]
+```
+
+1. **Pre-Encryption Inspection Pipeline**: Inspection executes client-side before `SignalProtocol.encryptMessage()` is invoked. Plaintext never reaches the cryptographic engine if blocked by a DLP policy.
+2. **High-Fidelity Pattern Detection**:
+   - **Cloud Credentials**: AWS Access Keys (`AKIA[0-9A-Z]{16}`), GitHub PATs (`ghp_`, `gho_`, `github_pat_`), Slack Tokens (`xox[baprs]-`).
+   - **Cryptographic Material**: RSA/EC/PGP Private Keys (`-----BEGIN (RSA|EC|OPENSSH|PGP) PRIVATE KEY-----`).
+   - **Payment Card Data (PCI-DSS)**: Visa, MasterCard, and American Express numbers verified against the **Luhn algorithm (Mod-10 checksum)** to eliminate false positives.
+   - **Generic High-Entropy Secrets**: Hexadecimal and Base64 API keys exceeding threshold entropy.
+3. **Dual Enforcement Policies**:
+   - `BLOCK`: Hard halt; transmission is rejected immediately and an alert modal displays the violated rule.
+   - `WARN`: Soft halt; prompts the user with a confirmation modal before proceeding.
+4. **Privacy-Preserving Audit Logging**: When a violation occurs, an audit record is stored in browser-encrypted `localStorage`. Crucially, secrets are never written to the audit log in plaintext; matches are masked as `[REDACTED-DLP: <RuleName>]` to prevent secondary data exposure.
+
+### Slack-Style Slide-Over Threading & Tree Traversal
+
+Halonyx provides hierarchical message threading inspired by enterprise communication tools:
+
+1. **Thread Root Resolution**: Every reply envelope references its direct parent (`replyTo.id`). The client recursively resolves parent pointers to compute the root message of the thread.
+2. **Non-Intrusive Slide-Over Panel**: Active threads can be opened in an independent slide-over side panel (`#threadSlideover`), isolating side discussions from the primary chat timeline.
+3. **Cycle-Protected Traversal**: To safeguard client execution from malformed or adversarial payloads, graph traversal utilizes an in-memory `visited` set and enforces a strict recursion depth limit of 50.
 
 ---
 

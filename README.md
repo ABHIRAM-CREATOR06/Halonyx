@@ -71,6 +71,12 @@ It's a final-year project built as a deep, from-first-principles exploration of 
 
 - **Real-Time Delivery** — WebSocket messaging with queued-message status indicator (clock icon on undelivered messages)
 
+- **E2EE Group Messaging** — Signal Protocol Pairwise Double Ratchet fan-out architecture; multi-party encrypted channels with automatic group discovery, dynamic member management, and zero server-side group knowledge
+
+- **Enterprise Client-Side DLP** — pre-encryption Data Loss Prevention scanning for Cloud API Keys (AWS, GitHub, Slack, OpenAI, PEM keys), Payment Cards (with Luhn checksum validation), and PII (SSN, custom regex) with Block, Warn, and Auto-Redact modes and local compliance audit logging
+
+- **Slack-Style Threading Slide-over** — recursive root resolution tracing nested replies to the root conversation starter, participant metadata counters, in-thread composer, and real-time DLP inspection for both direct and group chats
+
 - **Beeper-Style Replies** — E2EE inline quote-replies, hover action bars, composer reply preview, jump-to-original with pulse highlight, and thread chain slide-over panel
 
 - **Dual Database Isolation** — identity metadata and operational data in separate SQLite databases, linked only by `SHA-256(USID)`
@@ -263,6 +269,55 @@ Identity keys, signed pre-keys, one-time pre-keys, and Double Ratchet session st
 
 ---
 
+## Group Messaging (Pairwise Double Ratchet Fan-Out)
+
+Halonyx reverse-engineers enterprise group collaboration (Slack / Rocket.Chat style) without violating the zero-knowledge guarantee of the underlying Signal Protocol. It implements the **Signal Groups v1 Pairwise Fan-Out** architecture:
+
+```
+Sender (Alice's Client)
+  ├── 1. Run Pre-Encryption DLP Inspection (Block / Warn / Redact)
+  ├── 2. Pack Envelope schema v:1 { body, replyTo, group: { id, name, members } }
+  ├── 3. Encrypt via DR(Alice ↔ Bob)     → { to: Hash(Bob), encrypted: c1 }
+  └── 4. Encrypt via DR(Alice ↔ Charlie) → { to: Hash(Charlie), encrypted: c2 }
+        │
+        └── WebSocket Relay Server (Strict Zero-Knowledge)
+              │
+              ├── Delivers c1 to Bob's mailbox (0 group table awareness)
+              └── Delivers c2 to Charlie's mailbox (0 group table awareness)
+```
+
+- **Zero Server-Side Knowledge**: The server has no concept of groups, group membership tables, or multi-party rooms. The relay simply routes pairwise ciphertexts to hashed USIDs or queues them in offline mailboxes.
+- **Independent Ratchet Sessions**: Each member pair maintains an independent Double Ratchet session. If one member's session is intercepted, other members' channels remain uncompromised.
+- **Group Auto-Discovery**: Incoming envelopes carry authenticated, encrypted group metadata (`group: { id, name, members, action }`). Recipient clients automatically discover, register, or update group rosters upon decrypting the envelope.
+- **Dynamic Membership**: Members can create groups from contacts or direct USIDs, add new participants dynamically, and leave groups without server coordination.
+
+---
+
+## Enterprise Client-Side DLP & Slack Threading
+
+### Client-Side Data Loss Prevention (DLP)
+
+Halonyx features an enterprise-grade DLP engine running strictly in the browser before messages enter the wire:
+
+- **Pre-Encryption Inspection**: Scans payloads prior to Signal Protocol encryption so secrets are prevented from ever leaving the browser in plaintext.
+- **Built-in Pattern Classifiers**:
+  - **Cloud & API Credentials**: AWS Access Keys (`AKIA...`), GitHub Personal Access Tokens (`ghp_...`), Slack Tokens (`xox[baprs]-...`), OpenAI API Keys (`sk-...`), and PEM Private Key headers.
+  - **Financial Data**: Payment card numbers (Visa, Mastercard, Amex, Discover) validated using the **Luhn Algorithm Checksum** to eliminate false positives on arbitrary 16-digit sequences.
+  - **PII & Custom Rules**: US Social Security Numbers (`XXX-XX-XXXX`), JWT tokens, and user-defined enterprise regex rules.
+- **Enforcement Modes**:
+  - `BLOCK`: Outright prevents transmission and prompts the user to edit.
+  - `WARN`: Presents an interactive policy warning dialog with option to override or auto-redact.
+  - `REDACT`: Automatically substitutes secrets with `[REDACTED-DLP: <Rule>]` placeholders before encryption.
+- **Tamper-Evident Audit Logging**: Stores local compliance incident records without storing leaked plaintext credentials.
+
+### Slack-Style Threading Slide-Over Panel
+
+- **Recursive Root Resolution**: Traces nested `replyTo` chains up to the originating parent message.
+- **Slide-Over Drawer**: Displays the root message card, dynamic participant count, full chronological reply stream, and a dedicated in-thread composer.
+- **Shielded Cryptography**: Thread metadata is stored inside the cryptographic envelope (`v: 1`), keeping reply parent IDs invisible to the server relay.
+
+---
+
 ## Safety Numbers
 
 Safety Numbers close the MITM gap. Even with perfect E2E encryption, a malicious server could substitute public keys during X3DH — reading all messages without either party knowing.
@@ -392,17 +447,22 @@ The `tests/` directory covers the crypto core and the surrounding server logic u
 
 ```
 tests/
-├── x25519_protocol.test.js     # X3DH primitives over Web Crypto's X25519
-├── x3dh.test.js                # Full X3DH initiator/responder handshake
-├── double_ratchet.test.js      # Symmetric + DH ratchet correctness
-├── crypto_utils.test.js        # AES-256-GCM, HKDF, HMAC primitives
-├── safety_number.test.js       # Safety number derivation & formatting
-├── auth_connect.test.js        # Signup, JWT auth, WS registration flow
-├── relay_metadata_static.test.js  # Server never persists plaintext relay metadata
-├── simulator_static.test.js    # Simulator loads and runs standalone
-├── email_utils.test.js         # Email utility functions
-├── utils.test.js               # USID generation & hashing
-└── verify-sqlite.js            # Native sqlite3 binding sanity check
+├── groups.test.js               # Multi-member Pairwise Double Ratchet E2EE fan-out
+├── group_integration.test.js    # Slack-style threading in groups, DLP, and static audit
+├── dlp.test.js                  # Enterprise DLP secret detection, Luhn validation, redaction
+├── slack_threading.test.js      # Root resolution, schema v:1 conformity, ciphertext shielding
+├── reply_envelope.test.js       # Envelope v:1 reply metadata round-trip & static audit
+├── x25519_protocol.test.js      # X3DH primitives over Web Crypto's X25519
+├── x3dh.test.js                 # Full X3DH initiator/responder handshake
+├── double_ratchet.test.js       # Symmetric + DH ratchet correctness
+├── crypto_utils.test.js         # AES-256-GCM, HKDF, HMAC primitives
+├── safety_number.test.js        # Safety number derivation & formatting
+├── auth_connect.test.js         # Signup, JWT auth, WS registration flow
+├── relay_metadata_static.test.js # Server never persists plaintext relay metadata
+├── simulator_static.test.js     # Simulator loads and runs standalone
+├── email_utils.test.js          # Email utility functions
+├── utils.test.js                # USID generation & hashing
+└── verify-sqlite.js             # Native sqlite3 binding sanity check
 ```
 
 Run everything with `npm test`, or just the crypto core with `npm run test:x25519`. Both run automatically in CI on Node 20, 22, and 24.
@@ -436,12 +496,16 @@ Halonyx/
 │       ├── identity_schema.sql  # identity.db schema
 │       └── key_schema.sql       # keys.db schema
 ├── frontend/
-│   ├── index.html               # Three-pane layout + Safety Numbers dialog
-│   ├── css/style.css            # Dark/light adaptive UI, Signal-style bubbles
-│   └── js/app.js                # WebTorrent · WS · E2EE wiring · Safety Numbers
+│   ├── index.html               # Three-pane layout, Safety Numbers, DLP & Group modals
+│   ├── css/style.css            # Dark/light adaptive UI, Signal bubbles, group badges
+│   └── js/
+│       ├── app.js               # WebTorrent · WS · E2EE wiring · Safety Numbers · UI
+│       ├── groups.js            # Pairwise Double Ratchet group lifecycle & auto-discovery
+│       └── dlp.js               # Enterprise pre-encryption DLP detection, Luhn check, audit log
 ├── protocol/
 │   ├── README.md                # Implementation overview
 │   ├── SECURITY_ANALYSIS.md     # Threat model & per-primitive security properties
+│   ├── envelope.js              # Schema v:1 cryptographic envelope with replyTo & group
 │   ├── signal_protocol.js       # Top-level façade: init, openSession, encrypt, decrypt
 │   ├── x3dh.js                  # X3DH initiator + responder paths
 │   ├── double_ratchet.js        # Double Ratchet with HKDF chain KDF
@@ -462,6 +526,11 @@ Halonyx/
 │   ├── benchmark/benchmark.md                   # Full-stack performance benchmarks
 │   └── compliance_doc/encryption-policy-brief.md # EU/US/India/UK/UN encryption policy brief
 ├── tests/                        # Node --test suite — crypto core + server logic
+│   ├── groups.test.js           # Multi-member Pairwise Double Ratchet E2EE fan-out
+│   ├── group_integration.test.js # Slack-style threading in groups, DLP, and static audit
+│   ├── dlp.test.js              # Enterprise DLP secret detection, Luhn validation, redaction
+│   ├── slack_threading.test.js  # Root resolution, schema v:1 conformity, ciphertext shielding
+│   ├── reply_envelope.test.js   # Envelope v:1 reply metadata round-trip & static audit
 │   ├── x25519_protocol.test.js  # X3DH primitives over Web Crypto's X25519
 │   ├── x3dh.test.js             # Full X3DH initiator/responder handshake
 │   ├── double_ratchet.test.js   # Symmetric + DH ratchet correctness
@@ -490,6 +559,12 @@ Halonyx/
 ## Roadmap
 
 - [x] End-to-end encrypted messaging (Signal Protocol — X3DH + Double Ratchet)
+
+- [x] End-to-end encrypted group messaging (Pairwise Signal Double Ratchet fan-out & auto-discovery)
+
+- [x] Enterprise Client-Side Data Loss Prevention (DLP) engine with Luhn verification & audit logs
+
+- [x] Slack-style in-thread messaging and sliding panel
 
 - [x] P2P file transfer (WebTorrent / BitTorrent over WebRTC)
 
@@ -530,8 +605,6 @@ Halonyx/
 - [ ] Post-quantum cryptography (CRYSTALS-Dilithium / SPHINCS+)
 
 - [ ] Multi-device session sync
-
-- [ ] Group messaging via Sender Keys
 
 - [ ] Voice & video (WebRTC)
 

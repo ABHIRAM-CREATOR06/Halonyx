@@ -69,6 +69,9 @@ let token = localStorage.getItem("token");
 let myUsid = localStorage.getItem("usid");
 let currentTheme = localStorage.getItem("theme") || "theme-dark";
 let currentChatUsid = null;
+let currentChatType = "direct"; // "direct" | "group"
+let currentChatGroupId = null;
+let currentCategory = "all"; // "all" | "direct" | "groups"
 let contacts = [];
 let messageHistory = {};
 let activeReplyTarget = null;
@@ -182,7 +185,7 @@ function loadMessageHistory() {
     .then((loaded) => {
       messageHistory = loaded;
       migrateLegacyHistory();
-      if (currentChatUsid) renderMessages();
+      if (currentChatType === "group" ? currentChatGroupId : currentChatUsid) renderMessages();
     })
     .catch((e) => console.error("[MessageHistory] Load error", e));
   return messageHistory;
@@ -237,8 +240,9 @@ function setReplyTarget(msg) {
 }
 
 function setReplyTargetById(msgId) {
-  if (!currentChatUsid || !messageHistory[currentChatUsid]) return;
-  const msg = messageHistory[currentChatUsid].find((m) => m.id === msgId);
+  const activeChatKey = currentChatType === "group" ? currentChatGroupId : currentChatUsid;
+  if (!activeChatKey || !messageHistory[activeChatKey]) return;
+  const msg = messageHistory[activeChatKey].find((m) => m.id === msgId);
   if (msg) setReplyTarget(msg);
 }
 
@@ -278,8 +282,11 @@ function countReplies(history, msgId) {
   return count;
 }
 
-function openReplyChain(startMsgId) {
-  const history = messageHistory[currentChatUsid] || [];
+let activeThreadRootMsg = null;
+
+function openThread(startMsgId) {
+  const activeChatKey = currentChatType === "group" ? currentChatGroupId : currentChatUsid;
+  const history = (activeChatKey && messageHistory[activeChatKey]) || [];
   if (history.length === 0) return;
 
   const visited = new Set();
@@ -296,6 +303,7 @@ function openReplyChain(startMsgId) {
     depth++;
   }
   const rootMsg = current;
+  activeThreadRootMsg = rootMsg;
 
   const threadSet = new Set([rootMsg.id]);
   let addedNew = true;
@@ -312,39 +320,222 @@ function openReplyChain(startMsgId) {
   }
 
   const threadMsgs = history.filter((m) => threadSet.has(m.id));
+  const replies = threadMsgs.filter((m) => m.id !== rootMsg.id);
+
+  // Participant metadata
+  const participantNames = new Set();
+  participantNames.add(rootMsg.from === "me" ? "You" : getContactName(rootMsg.from));
+  replies.forEach((m) => {
+    participantNames.add(m.from === "me" ? "You" : getContactName(m.from));
+  });
+
+  const badgeEl = document.getElementById("thread-participants-badge");
+  if (badgeEl) {
+    const pCount = participantNames.size;
+    const rCount = replies.length;
+    badgeEl.textContent = `${rCount} ${rCount === 1 ? "reply" : "replies"} · ${pCount} ${pCount === 1 ? "participant" : "participants"}`;
+  }
 
   const panel = document.getElementById("reply-chain-panel");
   const body = document.getElementById("reply-chain-body");
   if (!panel || !body) return;
 
-  let html = "";
-  threadMsgs.forEach((m) => {
+  const rootAuthor = rootMsg.from === "me" ? "You" : getContactName(rootMsg.from);
+  const rootInitial = (rootAuthor.charAt(0) || "U").toUpperCase();
+  const rootTimeStr = formatTime(rootMsg.timestamp);
+
+  let html = `
+    <div class="thread-root-card">
+      <div class="thread-user-header">
+        <div class="thread-user-meta">
+          <div class="thread-avatar">${escapeHTML(rootInitial)}</div>
+          <span class="thread-author-name">${escapeHTML(rootAuthor)}</span>
+          <span class="thread-time-stamp">${escapeHTML(rootTimeStr)}</span>
+        </div>
+        <button class="msg-action-btn" onclick="copyMessageText('${escapeAttr(rootMsg.content)}')" title="Copy text">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        </button>
+      </div>
+      <div class="thread-root-content">${escapeHTML(rootMsg.content)}</div>
+    </div>
+  `;
+
+  if (replies.length > 0) {
+    html += `
+      <div class="thread-replies-divider">
+        <span>${replies.length} ${replies.length === 1 ? "reply" : "replies"}</span>
+      </div>
+    `;
+  }
+
+  replies.forEach((m) => {
     const author = m.from === "me" ? "You" : getContactName(m.from);
+    const initial = (author.charAt(0) || "U").toUpperCase();
     const timeStr = formatTime(m.timestamp);
-    const isRoot = m.id === rootMsg.id;
+    const isMe = m.from === "me";
 
     html += `
-      <div class="thread-item ${isRoot ? "root-item" : ""}">
-        <div class="thread-author">${escapeHTML(author)} ${isRoot ? '<small style="opacity:0.7">(Original)</small>' : ""}</div>
-        <div class="thread-body">${escapeHTML(m.content)}</div>
-        <div class="thread-meta">
-          <span>${timeStr}</span>
-          <button class="thread-reply-btn" onclick="setReplyTargetById('${escapeAttr(m.id)}'); hideReplyChain();">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg>
-            Reply
+      <div class="thread-item ${isMe ? "sent-by-me" : ""}" id="thread-item-${escapeAttr(m.id)}">
+        <div class="thread-user-header">
+          <div class="thread-user-meta">
+            <div class="thread-avatar">${escapeHTML(initial)}</div>
+            <span class="thread-author-name">${escapeHTML(author)}</span>
+            <span class="thread-time-stamp">${escapeHTML(timeStr)}</span>
+          </div>
+          <button class="msg-action-btn" onclick="copyMessageText('${escapeAttr(m.content)}')" title="Copy text">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
           </button>
         </div>
+        <div class="thread-body">${escapeHTML(m.content)}</div>
       </div>
     `;
   });
 
   body.innerHTML = html;
   panel.classList.remove("hidden");
+
+  // Reset thread composer
+  const threadInput = document.getElementById("thread-message-input");
+  const threadWarning = document.getElementById("thread-dlp-warning");
+  if (threadWarning) threadWarning.classList.add("hidden");
+  if (threadInput) {
+    threadInput.value = "";
+    threadInput.focus();
+  }
+
+  body.scrollTop = body.scrollHeight;
 }
+
+const openReplyChain = openThread;
 
 function hideReplyChain() {
   const panel = document.getElementById("reply-chain-panel");
   if (panel) panel.classList.add("hidden");
+  activeThreadRootMsg = null;
+}
+
+function jumpToThreadRoot() {
+  if (activeThreadRootMsg) {
+    jumpToMessage(activeThreadRootMsg.id);
+  }
+}
+
+async function sendThreadReply() {
+  const input = document.getElementById("thread-message-input");
+  const isGroup = currentChatType === "group" && !!currentChatGroupId;
+  const activeChatKey = isGroup ? currentChatGroupId : currentChatUsid;
+  if (!input || !activeThreadRootMsg || !activeChatKey || !ws || ws.readyState !== WebSocket.OPEN) {
+    return;
+  }
+  let content = input.value.trim();
+  if (!content) return;
+
+  const targetName = isGroup
+    ? ((window.HalonyxGroups && HalonyxGroups.getGroup(currentChatGroupId, myUsid)?.name) || "Group")
+    : getContactName(currentChatUsid);
+
+  // Pre-encryption Enterprise DLP Inspection
+  if (window.HalonyxDLP) {
+    const scan = window.HalonyxDLP.scan(content);
+    if (scan.hasViolation) {
+      if (scan.mode === "BLOCK") {
+        window.HalonyxDLP.logIncident(scan.violations, "BLOCKED", targetName);
+        showDlpAlertDialog(scan, content, "thread");
+        return;
+      } else if (scan.mode === "WARN") {
+        showDlpAlertDialog(scan, content, "thread");
+        return;
+      } else if (scan.mode === "REDACT") {
+        window.HalonyxDLP.logIncident(scan.violations, "AUTO_REDACTED", targetName);
+        content = scan.redactedText;
+      }
+    }
+  }
+
+  const replyToMeta = {
+    id: activeThreadRootMsg.id,
+    snippet: activeThreadRootMsg.content ? String(activeThreadRootMsg.content).substring(0, 200) : "",
+    senderHash: activeThreadRootMsg.from === "me" ? myUsid : activeThreadRootMsg.from,
+  };
+
+  if (isGroup && window.HalonyxGroups) {
+    const group = HalonyxGroups.getGroup(currentChatGroupId, myUsid);
+    if (!group) return;
+    const groupMeta = {
+      id: group.id,
+      name: group.name,
+      members: group.members,
+      action: "message",
+    };
+    const envelope = EnvelopeModule.createEnvelope(content, replyToMeta, groupMeta);
+    const rawEnvelopeStr = JSON.stringify(envelope);
+
+    const otherMembers = HalonyxGroups.getOtherMembers(group, myUsid);
+    for (const recipient of otherMembers) {
+      try {
+        let payload;
+        if (signalProtocol.hasSession(recipient)) {
+          try {
+            const encrypted = await signalProtocol.encrypt(recipient, rawEnvelopeStr);
+            payload = { type: "message", to: recipient, encrypted };
+          } catch (e) {
+            payload = { type: "message", to: recipient, content: rawEnvelopeStr };
+          }
+        } else {
+          payload = { type: "message", to: recipient, content: rawEnvelopeStr };
+          startX3dhSession(recipient).catch((e) => console.warn("[Groups] Thread warm-up X3DH error:", e));
+        }
+        ws.send(JSON.stringify(payload));
+      } catch (err) {
+        console.error(`[Groups] Thread dispatch error to ${recipient}:`, err);
+      }
+    }
+
+    saveMessage(group.id, {
+      id: envelope.id,
+      from: "me",
+      content: envelope.body,
+      timestamp: envelope.ts,
+      rxTs: Date.now(),
+      replyTo: envelope.replyTo,
+      group: groupMeta,
+    });
+  } else {
+    const envelope = EnvelopeModule.createEnvelope(content, replyToMeta);
+    const rawEnvelopeStr = JSON.stringify(envelope);
+
+    let payload;
+    if (signalProtocol.hasSession(currentChatUsid)) {
+      try {
+        const encrypted = await signalProtocol.encrypt(currentChatUsid, rawEnvelopeStr);
+        payload = { type: "message", to: currentChatUsid, encrypted };
+        console.log("[E2EE] Thread envelope encrypted and sent");
+      } catch (e) {
+        console.error("[E2EE] Thread encryption failed, falling back to plaintext envelope", e);
+        payload = { type: "message", to: currentChatUsid, content: rawEnvelopeStr };
+      }
+    } else {
+      payload = { type: "message", to: currentChatUsid, content: rawEnvelopeStr };
+    }
+
+    ws.send(JSON.stringify(payload));
+    saveMessage(currentChatUsid, {
+      id: envelope.id,
+      from: "me",
+      content: envelope.body,
+      timestamp: envelope.ts,
+      rxTs: Date.now(),
+      replyTo: envelope.replyTo,
+    });
+  }
+
+  input.value = "";
+  const threadWarning = document.getElementById("thread-dlp-warning");
+  if (threadWarning) threadWarning.classList.add("hidden");
+
+  renderMessages();
+  openThread(activeThreadRootMsg.id);
+  playSendSound();
 }
 
 function contactAliasesKey() {
@@ -582,6 +773,43 @@ async function handleWSMessage(data) {
       // Normalize envelope or plaintext payload
       const { envelope } = EnvelopeModule.normalizeMessage(displayContent);
 
+      // E2EE Group Message Handling
+      if (envelope.group && envelope.group.id && window.HalonyxGroups) {
+        const groupResult = HalonyxGroups.handleIncomingEnvelope(envelope, from, myUsid);
+        const groupId = envelope.group.id;
+        const existingHist = messageHistory[groupId] || [];
+        if (existingHist.some((m) => m.id === envelope.id)) {
+          console.warn(`[WS] Duplicate group message ID ${envelope.id} rejected`);
+          break;
+        }
+
+        saveMessage(groupId, {
+          id: envelope.id,
+          from: from,
+          content: envelope.body,
+          timestamp: envelope.ts || timestamp || new Date().toISOString(),
+          rxTs: Date.now(),
+          replyTo: envelope.replyTo,
+          group: envelope.group,
+        });
+
+        const groupName = groupResult.group ? groupResult.group.name : "Group";
+        const senderName = getContactName(from);
+
+        if (currentChatType === "group" && currentChatGroupId === groupId) {
+          renderMessages();
+        } else {
+          if (groupResult.group) {
+            groupResult.group.unreadCount = (groupResult.group.unreadCount || 0) + 1;
+            HalonyxGroups.addOrUpdateGroup(groupResult.group, myUsid);
+          }
+          showSnackbar(`[${groupName}] ${senderName}: ${truncate(envelope.body, 28)}`, "info");
+          updateGroupBadges();
+        }
+        renderContactsList();
+        break;
+      }
+
       // Amendment 6: Look up duplicate IDs in message history and reject duplicates
       const existingHist = messageHistory[from] || [];
       if (existingHist.some((m) => m.id === envelope.id)) {
@@ -598,7 +826,7 @@ async function handleWSMessage(data) {
         replyTo: envelope.replyTo,
       });
 
-      if (currentChatUsid === from) {
+      if (currentChatType === "direct" && currentChatUsid === from) {
         renderMessages();
       } else {
         showSnackbar(`New message from peer`, "info");
@@ -653,8 +881,9 @@ async function handleWSMessage(data) {
       break;
     }
     case "queued": {
-      if (currentChatUsid && messageHistory[currentChatUsid]) {
-        const hist = messageHistory[currentChatUsid];
+      const activeChatKey = currentChatType === "group" ? currentChatGroupId : currentChatUsid;
+      if (activeChatKey && messageHistory[activeChatKey]) {
+        const hist = messageHistory[activeChatKey];
         for (let i = hist.length - 1; i >= 0; i--) {
           if (hist[i].from === "me" && !hist[i].status) {
             hist[i].status = "queued";
@@ -886,58 +1115,121 @@ function renderContactsList() {
     return;
   }
 
-  const query = document.getElementById("search-input").value.toLowerCase();
-  const filtered = contacts.filter((c) =>
+  const query = (document.getElementById("search-input")?.value || "").toLowerCase();
+  const allGroups = window.HalonyxGroups ? HalonyxGroups.loadGroups(myUsid) : [];
+
+  const filteredContacts = contacts.filter((c) =>
     c.toLowerCase().includes(query) || getContactName(c).toLowerCase().includes(query),
   );
 
-  if (filtered.length === 0) {
+  const filteredGroups = allGroups.filter((g) =>
+    g.name.toLowerCase().includes(query) || (g.description && g.description.toLowerCase().includes(query)),
+  );
+
+  updateGroupBadges();
+
+  const showGroups = currentCategory === "all" || currentCategory === "groups";
+  const showDirect = currentCategory === "all" || currentCategory === "direct";
+  const totalItems = (showGroups ? filteredGroups.length : 0) + (showDirect ? filteredContacts.length : 0);
+
+  if (totalItems === 0) {
+    const isGroupsTab = currentCategory === "groups";
     list.innerHTML = `<div class="empty-contacts">
-            <span class="material-icons-outlined">group_add</span>
-            <p>${query ? "No matches found" : "No contacts yet"}</p>
-            <small>${query ? "Try a different search" : "Add a trusted contact using their USID"}</small>
-            ${query ? "" : '<button id="empty-add-contact" class="btn-primary sm">Add contact</button>'}
-        </div>`;
+      <span class="material-icons-outlined">${isGroupsTab ? "diversity_3" : "group_add"}</span>
+      <p>${query ? "No matches found" : (isGroupsTab ? "No groups yet" : "No contacts yet")}</p>
+      <small>${query ? "Try a different search" : (isGroupsTab ? "Create an encrypted multi-party channel" : "Add a trusted contact using their USID")}</small>
+      ${query ? "" : (isGroupsTab
+        ? '<button id="empty-create-group" class="btn-primary sm"><span class="material-icons-outlined">groups</span> Create Group</button>'
+        : '<button id="empty-add-contact" class="btn-primary sm">Add contact</button>')}
+    </div>`;
     document.getElementById("empty-add-contact")?.addEventListener("click", () => showDialog("add-contact-dialog"));
+    document.getElementById("empty-create-group")?.addEventListener("click", () => openCreateGroupModal());
     return;
   }
 
   try {
-    list.innerHTML = filtered
-      .map((c, i) => {
+    let html = "";
+
+    // Render Groups section
+    if (showGroups && filteredGroups.length > 0) {
+      if (currentCategory === "all") {
+        html += `<div class="category-section-header">ENCRYPTED GROUPS (${filteredGroups.length})</div>`;
+      }
+      filteredGroups.forEach((g) => {
+        const history = messageHistory[g.id] || [];
+        const lastMsg = history.length > 0 ? history[history.length - 1] : null;
+        let preview = "No messages yet";
+        if (lastMsg) {
+          const author = lastMsg.from === "me" ? "You" : getContactName(lastMsg.from);
+          preview = `${author}: ${truncate(lastMsg.content, 26)}`;
+        } else if (g.description) {
+          preview = truncate(g.description, 28);
+        }
+        const timeStr = lastMsg ? formatTime(lastMsg.timestamp) : "";
+        const isActive = currentChatType === "group" && currentChatGroupId === g.id ? "active" : "";
+        const unreadBadge = g.unreadCount > 0 ? `<span class="group-unread-badge">${g.unreadCount}</span>` : "";
+
+        html += `
+        <div class="contact-item group-item ${isActive}" onclick="openGroupChat('${escapeAttr(g.id)}')">
+          <div class="contact-avatar">
+            <span class="material-icons-outlined">diversity_3</span>
+          </div>
+          <div class="contact-body">
+            <div class="contact-name">
+              ${escapeHTML(g.name)}
+              <span class="group-member-count-pill">${g.members ? g.members.length : 0} members</span>
+            </div>
+            <div class="contact-preview">${escapeHTML(preview)}</div>
+          </div>
+          <div class="contact-meta">
+            <span class="contact-time">${timeStr}</span>
+            ${unreadBadge}
+            <button class="contact-rename-btn" onclick="event.stopPropagation(); openGroupDetailsModal('${escapeAttr(g.id)}')" title="Group Details" aria-label="Details for ${escapeAttr(g.name)}">
+              <span class="material-icons-outlined">info</span>
+            </button>
+          </div>
+        </div>`;
+      });
+    }
+
+    // Render Direct contacts section
+    if (showDirect && filteredContacts.length > 0) {
+      if (currentCategory === "all" && filteredGroups.length > 0) {
+        html += `<div class="category-section-header" style="margin-top:8px;">DIRECT MESSAGES (${filteredContacts.length})</div>`;
+      }
+      filteredContacts.forEach((c, i) => {
         const history = messageHistory[c] || [];
         const lastMsg = history.length > 0 ? history[history.length - 1] : null;
         const preview = lastMsg
           ? truncate(lastMsg.content, 32)
           : "No messages yet";
         const timeStr = lastMsg ? formatTime(lastMsg.timestamp) : "";
-        const isActive = currentChatUsid === c ? "active" : "";
+        const isActive = currentChatType === "direct" && currentChatUsid === c ? "active" : "";
         const avClass = `av-${i % 5}`;
 
-        return `
+        html += `
         <div class="contact-item ${isActive}" onclick="openChat('${escapeAttr(c)}')">
-            <div class="contact-avatar ${avClass}">
-                <span class="material-icons-outlined">person</span>
-            </div>
-            <div class="contact-body">
-                <div class="contact-name">${escapeHTML(getContactName(c))}</div>
-                <div class="contact-preview">${escapeHTML(preview)}</div>
-            </div>
-                <div class="contact-meta">
-                    <span class="contact-time">${timeStr}</span>
-                    <button class="contact-rename-btn" onclick="event.stopPropagation(); renameContact('${escapeAttr(c)}')" title="Rename contact" aria-label="Rename ${escapeAttr(getContactName(c))}">
-                        <span class="material-icons-outlined">edit</span>
-                    </button>
-                    <button class="contact-delete-btn" onclick="event.stopPropagation(); removeContact('${escapeAttr(c)}')" title="Remove contact">
-                    <span class="material-icons-outlined">close</span>
-                </button>
-            </div>
+          <div class="contact-avatar ${avClass}">
+            <span class="material-icons-outlined">person</span>
+          </div>
+          <div class="contact-body">
+            <div class="contact-name">${escapeHTML(getContactName(c))}</div>
+            <div class="contact-preview">${escapeHTML(preview)}</div>
+          </div>
+          <div class="contact-meta">
+            <span class="contact-time">${timeStr}</span>
+            <button class="contact-rename-btn" onclick="event.stopPropagation(); renameContact('${escapeAttr(c)}')" title="Rename contact" aria-label="Rename ${escapeAttr(getContactName(c))}">
+              <span class="material-icons-outlined">edit</span>
+            </button>
+            <button class="contact-delete-btn" onclick="event.stopPropagation(); removeContact('${escapeAttr(c)}')" title="Remove contact">
+              <span class="material-icons-outlined">close</span>
+            </button>
+          </div>
         </div>`;
-      })
-      .join("");
-    console.log(
-      `[Render Contacts] Successfully rendered ${filtered.length} contacts`,
-    );
+      });
+    }
+
+    list.innerHTML = html;
   } catch (e) {
     console.error("[Render Contacts] Error rendering contact list:", e);
     showSnackbar("Error displaying contacts", "error");
@@ -1155,12 +1447,22 @@ async function removeContact(usid) {
 // Chat
 // ─────────────────────────────────────────
 async function openChat(hashedUsid) {
+  currentChatType = "direct";
+  currentChatGroupId = null;
   currentChatUsid = hashedUsid;
   const contactName = getContactName(hashedUsid);
 
   document.getElementById("no-chat-selected").style.display = "none";
   document.getElementById("chat-active-view").style.display = "flex";
   document.getElementById("app-bar-title").textContent = contactName;
+
+  const groupInfoBtn = document.getElementById("group-info-btn");
+  if (groupInfoBtn) groupInfoBtn.classList.add("hidden");
+
+  const peerStatus = document.getElementById("peer-status");
+  if (peerStatus) {
+    peerStatus.innerHTML = `<span class="status-dot-sm online"></span> Encrypted Channel`;
+  }
 
   document.getElementById("details-name").textContent = contactName;
   document.getElementById("details-full-usid").textContent = hashedUsid;
@@ -1181,11 +1483,120 @@ async function openChat(hashedUsid) {
   }
 }
 
-async function sendMessage() {
+async function sendGroupMessage(forceContent) {
   const input = document.getElementById("message-input");
-  const content = input.value.trim();
+  let content = forceContent !== undefined ? forceContent : input.value.trim();
+  if (!content || !currentChatGroupId || !ws || ws.readyState !== WebSocket.OPEN)
+    return;
+
+  if (!window.HalonyxGroups) return;
+  const group = HalonyxGroups.getGroup(currentChatGroupId, myUsid);
+  if (!group) return;
+
+  // Pre-encryption Enterprise DLP Inspection
+  if (window.HalonyxDLP && forceContent === undefined) {
+    const scan = window.HalonyxDLP.scan(content);
+    if (scan.hasViolation) {
+      if (scan.mode === "BLOCK") {
+        window.HalonyxDLP.logIncident(scan.violations, "BLOCKED", group.name);
+        showDlpAlertDialog(scan, content, "main");
+        return;
+      } else if (scan.mode === "WARN") {
+        showDlpAlertDialog(scan, content, "main");
+        return;
+      } else if (scan.mode === "REDACT") {
+        window.HalonyxDLP.logIncident(scan.violations, "AUTO_REDACTED", group.name);
+        content = scan.redactedText;
+      }
+    }
+  }
+
+  const replyTarget = activeReplyTarget;
+  const replyToMeta = replyTarget ? {
+    id: replyTarget.id,
+    snippet: replyTarget.snippet,
+    senderHash: replyTarget.senderHash,
+  } : null;
+
+  const groupMeta = {
+    id: group.id,
+    name: group.name,
+    members: group.members,
+    action: "message",
+  };
+
+  const envelope = EnvelopeModule.createEnvelope(content, replyToMeta, groupMeta);
+  const rawEnvelopeStr = JSON.stringify(envelope);
+
+  // Pairwise Double Ratchet Fan-Out to all other members in group
+  const otherMembers = HalonyxGroups.getOtherMembers(group, myUsid);
+  for (const recipient of otherMembers) {
+    try {
+      let payload;
+      if (signalProtocol.hasSession(recipient)) {
+        try {
+          const encrypted = await signalProtocol.encrypt(recipient, rawEnvelopeStr);
+          payload = { type: "message", to: recipient, encrypted };
+        } catch (encErr) {
+          console.warn(`[Groups] Encryption failed for ${recipient}, fallback to plaintext envelope:`, encErr);
+          payload = { type: "message", to: recipient, content: rawEnvelopeStr };
+        }
+      } else {
+        payload = { type: "message", to: recipient, content: rawEnvelopeStr };
+        startX3dhSession(recipient).catch((e) => console.warn("[Groups] Member X3DH warm-up error:", e));
+      }
+      ws.send(JSON.stringify(payload));
+    } catch (sendErr) {
+      console.error(`[Groups] Dispatch failed for ${recipient}:`, sendErr);
+    }
+  }
+
+  saveMessage(group.id, {
+    id: envelope.id,
+    from: "me",
+    content: envelope.body,
+    timestamp: envelope.ts,
+    rxTs: Date.now(),
+    replyTo: envelope.replyTo,
+    group: groupMeta,
+  });
+
+  input.value = "";
+  const dlpWarning = document.getElementById("dlp-inline-warning");
+  if (dlpWarning) dlpWarning.classList.add("hidden");
+
+  cancelReplyTarget();
+  renderMessages();
+  playSendSound();
+}
+
+async function sendMessage(forceContent) {
+  if (currentChatType === "group") {
+    return sendGroupMessage(forceContent);
+  }
+
+  const input = document.getElementById("message-input");
+  let content = forceContent !== undefined ? forceContent : input.value.trim();
   if (!content || !currentChatUsid || !ws || ws.readyState !== WebSocket.OPEN)
     return;
+
+  // Pre-encryption Enterprise DLP Inspection
+  if (window.HalonyxDLP && forceContent === undefined) {
+    const scan = window.HalonyxDLP.scan(content);
+    if (scan.hasViolation) {
+      if (scan.mode === "BLOCK") {
+        window.HalonyxDLP.logIncident(scan.violations, "BLOCKED", getContactName(currentChatUsid));
+        showDlpAlertDialog(scan, content, "main");
+        return;
+      } else if (scan.mode === "WARN") {
+        showDlpAlertDialog(scan, content, "main");
+        return;
+      } else if (scan.mode === "REDACT") {
+        window.HalonyxDLP.logIncident(scan.violations, "AUTO_REDACTED", getContactName(currentChatUsid));
+        content = scan.redactedText;
+      }
+    }
+  }
 
   const replyTarget = activeReplyTarget;
   const replyToMeta = replyTarget ? {
@@ -1224,6 +1635,9 @@ async function sendMessage() {
   });
 
   input.value = "";
+  const dlpWarning = document.getElementById("dlp-inline-warning");
+  if (dlpWarning) dlpWarning.classList.add("hidden");
+
   cancelReplyTarget();
   renderMessages();
   playSendSound();
@@ -1241,13 +1655,15 @@ function saveMessage(chatUsid, msg) {
 
 function renderMessages() {
   const container = document.getElementById("messages-container");
-  const history = messageHistory[currentChatUsid] || [];
+  const activeKey = currentChatType === "group" ? currentChatGroupId : currentChatUsid;
+  const history = activeKey ? (messageHistory[activeKey] || []) : [];
 
   if (history.length === 0) {
+    const isGroup = currentChatType === "group";
     container.innerHTML = `
       <div style="text-align:center;padding:40px 20px;color:var(--fg-muted);">
-        <span class="material-icons-outlined" style="font-size:32px;opacity:.4;display:block;margin-bottom:8px;">lock</span>
-        <p style="font-size:.8rem;font-family:var(--font-mono)">Messages are encrypted end-to-end</p>
+        <span class="material-icons-outlined" style="font-size:32px;opacity:.4;display:block;margin-bottom:8px;">${isGroup ? "groups" : "lock"}</span>
+        <p style="font-size:.8rem;font-family:var(--font-mono)">${isGroup ? "Group messages are end-to-end encrypted with Signal Double Ratchet" : "Messages are encrypted end-to-end"}</p>
       </div>`;
     return;
   }
@@ -1270,6 +1686,14 @@ function renderMessages() {
     });
 
     const replyCount = countReplies(history, msg.id);
+
+    // Group sender attribution for incoming multi-party messages
+    const senderAttributionHTML = (currentChatType === "group" && !isMe)
+      ? `<div class="msg-group-sender">
+           <span>${escapeHTML(getContactName(msg.from))}</span>
+           <span class="msg-group-sender-usid">${escapeHTML(truncate(msg.from, 12))}</span>
+         </div>`
+      : "";
 
     // Render Reply Quote Block if msg.replyTo exists
     let quoteHTML = "";
@@ -1300,7 +1724,10 @@ function renderMessages() {
 
     const hoverActionsHTML = `
       <div class="msg-hover-actions">
-        <button class="msg-action-btn" onclick="event.stopPropagation(); setReplyTargetById('${escapeAttr(msg.id)}')" title="Reply">
+        <button class="msg-action-btn" onclick="event.stopPropagation(); openThread('${escapeAttr(msg.id)}')" title="Reply in thread">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+        </button>
+        <button class="msg-action-btn" onclick="event.stopPropagation(); setReplyTargetById('${escapeAttr(msg.id)}')" title="Quote reply">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg>
         </button>
         <button class="msg-action-btn" onclick="event.stopPropagation(); copyMessageText('${escapeAttr(msg.content)}')" title="Copy">
@@ -1309,9 +1736,10 @@ function renderMessages() {
       </div>`;
 
     const threadChipHTML = replyCount > 0
-      ? `<div class="msg-thread-chip" onclick="event.stopPropagation(); openReplyChain('${escapeAttr(msg.id)}')">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg>
+      ? `<div class="slack-thread-chip" onclick="event.stopPropagation(); openThread('${escapeAttr(msg.id)}')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
           <span>${replyCount} ${replyCount === 1 ? "reply" : "replies"}</span>
+          <span class="chip-time">View thread</span>
         </div>`
       : "";
 
@@ -1330,6 +1758,7 @@ function renderMessages() {
         <div class="msg-row ${rowCls}" id="msg-${escapeAttr(msg.id)}">
           <div class="file-bubble">
             ${hoverActionsHTML}
+            ${senderAttributionHTML}
             ${quoteHTML}
             <div class="file-icon"><span class="material-icons-outlined">folder_zip</span></div>
             <div class="file-details">
@@ -1357,6 +1786,7 @@ function renderMessages() {
         <div class="msg-row ${rowCls}" id="msg-${escapeAttr(msg.id)}">
           <div class="msg-bubble${msg.status === "queued" ? " msg-queued" : ""}">
             ${hoverActionsHTML}
+            ${senderAttributionHTML}
             ${quoteHTML}
             ${escapeHTML(msg.content)}
             <span class="msg-time">${time}${statusIcon}</span>
@@ -2087,13 +2517,478 @@ function setupEventListeners() {
 
   document.getElementById("reply-preview-close")?.addEventListener("click", cancelReplyTarget);
   document.getElementById("close-reply-chain")?.addEventListener("click", hideReplyChain);
+  document.getElementById("jump-to-thread-root")?.addEventListener("click", jumpToThreadRoot);
+  document.getElementById("thread-send-btn")?.addEventListener("click", sendThreadReply);
+  document.getElementById("thread-message-input")?.addEventListener("keypress", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) sendThreadReply();
+  });
+
+  // Real-time DLP input monitors
+  const msgInput = document.getElementById("message-input");
+  const threadMsgInput = document.getElementById("thread-message-input");
+  msgInput?.addEventListener("input", (e) => {
+    checkLiveDlp(e.target, document.getElementById("dlp-inline-warning"), document.getElementById("dlp-inline-warning-text"));
+  });
+  threadMsgInput?.addEventListener("input", (e) => {
+    checkLiveDlp(e.target, document.getElementById("thread-dlp-warning"), document.getElementById("thread-dlp-warning-text"));
+  });
+
+  // Inline DLP Auto-Redact buttons
+  document.getElementById("dlp-inline-redact-btn")?.addEventListener("click", () => {
+    if (!window.HalonyxDLP || !msgInput) return;
+    const scan = window.HalonyxDLP.scan(msgInput.value);
+    if (scan.hasViolation) {
+      msgInput.value = scan.redactedText;
+      document.getElementById("dlp-inline-warning")?.classList.add("hidden");
+      showSnackbar("Detected secret redacted with [REDACTED-DLP]", "info");
+    }
+  });
+
+  document.getElementById("thread-dlp-redact-btn")?.addEventListener("click", () => {
+    if (!window.HalonyxDLP || !threadMsgInput) return;
+    const scan = window.HalonyxDLP.scan(threadMsgInput.value);
+    if (scan.hasViolation) {
+      threadMsgInput.value = scan.redactedText;
+      document.getElementById("thread-dlp-warning")?.classList.add("hidden");
+      showSnackbar("Detected secret redacted with [REDACTED-DLP]", "info");
+    }
+  });
+
+  // DLP Alert Dialog Actions
+  document.getElementById("close-dlp-alert")?.addEventListener("click", hideDlpAlertDialog);
+  document.getElementById("dlp-edit-btn")?.addEventListener("click", () => {
+    const src = pendingDlpAction?.source;
+    hideDlpAlertDialog();
+    if (src === "thread") {
+      document.getElementById("thread-message-input")?.focus();
+    } else {
+      document.getElementById("message-input")?.focus();
+    }
+  });
+  document.getElementById("dlp-redact-send-btn")?.addEventListener("click", handleDlpRedactSend);
+  document.getElementById("dlp-override-send-btn")?.addEventListener("click", handleDlpOverrideSend);
+
+  // DLP Settings Dialog
+  document.getElementById("show-dlp-config")?.addEventListener("click", openDlpSettings);
+  document.getElementById("dlp-status-btn")?.addEventListener("click", openDlpSettings);
+  document.getElementById("close-dlp-settings")?.addEventListener("click", closeDlpSettings);
+  document.getElementById("save-dlp-settings-btn")?.addEventListener("click", closeDlpSettings);
+
+  // DLP Tabs
+  document.querySelectorAll(".dlp-tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".dlp-tab-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      const targetTab = btn.getAttribute("data-tab");
+      document.querySelectorAll(".dlp-tab-content").forEach((c) => {
+        c.style.display = c.id === `dlp-tab-${targetTab}` ? "block" : "none";
+      });
+      if (targetTab === "audit") renderDlpAuditLog();
+      if (targetTab === "custom") renderCustomRulesList();
+    });
+  });
+
+  // DLP Master & Policy controls
+  document.getElementById("dlp-master-toggle")?.addEventListener("change", (e) => {
+    if (window.HalonyxDLP) {
+      window.HalonyxDLP.updateConfig({ enabled: e.target.checked });
+      updateDlpStatusBtn();
+      showSnackbar(`Enterprise DLP ${e.target.checked ? "enabled" : "disabled"}`, "info");
+    }
+  });
+
+  document.querySelectorAll("input[name='dlp-mode']").forEach((radio) => {
+    radio.addEventListener("change", (e) => {
+      if (window.HalonyxDLP && e.target.checked) {
+        window.HalonyxDLP.updateConfig({ mode: e.target.value });
+        document.querySelectorAll(".dlp-mode-card").forEach((card) => {
+          const r = card.querySelector("input[type='radio']");
+          card.classList.toggle("active", r && r.checked);
+        });
+        updateDlpStatusBtn();
+        showSnackbar(`DLP mode set to ${e.target.value}`, "info");
+      }
+    });
+  });
+
+  const catChangeHandler = () => {
+    if (!window.HalonyxDLP) return;
+    const cloudKeys = document.getElementById("cat-cloud-keys")?.checked;
+    const paymentCards = document.getElementById("cat-payment-cards")?.checked;
+    const pii = document.getElementById("cat-pii")?.checked;
+    window.HalonyxDLP.updateConfig({
+      categories: { cloudKeys, paymentCards, pii },
+    });
+  };
+  document.getElementById("cat-cloud-keys")?.addEventListener("change", catChangeHandler);
+  document.getElementById("cat-payment-cards")?.addEventListener("change", catChangeHandler);
+  document.getElementById("cat-pii")?.addEventListener("change", catChangeHandler);
+
+  // Custom rule addition
+  document.getElementById("add-custom-rule-btn")?.addEventListener("click", () => {
+    const nameInput = document.getElementById("custom-rule-name");
+    const patternInput = document.getElementById("custom-rule-pattern");
+    const severityInput = document.getElementById("custom-rule-severity");
+    const name = nameInput?.value.trim();
+    const pattern = patternInput?.value.trim();
+    const severity = severityInput?.value || "high";
+
+    if (!name || !pattern) {
+      showSnackbar("Please specify both a rule name and regex pattern", "warn");
+      return;
+    }
+
+    try {
+      new RegExp(pattern);
+    } catch (err) {
+      showSnackbar("Invalid regular expression syntax: " + err.message, "error");
+      return;
+    }
+
+    const cfg = window.HalonyxDLP.getConfig();
+    const customRules = cfg.customRules || [];
+    customRules.push({
+      id: "CUSTOM_" + Date.now(),
+      name,
+      pattern,
+      severity,
+      enabled: true,
+    });
+    window.HalonyxDLP.updateConfig({ customRules });
+    nameInput.value = "";
+    patternInput.value = "";
+    renderCustomRulesList();
+    showSnackbar("Custom enterprise rule added", "success");
+  });
+
+  // Audit log actions
+  document.getElementById("export-audit-log-btn")?.addEventListener("click", () => {
+    if (!window.HalonyxDLP) return;
+    const jsonStr = window.HalonyxDLP.exportAuditLogJSON();
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `halonyx-dlp-audit-${new Date().toISOString().substring(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showSnackbar("Compliance audit log exported", "success");
+  });
+
+  document.getElementById("clear-audit-log-btn")?.addEventListener("click", () => {
+    if (!window.HalonyxDLP) return;
+    window.HalonyxDLP.clearAuditLog();
+    renderDlpAuditLog();
+    showSnackbar("DLP audit log cleared", "info");
+  });
+
+  // Group Messaging Listeners
+  setupCategoryTabs();
+  document.getElementById("open-create-group-btn")?.addEventListener("click", openCreateGroupModal);
+  document.getElementById("close-create-group")?.addEventListener("click", closeCreateGroupModal);
+  document.getElementById("cancel-create-group")?.addEventListener("click", closeCreateGroupModal);
+  document.getElementById("confirm-create-group")?.addEventListener("click", handleConfirmCreateGroup);
+  document.getElementById("group-info-btn")?.addEventListener("click", () => openGroupDetailsModal());
+  document.getElementById("close-group-details")?.addEventListener("click", closeGroupDetailsModal);
+  document.getElementById("gd-add-member-btn")?.addEventListener("click", handleAddMemberToGroup);
+  document.getElementById("gd-leave-group-btn")?.addEventListener("click", handleLeaveGroup);
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       cancelReplyTarget();
       hideReplyChain();
+      hideDlpAlertDialog();
+      closeDlpSettings();
+      closeCreateGroupModal();
+      closeGroupDetailsModal();
     }
   });
+}
+
+// ─────────────────────────────────────────
+// Enterprise Data Loss Prevention (DLP) UI Controller
+// ─────────────────────────────────────────
+let pendingDlpAction = null;
+
+function showDlpAlertDialog(scan, originalText, source) {
+  pendingDlpAction = { scan, originalText, source };
+  const dialog = document.getElementById("dlp-alert-dialog");
+  if (!dialog) return;
+
+  const firstV = scan.violations[0];
+  document.getElementById("dlp-rule-badge").textContent = firstV.ruleName;
+  const sevBadge = document.getElementById("dlp-severity-badge");
+  sevBadge.textContent = firstV.severity.toUpperCase();
+  sevBadge.className = `badge-pill badge-${firstV.severity === "critical" ? "critical" : "danger"}`;
+
+  document.getElementById("dlp-category-badge").textContent = firstV.categoryLabel || "Enterprise Rule";
+  document.getElementById("dlp-snippet-code").textContent = firstV.maskedSnippet;
+
+  const overrideBtn = document.getElementById("dlp-override-send-btn");
+  if (overrideBtn) {
+    overrideBtn.style.display = scan.mode === "WARN" ? "inline-flex" : "none";
+  }
+
+  dialog.classList.remove("hidden");
+  dialog.classList.add("active");
+}
+
+function hideDlpAlertDialog() {
+  const dialog = document.getElementById("dlp-alert-dialog");
+  if (dialog) {
+    dialog.classList.remove("active");
+    dialog.classList.add("hidden");
+  }
+  pendingDlpAction = null;
+}
+
+function handleDlpRedactSend() {
+  if (!pendingDlpAction) return;
+  const { scan, source } = pendingDlpAction;
+  hideDlpAlertDialog();
+  const targetName = currentChatType === "group"
+    ? ((window.HalonyxGroups && HalonyxGroups.getGroup(currentChatGroupId, myUsid)?.name) || "Group")
+    : getContactName(currentChatUsid);
+  if (window.HalonyxDLP) {
+    window.HalonyxDLP.logIncident(scan.violations, "AUTO_REDACTED", targetName);
+  }
+  if (source === "thread") {
+    sendThreadReplyDirect(scan.redactedText);
+  } else {
+    sendMessage(scan.redactedText);
+  }
+}
+
+function handleDlpOverrideSend() {
+  if (!pendingDlpAction) return;
+  const { scan, originalText, source } = pendingDlpAction;
+  hideDlpAlertDialog();
+  const targetName = currentChatType === "group"
+    ? ((window.HalonyxGroups && HalonyxGroups.getGroup(currentChatGroupId, myUsid)?.name) || "Group")
+    : getContactName(currentChatUsid);
+  if (window.HalonyxDLP) {
+    window.HalonyxDLP.logIncident(scan.violations, "WARNED_SENT", targetName);
+  }
+  if (source === "thread") {
+    sendThreadReplyDirect(originalText);
+  } else {
+    sendMessage(originalText);
+  }
+}
+
+async function sendThreadReplyDirect(content) {
+  const isGroup = currentChatType === "group" && !!currentChatGroupId;
+  const activeChatKey = isGroup ? currentChatGroupId : currentChatUsid;
+  if (!activeThreadRootMsg || !activeChatKey || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+  const replyToMeta = {
+    id: activeThreadRootMsg.id,
+    snippet: activeThreadRootMsg.content ? String(activeThreadRootMsg.content).substring(0, 200) : "",
+    senderHash: activeThreadRootMsg.from === "me" ? myUsid : activeThreadRootMsg.from,
+  };
+
+  if (isGroup && window.HalonyxGroups) {
+    const group = HalonyxGroups.getGroup(currentChatGroupId, myUsid);
+    if (!group) return;
+    const groupMeta = {
+      id: group.id,
+      name: group.name,
+      members: group.members,
+      action: "message",
+    };
+    const envelope = EnvelopeModule.createEnvelope(content, replyToMeta, groupMeta);
+    const rawEnvelopeStr = JSON.stringify(envelope);
+
+    const otherMembers = HalonyxGroups.getOtherMembers(group, myUsid);
+    for (const recipient of otherMembers) {
+      try {
+        let payload;
+        if (signalProtocol.hasSession(recipient)) {
+          try {
+            const encrypted = await signalProtocol.encrypt(recipient, rawEnvelopeStr);
+            payload = { type: "message", to: recipient, encrypted };
+          } catch (e) {
+            payload = { type: "message", to: recipient, content: rawEnvelopeStr };
+          }
+        } else {
+          payload = { type: "message", to: recipient, content: rawEnvelopeStr };
+          startX3dhSession(recipient).catch(() => {});
+        }
+        ws.send(JSON.stringify(payload));
+      } catch (err) {}
+    }
+
+    saveMessage(group.id, {
+      id: envelope.id,
+      from: "me",
+      content: envelope.body,
+      timestamp: envelope.ts,
+      rxTs: Date.now(),
+      replyTo: envelope.replyTo,
+      group: groupMeta,
+    });
+  } else {
+    const envelope = EnvelopeModule.createEnvelope(content, replyToMeta);
+    const rawEnvelopeStr = JSON.stringify(envelope);
+
+    let payload;
+    if (signalProtocol.hasSession(currentChatUsid)) {
+      try {
+        const encrypted = await signalProtocol.encrypt(currentChatUsid, rawEnvelopeStr);
+        payload = { type: "message", to: currentChatUsid, encrypted };
+      } catch (e) {
+        payload = { type: "message", to: currentChatUsid, content: rawEnvelopeStr };
+      }
+    } else {
+      payload = { type: "message", to: currentChatUsid, content: rawEnvelopeStr };
+    }
+
+    ws.send(JSON.stringify(payload));
+    saveMessage(currentChatUsid, {
+      id: envelope.id,
+      from: "me",
+      content: envelope.body,
+      timestamp: envelope.ts,
+      rxTs: Date.now(),
+      replyTo: envelope.replyTo,
+    });
+  }
+
+  const input = document.getElementById("thread-message-input");
+  if (input) input.value = "";
+  renderMessages();
+  openThread(activeThreadRootMsg.id);
+  playSendSound();
+}
+
+function checkLiveDlp(inputEl, warningEl, textEl) {
+  if (!window.HalonyxDLP || !inputEl || !warningEl || !textEl) return;
+  const scan = window.HalonyxDLP.scan(inputEl.value);
+  if (scan.hasViolation) {
+    const v = scan.violations[0];
+    textEl.textContent = `DLP Alert: ${v.ruleName} detected (${v.maskedSnippet})`;
+    warningEl.classList.remove("hidden");
+  } else {
+    warningEl.classList.add("hidden");
+  }
+}
+
+function openDlpSettings() {
+  if (!window.HalonyxDLP) return;
+  const cfg = window.HalonyxDLP.getConfig();
+
+  // Master switch
+  const master = document.getElementById("dlp-master-toggle");
+  if (master) master.checked = !!cfg.enabled;
+
+  // Radio cards
+  document.querySelectorAll("input[name='dlp-mode']").forEach((radio) => {
+    radio.checked = radio.value === cfg.mode;
+    const card = radio.closest(".dlp-mode-card");
+    if (card) card.classList.toggle("active", radio.value === cfg.mode);
+  });
+
+  // Category switches
+  const catCloud = document.getElementById("cat-cloud-keys");
+  if (catCloud) catCloud.checked = !!cfg.categories.cloudKeys;
+  const catPayment = document.getElementById("cat-payment-cards");
+  if (catPayment) catPayment.checked = !!cfg.categories.paymentCards;
+  const catPii = document.getElementById("cat-pii");
+  if (catPii) catPii.checked = !!cfg.categories.pii;
+
+  renderCustomRulesList();
+  renderDlpAuditLog();
+
+  const dialog = document.getElementById("dlp-settings-dialog");
+  if (dialog) {
+    dialog.classList.remove("hidden");
+    dialog.classList.add("active");
+  }
+}
+
+function closeDlpSettings() {
+  const dialog = document.getElementById("dlp-settings-dialog");
+  if (dialog) {
+    dialog.classList.remove("active");
+    dialog.classList.add("hidden");
+  }
+  updateDlpStatusBtn();
+}
+
+function updateDlpStatusBtn() {
+  const btn = document.getElementById("dlp-status-btn");
+  if (!btn || !window.HalonyxDLP) return;
+  const cfg = window.HalonyxDLP.getConfig();
+  btn.className = `icon-btn dlp-mode-${cfg.mode.toLowerCase()}${cfg.enabled ? "" : " dlp-disabled"}`;
+  btn.title = `Enterprise DLP: ${cfg.enabled ? cfg.mode : "Disabled"}`;
+}
+
+function renderCustomRulesList() {
+  const container = document.getElementById("custom-rules-list");
+  if (!container || !window.HalonyxDLP) return;
+  const cfg = window.HalonyxDLP.getConfig();
+  const rules = cfg.customRules || [];
+
+  if (rules.length === 0) {
+    container.innerHTML = `<div style="color:var(--fg-muted);font-size:0.75rem;padding:8px 0;">No custom rules configured yet.</div>`;
+    return;
+  }
+
+  let html = "";
+  rules.forEach((r, idx) => {
+    html += `
+      <div class="custom-rule-card">
+        <div>
+          <strong>${escapeHTML(r.name)}</strong>
+          <div class="rule-pattern">/${escapeHTML(r.pattern)}/gi</div>
+        </div>
+        <button class="icon-btn-sm danger-text" onclick="deleteCustomDlpRule(${idx})" title="Delete rule">
+          <span class="material-icons-outlined">delete</span>
+        </button>
+      </div>
+    `;
+  });
+  container.innerHTML = html;
+}
+
+function deleteCustomDlpRule(index) {
+  if (!window.HalonyxDLP) return;
+  const cfg = window.HalonyxDLP.getConfig();
+  if (cfg.customRules && cfg.customRules[index]) {
+    cfg.customRules.splice(index, 1);
+    window.HalonyxDLP.updateConfig({ customRules: cfg.customRules });
+    renderCustomRulesList();
+    showSnackbar("Custom DLP rule removed", "info");
+  }
+}
+
+function renderDlpAuditLog() {
+  const wrap = document.getElementById("dlp-audit-table-wrap");
+  const counter = document.getElementById("audit-log-counter");
+  if (!wrap || !window.HalonyxDLP) return;
+
+  const log = window.HalonyxDLP.getAuditLog();
+  if (counter) counter.textContent = `${log.length} incident${log.length === 1 ? "" : "s"} logged locally`;
+
+  if (log.length === 0) {
+    wrap.innerHTML = `<div style="text-align:center;padding:24px;color:var(--fg-muted);">No security incidents intercepted yet.</div>`;
+    return;
+  }
+
+  let html = "";
+  log.forEach((entry) => {
+    const time = new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const badgeClass = entry.action === "BLOCKED" ? "audit-badge-blocked" : entry.action === "WARNED_SENT" ? "audit-badge-warned" : "audit-badge-redacted";
+    html += `
+      <div class="audit-entry-row">
+        <span class="audit-entry-time">${time}</span>
+        <span class="audit-entry-rule" title="${escapeAttr(entry.ruleName)}">${escapeHTML(entry.ruleName)}</span>
+        <span class="audit-entry-snippet">${escapeHTML(entry.maskedSnippet || "•••")}</span>
+        <span class="${badgeClass}">${escapeHTML(entry.action)}</span>
+      </div>
+    `;
+  });
+  wrap.innerHTML = html;
 }
 
 // ─────────────────────────────────────────
@@ -2227,3 +3122,280 @@ function handleSendEmail(provider) {
     });
   }
 }
+
+// ─────────────────────────────────────────
+// Encrypted Group Messaging UI Controller
+// ─────────────────────────────────────────
+
+async function openGroupChat(groupId) {
+  if (!window.HalonyxGroups) return;
+  const group = HalonyxGroups.getGroup(groupId, myUsid);
+  if (!group) return;
+
+  currentChatType = "group";
+  currentChatGroupId = groupId;
+  currentChatUsid = null;
+
+  document.getElementById("no-chat-selected").style.display = "none";
+  document.getElementById("chat-active-view").style.display = "flex";
+  document.getElementById("app-bar-title").textContent = group.name;
+
+  const peerStatus = document.getElementById("peer-status");
+  if (peerStatus) {
+    peerStatus.innerHTML = `<span class="status-dot-sm online"></span> ${group.members ? group.members.length : 0} members · Encrypted Group`;
+  }
+
+  const groupInfoBtn = document.getElementById("group-info-btn");
+  if (groupInfoBtn) groupInfoBtn.classList.remove("hidden");
+
+  // Reset unread count for this group
+  if (group.unreadCount > 0) {
+    group.unreadCount = 0;
+    HalonyxGroups.addOrUpdateGroup(group, myUsid);
+    updateGroupBadges();
+  }
+
+  // Pre-warm X3DH sessions with any member who does not have an active session
+  const otherMembers = HalonyxGroups.getOtherMembers(group, myUsid);
+  otherMembers.forEach((member) => {
+    if (!signalProtocol.hasSession(member)) {
+      console.log("[Groups] Starting background key exchange for member:", member);
+      startX3dhSession(member).catch((e) => console.warn("[Groups] Member session warm-up error:", e));
+    }
+  });
+
+  renderContactsList();
+  renderMessages();
+}
+window.openGroupChat = openGroupChat;
+
+function updateGroupBadges() {
+  const allGroups = window.HalonyxGroups ? HalonyxGroups.loadGroups(myUsid) : [];
+  const pill = document.getElementById("groups-pill-count");
+  if (!pill) return;
+  const totalUnread = allGroups.reduce((acc, g) => acc + (g.unreadCount || 0), 0);
+  if (totalUnread > 0) {
+    pill.textContent = totalUnread;
+    pill.classList.remove("hidden");
+  } else if (allGroups.length > 0) {
+    pill.textContent = allGroups.length;
+    pill.classList.remove("hidden");
+  } else {
+    pill.classList.add("hidden");
+  }
+}
+window.updateGroupBadges = updateGroupBadges;
+
+function setupCategoryTabs() {
+  const tabs = document.querySelectorAll(".sidebar-category-nav .cat-nav-btn");
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      tabs.forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+      currentCategory = tab.getAttribute("data-filter") || "all";
+      const label = document.getElementById("contacts-label-text");
+      if (label) {
+        label.textContent = currentCategory === "groups" ? "ENCRYPTED GROUPS" : (currentCategory === "direct" ? "DIRECT MESSAGES" : "CONVERSATIONS");
+      }
+      renderContactsList();
+    });
+  });
+}
+
+function openCreateGroupModal() {
+  const dialog = document.getElementById("create-group-dialog");
+  if (!dialog) return;
+  const nameInput = document.getElementById("group-name-input");
+  const descInput = document.getElementById("group-desc-input");
+  const extraInput = document.getElementById("group-extra-usid");
+  if (nameInput) nameInput.value = "";
+  if (descInput) descInput.value = "";
+  if (extraInput) extraInput.value = "";
+
+  const container = document.getElementById("group-contacts-selector");
+  if (container) {
+    if (contacts.length === 0) {
+      container.innerHTML = `<div style="padding:10px;color:var(--fg-muted);font-size:.78rem;">No contacts saved yet. You can add members by USID below.</div>`;
+    } else {
+      container.innerHTML = contacts.map((c) => {
+        const name = getContactName(c);
+        return `
+          <label class="group-contact-option">
+            <input type="checkbox" value="${escapeAttr(c)}" class="group-member-checkbox" />
+            <span><strong>${escapeHTML(name)}</strong> <small class="font-mono" style="color:var(--fg-muted);font-size:.7rem;">(${escapeHTML(truncate(c, 10))})</small></span>
+          </label>`;
+      }).join("");
+    }
+  }
+  dialog.classList.remove("hidden");
+  dialog.classList.add("active");
+  if (nameInput) nameInput.focus();
+}
+window.openCreateGroupModal = openCreateGroupModal;
+
+function closeCreateGroupModal() {
+  const dialog = document.getElementById("create-group-dialog");
+  if (dialog) {
+    dialog.classList.remove("active");
+    dialog.classList.add("hidden");
+  }
+}
+window.closeCreateGroupModal = closeCreateGroupModal;
+
+async function handleConfirmCreateGroup() {
+  if (!window.HalonyxGroups) return;
+  const nameInput = document.getElementById("group-name-input");
+  const descInput = document.getElementById("group-desc-input");
+  const extraUsidInput = document.getElementById("group-extra-usid");
+
+  const name = nameInput ? nameInput.value.trim() : "";
+  if (!name) {
+    showSnackbar("Please enter a group name", "warning");
+    if (nameInput) nameInput.focus();
+    return;
+  }
+
+  const selectedMembers = [];
+  document.querySelectorAll(".group-member-checkbox:checked").forEach((cb) => {
+    selectedMembers.push(cb.value);
+  });
+
+  const extra = extraUsidInput ? extraUsidInput.value.trim() : "";
+  if (extra) {
+    selectedMembers.push(extra);
+  }
+
+  try {
+    const group = HalonyxGroups.createGroup(name, descInput ? descInput.value : "", selectedMembers, myUsid);
+    HalonyxGroups.addOrUpdateGroup(group, myUsid);
+    closeCreateGroupModal();
+    showSnackbar(`Group "${group.name}" created!`, "success");
+    openGroupChat(group.id);
+  } catch (err) {
+    console.error("[Groups] Failed to create group:", err);
+    showSnackbar(err.message || "Failed to create group", "error");
+  }
+}
+window.handleConfirmCreateGroup = handleConfirmCreateGroup;
+
+function openGroupDetailsModal(groupId) {
+  if (!window.HalonyxGroups) return;
+  const targetId = groupId || currentChatGroupId;
+  if (!targetId) return;
+
+  const group = HalonyxGroups.getGroup(targetId, myUsid);
+  if (!group) return;
+
+  const dialog = document.getElementById("group-details-dialog");
+  if (!dialog) return;
+
+  const nameEl = document.getElementById("gd-name");
+  const descEl = document.getElementById("gd-desc");
+  const idEl = document.getElementById("gd-id");
+  const countEl = document.getElementById("gd-member-count");
+
+  if (nameEl) nameEl.textContent = group.name;
+  if (descEl) descEl.textContent = group.description || "No topic set";
+  if (idEl) idEl.textContent = group.id;
+  if (countEl) countEl.textContent = group.members ? group.members.length : 0;
+
+  const listEl = document.getElementById("gd-members-list");
+  if (listEl && Array.isArray(group.members)) {
+    listEl.innerHTML = group.members.map((m) => {
+      const isMe = m === myUsid;
+      const isCreator = m === group.creator;
+      const name = isMe ? "You" : getContactName(m);
+      return `
+        <div class="gd-member-item">
+          <div class="gd-member-name">
+            <strong>${escapeHTML(name)}</strong>
+            ${isCreator ? '<span class="gd-admin-badge">CREATOR</span>' : ""}
+            ${isMe ? '<span class="gd-admin-badge" style="background:rgba(0,229,195,0.15);color:var(--accent);">YOU</span>' : ""}
+            <div style="font-size:.65rem;color:var(--fg-muted);" class="font-mono">${escapeHTML(truncate(m, 16))}</div>
+          </div>
+          ${(!isMe) ? `
+            <button class="icon-btn-sm" onclick="handleRemoveMemberFromGroup('${escapeAttr(group.id)}', '${escapeAttr(m)}')" title="Remove member">
+              <span class="material-icons-outlined" style="font-size:16px;">person_remove</span>
+            </button>` : ""}
+        </div>`;
+    }).join("");
+  }
+
+  dialog.dataset.groupId = group.id;
+  dialog.classList.remove("hidden");
+  dialog.classList.add("active");
+}
+window.openGroupDetailsModal = openGroupDetailsModal;
+
+function closeGroupDetailsModal() {
+  const dialog = document.getElementById("group-details-dialog");
+  if (dialog) {
+    dialog.classList.remove("active");
+    dialog.classList.add("hidden");
+  }
+}
+window.closeGroupDetailsModal = closeGroupDetailsModal;
+
+function handleAddMemberToGroup() {
+  const dialog = document.getElementById("group-details-dialog");
+  const groupId = dialog?.dataset?.groupId || currentChatGroupId;
+  const input = document.getElementById("gd-add-member-input");
+  const usid = input?.value?.trim();
+  if (!groupId || !usid) {
+    showSnackbar("Please enter a valid member USID", "warning");
+    return;
+  }
+
+  const updated = HalonyxGroups.addMember(groupId, usid, myUsid);
+  if (updated) {
+    input.value = "";
+    showSnackbar("Member added to group", "success");
+    openGroupDetailsModal(groupId);
+    if (currentChatType === "group" && currentChatGroupId === groupId) {
+      const statusEl = document.getElementById("peer-status");
+      if (statusEl) {
+        statusEl.innerHTML = `<span class="status-dot-sm online"></span> ${updated.members.length} members · Encrypted Group`;
+      }
+    }
+    renderContactsList();
+  }
+}
+window.handleAddMemberToGroup = handleAddMemberToGroup;
+
+function handleRemoveMemberFromGroup(groupId, memberUsid) {
+  if (!confirm("Are you sure you want to remove this member from the group?")) return;
+  const updated = HalonyxGroups.removeMember(groupId, memberUsid, myUsid);
+  if (updated) {
+    showSnackbar("Member removed from group", "info");
+    openGroupDetailsModal(groupId);
+    if (currentChatType === "group" && currentChatGroupId === groupId) {
+      const statusEl = document.getElementById("peer-status");
+      if (statusEl) {
+        statusEl.innerHTML = `<span class="status-dot-sm online"></span> ${updated.members.length} members · Encrypted Group`;
+      }
+    }
+    renderContactsList();
+  }
+}
+window.handleRemoveMemberFromGroup = handleRemoveMemberFromGroup;
+
+function handleLeaveGroup() {
+  const dialog = document.getElementById("group-details-dialog");
+  const groupId = dialog?.dataset?.groupId || currentChatGroupId;
+  if (!groupId) return;
+  if (!confirm("Are you sure you want to leave this group?")) return;
+
+  HalonyxGroups.deleteGroup(groupId, myUsid);
+  closeGroupDetailsModal();
+  showSnackbar("Left group", "info");
+
+  if (currentChatType === "group" && currentChatGroupId === groupId) {
+    currentChatType = "direct";
+    currentChatGroupId = null;
+    document.getElementById("chat-active-view").style.display = "none";
+    document.getElementById("no-chat-selected").style.display = "flex";
+  }
+
+  renderContactsList();
+}
+window.handleLeaveGroup = handleLeaveGroup;

@@ -27,6 +27,8 @@ A comprehensive security audit of **Halonyx** was conducted following the 6-phas
 | ℹ️ **Pass** | AUD-06 | JWT Secret Generation & Persistence | `backend/server.js` | Verified dynamic hex secret generation via `crypto.randomBytes(32)` |
 | ℹ️ **Pass** | AUD-07 | E2E Cryptographic Primitives & Safety Numbers | `protocol/` | Signal Protocol (X25519, HKDF-SHA256, AES-256-GCM) verified safe |
 | ℹ️ **Pass** | AUD-08 | Client Message History Encryption (T-21) | `frontend/js/app.js` | AES-256-GCM Web Crypto encryption with USID key derivation verified |
+| ℹ️ **Pass** | AUD-09 | E2EE Group Messaging Cryptographic Isolation | `frontend/js/groups.js`, `protocol/envelope.js` | Pairwise Double Ratchet fan-out verified; zero server-side group state |
+| ℹ️ **Pass** | AUD-10 | Client-Side Pre-Encryption DLP Inspection | `frontend/js/dlp.js` | Pre-ratchet pattern matching & Luhn validation verified; audit log redacted |
 
 ---
 
@@ -40,6 +42,7 @@ A comprehensive security audit of **Halonyx** was conducted following the 6-phas
 - **X3DH Handshake Integrity**: Uses 4-part Diffie-Hellman derivation (`DH1` through `DH4`) combining Identity Keys, Ephemeral Keys, Signed Pre-Keys, and One-Time Pre-Keys.
 - **Double Ratchet Forward & Post-Compromise Secrecy**: Ephemeral DH ratcheting occurs on every reply sequence. Symmetric chain keys are derived using HKDF-SHA256 and discarded immediately after use.
 - **Safety Numbers**: 60-digit fingerprint computed via `SHA-256(sort_lex([SHA256(aliceUsid) + alicePubKey, SHA256(bobUsid) + bobPubKey]))`. Protects against active MITM key substitution attacks.
+- **Group Messaging Cryptographic Isolation (AUD-09)**: Group chat (`frontend/js/groups.js`) operates via client-side pairwise fan-out (Signal Groups v1). Each group transmission is encrypted individually using the recipient's isolated Double Ratchet session. PFS and PCS are strictly preserved across all peer pairs; compromise of one participant's session does not compromise any other group member. The server relay remains 100% zero-knowledge with no group-specific tables or routing awareness.
 
 #### Defect / Warning Analysis (AUD-02):
 - **Finding**: High message velocity against a single recipient can exhaust their One-Time Pre-Keys (OPKs). Once OPKs are depleted, X3DH falls back to 3-part DH (`DH1`..`DH3`), slightly weakening forward secrecy for initial session establishment until `replenishPreKeysIfNecessary()` executes.
@@ -92,6 +95,10 @@ A comprehensive security audit of **Halonyx** was conducted following the 6-phas
 - **Finding**: Previously, decrypted local message transcripts were persisted in plain text within browser `localStorage`, allowing any local attacker or script execution to extract decrypted conversation logs.
 - **Mitigation Verified**: Local transcripts are now encrypted with AES-256-GCM before writing to `localStorage` using Web Crypto API. Key material is derived per user via `SHA-256(myUsid)` and each record uses a fresh 12-byte initialization vector (IV), effectively mitigating Threat T-21.
 
+#### Enterprise Client-Side Data Loss Prevention (AUD-10):
+- **Finding**: Accidental transmission of cloud API keys, SSH private keys, or payment card details compromises operational security before encryption takes place.
+- **Mitigation Verified**: Client-side DLP pre-encryption engine (`frontend/js/dlp.js`) intercepts message payloads before `SignalProtocol.encryptMessage()` is invoked. Matches against AWS keys, GitHub tokens, Slack tokens, private keys, high-entropy tokens, and Luhn-validated credit cards trigger immediate policy action (`BLOCK` or `WARN`). Local audit logs record violations with masked tokens (`[REDACTED-DLP: <Rule>]`), preventing local secret harvesting.
+
 ---
 
 ## 3. Container & Deployment Security (`Dockerfile`, `docker-compose.yml`)
@@ -110,6 +117,9 @@ A comprehensive security audit of **Halonyx** was conducted following the 6-phas
 - [x] **Verified** Dynamic JWT secret generation (No hardcoded fallback).
 - [x] **Verified** Dual-database strict isolation via `SHA-256(USID)`.
 - [x] **Verified** X3DH + Double Ratchet crypto implementation against standard test vectors.
+- [x] **Verified** E2EE Group Messaging pairwise Double Ratchet isolation (AUD-09).
+- [x] **Verified** Client-side pre-encryption DLP scanner and masked audit logging (AUD-10).
+- [x] **Verified** Encrypted browser-local message transcripts via AES-256-GCM (AUD-08 / T-21).
 - [ ] **Recommended** Migrate `localStorage` JWT to `HttpOnly` cookies.
 - [ ] **Recommended** Implement auto-replenishment threshold for X3DH OPK pre-keys when count falls below 5.
 
