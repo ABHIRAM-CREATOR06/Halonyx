@@ -3,9 +3,6 @@
 <p align="center">
   <img src="assets/Halonyx-github-banner.png" alt="Halonyx Banner" width="100%" />
 </p>
-
-# <img src="assets/halonyx-favicon-pack/favicon.png" alt="Halonyx Favicon" width="36" height="36" style="vertical-align: middle; margin-right: 6px;" /> Halonyx
-
 <pre>
 ██╗  ██╗ █████╗ ██╗      ██████╗ ███╗   ██╗██╗   ██╗██╗  ██╗
 ██║  ██║██╔══██╗██║     ██╔═══██╗████╗  ██║╚██╗ ██╔╝╚██╗██╔╝
