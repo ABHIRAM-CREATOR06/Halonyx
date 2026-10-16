@@ -1,4 +1,12 @@
-<div align="center"> <pre>
+<div align="center">
+
+<p align="center">
+  <img src="assets/Halonyx-github-banner.png" alt="Halonyx Banner" width="100%" />
+</p>
+
+# <img src="assets/halonyx-favicon-pack/favicon.png" alt="Halonyx Favicon" width="36" height="36" style="vertical-align: middle; margin-right: 6px;" /> Halonyx
+
+<pre>
 ██╗  ██╗ █████╗ ██╗      ██████╗ ███╗   ██╗██╗   ██╗██╗  ██╗
 ██║  ██║██╔══██╗██║     ██╔═══██╗████╗  ██║╚██╗ ██╔╝╚██╗██╔╝
 ███████║███████║██║     ██║   ██║██╔██╗ ██║ ╚████╔╝  ╚███╔╝
@@ -482,6 +490,12 @@ Halonyx/
 │   │   ├── bug_report.md
 │   │   └── feature_request.md
 │   └── PULL_REQUEST_TEMPLATE.md
+├── assets/
+│   ├── Halonyx-github-banner.png# GitHub repository social banner
+│   └── halonyx-favicon-pack/    # Multi-resolution favicons, web icons & Apple touch icons
+│       ├── favicon.ico          # Multi-size ICO (16, 32, 48)
+│       ├── favicon.png          # High-resolution PNG icon
+│       └── apple-touch-icon.png # iOS home screen touch icon
 ├── backend/
 │   ├── server.js                # Express + WebSocket + UDP + offline mailbox
 │   │                            # + /keys/upload, /public-key, /update-pubkey
@@ -497,6 +511,9 @@ Halonyx/
 │       └── key_schema.sql       # keys.db schema
 ├── frontend/
 │   ├── index.html               # Three-pane layout, Safety Numbers, DLP & Group modals
+│   ├── robots.txt               # Web crawler indexing policy & sitemap reference
+│   ├── sitemap.xml              # Search engine XML sitemap
+│   ├── favicon.ico              # Root favicon
 │   ├── css/style.css            # Dark/light adaptive UI, Signal bubbles, group badges
 │   └── js/
 │       ├── app.js               # WebTorrent · WS · E2EE wiring · Safety Numbers · UI

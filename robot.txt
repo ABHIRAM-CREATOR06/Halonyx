@@ -1,0 +1,28 @@
+# robots.txt for Halonyx E2EE Messenger
+# https://halonyx.onrender.com
+
+User-agent: *
+Allow: /
+Allow: /index.html
+Allow: /css/
+Allow: /js/
+Allow: /assets/
+Allow: /favicon.ico
+Allow: /favicon.png
+Allow: /apple-touch-icon.png
+
+# Disallow authenticated, dynamic, or security-sensitive relay API endpoints
+Disallow: /signup
+Disallow: /login
+Disallow: /contacts
+Disallow: /mailbox
+Disallow: /keys/
+Disallow: /pubkey/
+Disallow: /update-pubkey
+Disallow: /identity/
+Disallow: /dlp/
+Disallow: /ws
+
+# Sitemaps
+Sitemap: https://halonyx.onrender.com/sitemap.xml
+Sitemap: https://abhiram-creator06.github.io/Halonyx/sitemap.xml

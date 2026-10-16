@@ -1084,6 +1084,12 @@ app.use(
   express.static("protocol", { etag: false, lastModified: false }),
 );
 
+// Serve assets/ files at /assets/*
+app.use(
+  "/assets",
+  express.static("assets", { etag: false, lastModified: false }),
+);
+
 // Disable all caching — must come BEFORE static middleware so Edge (and other browsers)
 // never serve a stale app.js from cache, which would cause identity hash mismatches.
 app.use((req, res, next) => {
