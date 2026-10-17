@@ -352,7 +352,7 @@ function openThread(startMsgId) {
           <span class="thread-author-name">${escapeHTML(rootAuthor)}</span>
           <span class="thread-time-stamp">${escapeHTML(rootTimeStr)}</span>
         </div>
-        <button class="msg-action-btn" onclick="copyMessageText('${escapeAttr(rootMsg.content)}')" title="Copy text">
+        <button class="msg-action-btn" onclick="copyMessageById('${escapeAttr(rootMsg.id)}')" title="Copy text">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
         </button>
       </div>
@@ -382,7 +382,7 @@ function openThread(startMsgId) {
             <span class="thread-author-name">${escapeHTML(author)}</span>
             <span class="thread-time-stamp">${escapeHTML(timeStr)}</span>
           </div>
-          <button class="msg-action-btn" onclick="copyMessageText('${escapeAttr(m.content)}')" title="Copy text">
+          <button class="msg-action-btn" onclick="copyMessageById('${escapeAttr(m.id)}')" title="Copy text">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
           </button>
         </div>
@@ -473,19 +473,17 @@ async function sendThreadReply() {
     const otherMembers = HalonyxGroups.getOtherMembers(group, myUsid);
     for (const recipient of otherMembers) {
       try {
-        let payload;
         if (signalProtocol.hasSession(recipient)) {
           try {
             const encrypted = await signalProtocol.encrypt(recipient, rawEnvelopeStr);
-            payload = { type: "message", to: recipient, encrypted };
+            ws.send(JSON.stringify({ type: "message", to: recipient, encrypted }));
           } catch (e) {
-            payload = { type: "message", to: recipient, content: rawEnvelopeStr };
+            console.warn(`[Groups] Thread encryption failed for ${recipient}, refusing plaintext fallback:`, e);
           }
         } else {
-          payload = { type: "message", to: recipient, content: rawEnvelopeStr };
+          console.warn(`[Groups] No session with ${recipient}, refusing plaintext thread reply; initiating X3DH`);
           startX3dhSession(recipient).catch((e) => console.warn("[Groups] Thread warm-up X3DH error:", e));
         }
-        ws.send(JSON.stringify(payload));
       } catch (err) {
         console.error(`[Groups] Thread dispatch error to ${recipient}:`, err);
       }
@@ -504,21 +502,29 @@ async function sendThreadReply() {
     const envelope = EnvelopeModule.createEnvelope(content, replyToMeta);
     const rawEnvelopeStr = JSON.stringify(envelope);
 
-    let payload;
-    if (signalProtocol.hasSession(currentChatUsid)) {
+    if (!signalProtocol.hasSession(currentChatUsid)) {
+      console.warn("[E2EE] No session with recipient — refusing plaintext thread reply. Initiating X3DH session...");
+      showSnackbar("Cannot send reply: no secure session established. Setting up session...", "warn");
       try {
-        const encrypted = await signalProtocol.encrypt(currentChatUsid, rawEnvelopeStr);
-        payload = { type: "message", to: currentChatUsid, encrypted };
-        console.log("[E2EE] Thread envelope encrypted and sent");
+        await startX3dhSession(currentChatUsid);
       } catch (e) {
-        console.error("[E2EE] Thread encryption failed, falling back to plaintext envelope", e);
-        payload = { type: "message", to: currentChatUsid, content: rawEnvelopeStr };
+        console.error("[E2EE] Thread session setup failed:", e);
       }
-    } else {
-      payload = { type: "message", to: currentChatUsid, content: rawEnvelopeStr };
+      return;
     }
 
+    let encrypted;
+    try {
+      encrypted = await signalProtocol.encrypt(currentChatUsid, rawEnvelopeStr);
+    } catch (e) {
+      console.error("[E2EE] Thread encryption failed, refusing to send", e);
+      showSnackbar("Encryption failed: thread reply not sent", "error");
+      return;
+    }
+
+    const payload = { type: "message", to: currentChatUsid, encrypted };
     ws.send(JSON.stringify(payload));
+    console.log("[E2EE] Thread envelope encrypted and sent");
     saveMessage(currentChatUsid, {
       id: envelope.id,
       from: "me",
@@ -669,12 +675,12 @@ function stopHeartbeat() {
 }
 
 function connectWS() {
-  if (!myUsid) return;
+  if (!myUsid || !token) return;
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   ws = new WebSocket(`${proto}//${location.host}`);
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: "register", usid: myUsid }));
+    ws.send(JSON.stringify({ type: "register", token, usid: myUsid }));
     setNetStatus("online");
     startHeartbeat();
   };
@@ -1569,20 +1575,17 @@ async function sendGroupMessage(forceContent) {
   const otherMembers = HalonyxGroups.getOtherMembers(group, myUsid);
   for (const recipient of otherMembers) {
     try {
-      let payload;
       if (signalProtocol.hasSession(recipient)) {
         try {
           const encrypted = await signalProtocol.encrypt(recipient, rawEnvelopeStr);
-          payload = { type: "message", to: recipient, encrypted };
+          ws.send(JSON.stringify({ type: "message", to: recipient, encrypted }));
         } catch (encErr) {
-          console.warn(`[Groups] Encryption failed for ${recipient}, fallback to plaintext envelope:`, encErr);
-          payload = { type: "message", to: recipient, content: rawEnvelopeStr };
+          console.warn(`[Groups] Encryption failed for ${recipient}, refusing plaintext fallback:`, encErr);
         }
       } else {
-        payload = { type: "message", to: recipient, content: rawEnvelopeStr };
+        console.warn(`[Groups] No session with ${recipient}, refusing plaintext fallback; initiating X3DH`);
         startX3dhSession(recipient).catch((e) => console.warn("[Groups] Member X3DH warm-up error:", e));
       }
-      ws.send(JSON.stringify(payload));
     } catch (sendErr) {
       console.error(`[Groups] Dispatch failed for ${recipient}:`, sendErr);
     }
@@ -1645,23 +1648,29 @@ async function sendMessage(forceContent) {
   const envelope = EnvelopeModule.createEnvelope(content, replyToMeta);
   const rawEnvelopeStr = JSON.stringify(envelope);
 
-  let payload;
-  if (signalProtocol.hasSession(currentChatUsid)) {
+  if (!signalProtocol.hasSession(currentChatUsid)) {
+    console.warn("[E2EE] No session with recipient — refusing plaintext fallback. Initiating X3DH session...");
+    showSnackbar("Cannot send message: no secure session established. Setting up session...", "warn");
     try {
-      const encrypted = await signalProtocol.encrypt(currentChatUsid, rawEnvelopeStr);
-      payload = { type: "message", to: currentChatUsid, encrypted };
-      console.log("[E2EE] Envelope encrypted and sent");
+      await startX3dhSession(currentChatUsid);
     } catch (e) {
-      console.error("[E2EE] Encryption failed, falling back to plaintext envelope", e);
-      const content = rawEnvelopeStr;
-      payload = { type: "message", to: currentChatUsid, content };
+      console.error("[E2EE] Failed to initiate X3DH session:", e);
     }
-  } else {
-    const content = rawEnvelopeStr;
-    payload = { type: "message", to: currentChatUsid, content };
+    return;
   }
 
+  let encrypted;
+  try {
+    encrypted = await signalProtocol.encrypt(currentChatUsid, rawEnvelopeStr);
+  } catch (e) {
+    console.error("[E2EE] Encryption failed, refusing to send", e);
+    showSnackbar("Encryption failed: message not sent", "error");
+    return;
+  }
+
+  const payload = { type: "message", to: currentChatUsid, encrypted };
   ws.send(JSON.stringify(payload));
+  console.log("[E2EE] Envelope encrypted and sent");
   saveMessage(currentChatUsid, {
     id: envelope.id,
     from: "me",
@@ -1767,7 +1776,7 @@ function renderMessages() {
         <button class="msg-action-btn" onclick="event.stopPropagation(); setReplyTargetById('${escapeAttr(msg.id)}')" title="Quote reply">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 0 0-4-4H4"></path></svg>
         </button>
-        <button class="msg-action-btn" onclick="event.stopPropagation(); copyMessageText('${escapeAttr(msg.content)}')" title="Copy">
+        <button class="msg-action-btn" onclick="event.stopPropagation(); copyMessageById('${escapeAttr(msg.id)}')" title="Copy">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
         </button>
       </div>`;
@@ -1807,8 +1816,8 @@ function renderMessages() {
             <div class="file-actions" id="fa-${pid}">
               ${
                 !isMe
-                  ? `<button class="file-action-btn" id="btn-${pid}" onclick="downloadFile('${escapeAttr(msg.content)}', '${pid}')" title="Download"><span class="material-icons-outlined">download</span></button>`
-                  : `<button class="file-action-btn" onclick="openMagnet('${escapeAttr(msg.content)}')" title="Copy magnet"><span class="material-icons-outlined">link</span></button>`
+                  ? `<button class="file-action-btn" id="btn-${pid}" onclick="downloadFileByMsgId('${escapeAttr(msg.id)}', '${pid}')" title="Download"><span class="material-icons-outlined">download</span></button>`
+                  : `<button class="file-action-btn" onclick="openMagnetByMsgId('${escapeAttr(msg.id)}')" title="Copy magnet"><span class="material-icons-outlined">link</span></button>`
               }
             </div>
             ${threadChipHTML}
@@ -1869,20 +1878,10 @@ function handleFileUpload(e) {
     activeTorrents.set(torrent.magnetURI, torrent);
     updateTorrentStats();
 
-    if (ws && ws.readyState === WebSocket.OPEN && currentChatUsid) {
-      ws.send(
-        JSON.stringify({
-          type: "message",
-          to: currentChatUsid,
-          content: torrent.magnetURI,
-        }),
-      );
-      saveMessage(currentChatUsid, {
-        from: "me",
-        content: torrent.magnetURI,
-        timestamp: new Date().toISOString(),
+    if (ws && ws.readyState === WebSocket.OPEN && (currentChatUsid || currentChatGroupId)) {
+      sendMessage(torrent.magnetURI).catch((err) => {
+        console.error("[BT] Failed to send encrypted magnet URI via Double Ratchet:", err);
       });
-      renderMessages();
     }
 
     const statsInterval = setInterval(() => {
@@ -2139,7 +2138,7 @@ function showEmergencyAlert(content, from) {
   banner.className = "emergency-banner";
   banner.innerHTML = `
     <span class="material-icons-outlined">warning</span>
-    <span><strong>EMERGENCY</strong> from ${from ? from.substring(0, 10) + "…" : "unknown"}: ${escapeHTML(content)}</span>
+    <span><strong>EMERGENCY</strong> from ${escapeHTML(from ? from.substring(0, 10) + "…" : "unknown")}: ${escapeHTML(content)}</span>
     <button onclick="this.parentElement.remove()">Dismiss</button>`;
   document.body.prepend(banner);
 }
@@ -2360,7 +2359,7 @@ async function showSafetyNumbers() {
           (row) =>
             `<div class="sn-row">${row
               .split(" ")
-              .map((g) => `<span class="sn-group">${g}</span>`)
+              .map((g) => `<span class="sn-group">${escapeHTML(g)}</span>`)
               .join("")}</div>`,
         )
         .join("");
@@ -3032,14 +3031,54 @@ function renderDlpAuditLog() {
 // Utilities
 // ─────────────────────────────────────────
 function escapeHTML(str) {
+  if (str === null || str === undefined) return "";
   const d = document.createElement("div");
-  d.textContent = str;
+  d.textContent = String(str);
   return d.innerHTML;
 }
 
 function escapeAttr(str) {
-  return str.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/'/g, "&#39;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
+
+function copyMessageById(msgId) {
+  for (const list of Object.values(messageHistory)) {
+    const found = list.find((m) => m.id === msgId);
+    if (found) {
+      copyMessageText(found.content);
+      return;
+    }
+  }
+}
+window.copyMessageById = copyMessageById;
+
+function downloadFileByMsgId(msgId, pid) {
+  for (const list of Object.values(messageHistory)) {
+    const found = list.find((m) => m.id === msgId);
+    if (found) {
+      downloadFile(found.content, pid);
+      return;
+    }
+  }
+}
+window.downloadFileByMsgId = downloadFileByMsgId;
+
+function openMagnetByMsgId(msgId) {
+  for (const list of Object.values(messageHistory)) {
+    const found = list.find((m) => m.id === msgId);
+    if (found) {
+      openMagnet(found.content);
+      return;
+    }
+  }
+}
+window.openMagnetByMsgId = openMagnetByMsgId;
 
 function truncate(str, n) {
   return str.length > n ? str.substring(0, n) + "…" : str;

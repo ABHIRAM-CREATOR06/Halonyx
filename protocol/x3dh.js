@@ -66,12 +66,14 @@ class X3DH {
    * @param {Uint8Array} theirSpkPublicBytes      Responder's signed pre-key public
    * @param {Uint8Array} theirSpkSignature        Ed25519 signature over theirSpkPublicBytes
    * @param {Uint8Array} theirSigningPublicBytes  Responder's Ed25519 signing public key
-   * @returns {{ ephemeralPublicBytes, sharedSecret }}
+   * @param {Uint8Array} [theirOpkPublicBytes]    Optional responder's one-time pre-key public (DH4)
+   * @returns {{ ephemeralPublicBytes, sharedSecret, usedOpk: boolean }}
    */
   async createInitialMessage(
     myIdentityPrivate, myIdentityPublicBytes,
     theirIdentityPublicBytes, theirSpkPublicBytes,
-    theirSpkSignature, theirSigningPublicBytes
+    theirSpkSignature, theirSigningPublicBytes,
+    theirOpkPublicBytes = null
   ) {
     // Verify the signed pre-key before using it
     const valid = await this.crypto.verifyEd25519(
@@ -89,11 +91,18 @@ class X3DH {
     // DH3 = DH(EKa_priv, SPKb_pub)
     const dh3 = await this.crypto.deriveBits(ek.privateKey, theirSpkPublicBytes);
 
-    const sharedSecret = await this._deriveSharedSecret(dh1, dh2, dh3);
+    // DH4 = DH(EKa_priv, OPKb_pub) if responder has an available one-time pre-key
+    let dh4 = null;
+    if (theirOpkPublicBytes) {
+      dh4 = await this.crypto.deriveBits(ek.privateKey, theirOpkPublicBytes);
+    }
+
+    const sharedSecret = await this._deriveSharedSecret(dh1, dh2, dh3, dh4);
 
     return {
       ephemeralPublicBytes: ek.publicKeyBytes,
       sharedSecret,
+      usedOpk: Boolean(dh4),
     };
   }
 
@@ -105,11 +114,13 @@ class X3DH {
    * @param {Uint8Array} theirEphemeralPublicBytes  Initiator's X25519 ephemeral public
    * @param {CryptoKey}  myIdentityPrivate           X25519 private
    * @param {CryptoKey}  mySignedPreKeyPrivate        X25519 private
+   * @param {CryptoKey}  [myOpkPrivate]               Optional X25519 private for one-time pre-key (DH4)
    * @returns {{ sharedSecret }}
    */
   async processInitialMessage(
     theirIdentityPublicBytes, theirEphemeralPublicBytes,
-    myIdentityPrivate, mySignedPreKeyPrivate
+    myIdentityPrivate, mySignedPreKeyPrivate,
+    myOpkPrivate = null
   ) {
     // DH1 = DH(SPKb_priv, IKa_pub)   ← mirrors initiator's DH(IKa,SPKb)
     const dh1 = await this.crypto.deriveBits(mySignedPreKeyPrivate, theirIdentityPublicBytes);
@@ -118,16 +129,23 @@ class X3DH {
     // DH3 = DH(SPKb_priv, EKa_pub)   ← mirrors initiator's DH(EKa,SPKb)
     const dh3 = await this.crypto.deriveBits(mySignedPreKeyPrivate, theirEphemeralPublicBytes);
 
-    const sharedSecret = await this._deriveSharedSecret(dh1, dh2, dh3);
+    // DH4 = DH(OPKb_priv, EKa_pub)   ← mirrors initiator's DH(EKa,OPKb)
+    let dh4 = null;
+    if (myOpkPrivate) {
+      dh4 = await this.crypto.deriveBits(myOpkPrivate, theirEphemeralPublicBytes);
+    }
+
+    const sharedSecret = await this._deriveSharedSecret(dh1, dh2, dh3, dh4);
     return { sharedSecret };
   }
 
   /**
    * Derive shared secret from DH outputs using HKDF-SHA-256.
-   * Bug 3 fix: original used PBKDF2 with 1 iteration — replaced with HKDF.
+   * Handles 4-DH (with OPK) or 3-DH (fallback).
    */
-  async _deriveSharedSecret(dh1, dh2, dh3) {
-    const ikm  = this.crypto.concatArrays(dh1, dh2, dh3);
+  async _deriveSharedSecret(dh1, dh2, dh3, dh4 = null) {
+    const arrays = dh4 ? [dh1, dh2, dh3, dh4] : [dh1, dh2, dh3];
+    const ikm  = this.crypto.concatArrays(...arrays);
     const salt = new Uint8Array(32); // 32 zero bytes per Signal spec
     return this.crypto.hkdf(ikm, salt, this.info, 32);
   }

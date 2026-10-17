@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node backend/server.js",
     "dev": "nodemon backend/server.js",
-    "test": "node --test",
+    "test": "node --test tests/*.test.js",
     "test:x25519": "node --test tests/x25519_protocol.test.js tests/x3dh.test.js tests/double_ratchet.test.js",
     "benchmark": "node scripts/benchmark.js",
     "postinstall": "npm rebuild sqlite3"

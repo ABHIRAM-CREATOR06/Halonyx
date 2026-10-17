@@ -13,6 +13,27 @@ const server = http.createServer(app);
 app.use(express.json());
 app.set('trust proxy', 1);
 
+// Security Headers & Content Security Policy (T-11)
+app.use((req, res, next) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "font-src 'self' https://fonts.gstatic.com; " +
+    "img-src 'self' data: blob:; " +
+    "media-src 'self' blob: data:; " +
+    "connect-src 'self' ws: wss: https://cdn.jsdelivr.net wss://tracker.openwebtorrent.com wss://tracker.webtorrent.dev wss://tracker.files.fm:7073 wss://tracker.btorrent.xyz; " +
+    "object-src 'none'; " +
+    "base-uri 'self'; " +
+    "form-action 'self';"
+  );
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  next();
+});
+
 // Operational Database
 const db = new sqlite3.Database("./backend/db/app.db");
 // Identity Database (Metadata)
@@ -536,7 +557,7 @@ app.post("/keys/replenish", authenticate, uploadLimiter, (req, res) => {
   });
 });
 
-// GET /keys/:hashedUsid — fetch a peer's public key bundle
+// GET /keys/:hashedUsid — fetch a peer's public key bundle (and dispense one OPK if available)
 app.get("/keys/:hashedUsid", (req, res) => {
   const { hashedUsid } = req.params;
   keyDb.get(
@@ -545,7 +566,24 @@ app.get("/keys/:hashedUsid", (req, res) => {
     (err, row) => {
       if (err || !row)
         return res.status(404).json({ error: "Key bundle not found" });
-      res.json({ bundle: JSON.parse(row.bundle) });
+      try {
+        const bundle = JSON.parse(row.bundle);
+        let opk = null;
+        if (Array.isArray(bundle.preKeys) && bundle.preKeys.length > 0) {
+          opk = bundle.preKeys.shift();
+          const now = Date.now();
+          keyDb.run(
+            "UPDATE key_bundles SET bundle = ?, updated_at = ? WHERE hashed_usid = ?",
+            [JSON.stringify(bundle), now, hashedUsid],
+            (updateErr) => {
+              if (updateErr) console.error("[Keys] Failed to consume OPK:", updateErr);
+            }
+          );
+        }
+        res.json({ bundle, opk });
+      } catch (e) {
+        res.status(500).json({ error: "Failed to parse key bundle" });
+      }
     },
   );
 });
@@ -801,85 +839,102 @@ wss.on("connection", (ws) => {
       }
 
       if (data.type === "register") {
-        const { usid } = data;
-
-        // Helper that completes registration once we have the canonical hashed USID.
-        // migrateUsid is truthy when the client sent an old-format raw USID that
-        // we resolved by hashing — we echo the canonical hashed form back so the
-        // client can silently update its localStorage without forcing a re-login.
-        function finaliseRegistration(row, canonicalHashedUsid, migrateUsid) {
-          userHashedUsid = canonicalHashedUsid;
-
-          // Gracefully supersede any existing connection for this identity to prevent split-brain
-          const prevWs = clients.get(userHashedUsid);
-          if (prevWs && prevWs !== ws && prevWs.readyState === WebSocket.OPEN) {
-            try { prevWs.close(1000, "Superseded by new session"); } catch (_) {}
-          }
-
-          clients.set(userHashedUsid, ws);
-          console.log(`[WS] User Registered: ${row.name} (${userHashedUsid.substring(0, 8)}...)`);
-
-          const registeredMsg = { type: "registered", success: true };
-          if (migrateUsid) registeredMsg.migrateUsid = canonicalHashedUsid;
-          ws.send(JSON.stringify(registeredMsg));
-
-          // ── Offline Mailbox Flush ──────────────────────────────────
-          db.all(
-            "SELECT * FROM mailbox WHERE recipient_hashed_usid = ? OR recipient_hashed_usid = ? ORDER BY timestamp ASC",
-            [canonicalHashedUsid, String(usid || "")],
-            (mbErr, pending) => {
-              if (mbErr || !pending || pending.length === 0) return;
-              console.log(`[Mailbox] Flushing ${pending.length} queued message(s) to ${canonicalHashedUsid.substring(0, 8)}...`);
-              pending.forEach((m) => {
-                let encData = m.content;
-                try { encData = JSON.parse(m.content); } catch (e) { }
-                ws.send(JSON.stringify({
-                  type: "message",
-                  from: m.sender_hashed_usid,
-                  encrypted: encData,
-                  timestamp: m.timestamp,
-                }));
-              });
-              db.run(
-                "DELETE FROM mailbox WHERE recipient_hashed_usid = ? OR recipient_hashed_usid = ?",
-                [canonicalHashedUsid, String(usid || "")],
-                (delErr) => {
-                  if (delErr) console.error("[Mailbox] Failed to purge mailbox:", delErr);
-                  else console.log(`[Mailbox] Purged ${pending.length} message(s) for ${canonicalHashedUsid.substring(0, 8)}...`);
-                }
-              );
-            }
-          );
-          // ──────────────────────────────────────────────────────────
-        }
-
-        const cleanUsid = typeof usid === "string" ? usid.trim().toLowerCase().replace(/^0x/, "") : "";
-        if (!cleanUsid) {
-          ws.send(JSON.stringify({ type: "error", message: "Invalid USID" }));
+        const { token } = data;
+        if (!token) {
+          console.log("[WS] Registration REJECTED: Missing authentication token");
+          ws.send(JSON.stringify({ type: "error", message: "Authentication token required" }));
           return;
         }
 
-        // Direct or hash lookup in Identity DB
-        idDb.get(
-          "SELECT name, hashed_usid FROM users_metadata WHERE hashed_usid = ? OR hashed_usid = ?",
-          [cleanUsid, hashUSID(cleanUsid)],
-          (err, row) => {
-            if (!err && row) {
-              const canonical = row.hashed_usid;
-              const migrate = (usid !== canonical) ? canonical : false;
-              return finaliseRegistration(row, canonical, migrate);
+        jwt.verify(token, JWT_SECRET, (jwtErr, decoded) => {
+          if (jwtErr || !decoded || !decoded.hashedUsid) {
+            console.log("[WS] Registration REJECTED: Invalid or expired JWT token");
+            ws.send(JSON.stringify({ type: "error", message: "Authentication failed: invalid token" }));
+            return;
+          }
+
+          const tokenHashedUsid = decoded.hashedUsid;
+
+          // Helper that completes registration once JWT is verified
+          function finaliseRegistration(row, canonicalHashedUsid) {
+            userHashedUsid = canonicalHashedUsid;
+
+            // Gracefully supersede any existing connection for this identity to prevent split-brain
+            const prevWs = clients.get(userHashedUsid);
+            if (prevWs && prevWs !== ws && prevWs.readyState === WebSocket.OPEN) {
+              try { prevWs.close(1000, "Superseded by new session"); } catch (_) {}
             }
 
-            console.log(`[WS] Registration REJECTED: ${cleanUsid.substring(0, 8)}... (Not in Identity DB)`);
-            ws.send(JSON.stringify({ type: "error", message: "Identity not verified" }));
+            clients.set(userHashedUsid, ws);
+            console.log(`[WS] User Registered: ${row.name} (${userHashedUsid.substring(0, 8)}...)`);
+
+            const registeredMsg = { type: "registered", success: true };
+            ws.send(JSON.stringify(registeredMsg));
+
+            // ── Offline Mailbox Flush (T-14: with TTL expiry) ──────────
+            const MAILBOX_TTL_DAYS = 7;
+            db.all(
+              "SELECT * FROM mailbox WHERE recipient_hashed_usid = ? AND timestamp >= datetime('now', '-7 days') ORDER BY timestamp ASC",
+              [canonicalHashedUsid],
+              (mbErr, pending) => {
+                if (mbErr || !pending || pending.length === 0) return;
+                console.log(`[Mailbox] Flushing ${pending.length} queued message(s) to ${canonicalHashedUsid.substring(0, 8)}...`);
+                pending.forEach((m) => {
+                  let encData = m.content;
+                  try { encData = JSON.parse(m.content); } catch (e) { }
+                  ws.send(JSON.stringify({
+                    type: "message",
+                    from: m.sender_hashed_usid,
+                    encrypted: encData,
+                    timestamp: m.timestamp,
+                  }));
+                });
+                db.run(
+                  "DELETE FROM mailbox WHERE recipient_hashed_usid = ?",
+                  [canonicalHashedUsid],
+                  (delErr) => {
+                    if (delErr) console.error("[Mailbox] Failed to purge mailbox:", delErr);
+                    else console.log(`[Mailbox] Purged ${pending.length} message(s) for ${canonicalHashedUsid.substring(0, 8)}...`);
+                  }
+                );
+              }
+            );
+
+            // Clean expired mailbox messages beyond TTL
+            db.run("DELETE FROM mailbox WHERE timestamp < datetime('now', '-7 days')");
+            // ──────────────────────────────────────────────────────────
           }
-        );
+
+          idDb.get(
+            "SELECT name, hashed_usid FROM users_metadata WHERE hashed_usid = ?",
+            [tokenHashedUsid],
+            (dbErr, row) => {
+              if (!dbErr && row) {
+                return finaliseRegistration(row, row.hashed_usid);
+              }
+
+              console.log(`[WS] Registration REJECTED: ${tokenHashedUsid.substring(0, 8)}... (Not in Identity DB)`);
+              ws.send(JSON.stringify({ type: "error", message: "Identity not verified" }));
+            }
+          );
+        });
         return;
       }
 
       if (data.type === "message") {
         const { to, content, encrypted } = data;
         if (!userHashedUsid || !to) return;
+
+        // Plaintext content is strictly rejected on the relay (T-08 / E2EE enforcement)
+        if (content !== undefined && content !== null) {
+          ws.send(JSON.stringify({ type: "error", message: "Plaintext content is not permitted" }));
+          return;
+        }
+
+        if (!encrypted) {
+          ws.send(JSON.stringify({ type: "error", message: "Only encrypted messages are permitted" }));
+          return;
+        }
 
         const canonicalTo = resolveCanonicalUsid(to);
         if (canonicalTo === userHashedUsid) return; // Prevent self-loopback
@@ -897,40 +952,58 @@ wss.on("connection", (ws) => {
             JSON.stringify({
               type: "message",
               from: userHashedUsid,
-              content: content || null,
-              encrypted: encrypted || null,
+              encrypted: encrypted,
               timestamp: new Date().toISOString(),
             }),
           );
           console.log(`[WS] Message delivered to ${to.substring(0, 8)}`);
         } else {
-          // Offline mailbox — enforce encrypted only
-          if (!encrypted) {
-            ws.send(JSON.stringify({ type: "error", message: "Only encrypted messages are queued" }));
-            return;
-          }
-          const storeContent = typeof encrypted === 'string' ? encrypted : JSON.stringify(encrypted);
-          db.run(
-            "INSERT INTO mailbox (recipient_hashed_usid, sender_hashed_usid, content) VALUES (?, ?, ?)",
-            [canonicalTo, userHashedUsid, storeContent],
-            (mbErr) => {
-              if (mbErr) {
-                ws.send(
-                  JSON.stringify({
-                    type: "error",
-                    message: "Mailbox store failed",
-                  }),
-                );
-              } else {
-                ws.send(
-                  JSON.stringify({
-                    type: "queued",
-                    recipient: to,
-                    message: "Recipient offline — message queued",
-                  }),
-                );
+          // Offline mailbox — enforce per-recipient cap and TTL (T-14)
+          const MAILBOX_CAP = parseInt(process.env.MAILBOX_CAP || "200", 10);
+
+          // Clean expired messages
+          db.run("DELETE FROM mailbox WHERE timestamp < datetime('now', '-7 days')");
+
+          // Check recipient mailbox capacity
+          db.get(
+            "SELECT COUNT(*) AS count FROM mailbox WHERE recipient_hashed_usid = ?",
+            [canonicalTo],
+            (countErr, countRow) => {
+              if (countErr) {
+                ws.send(JSON.stringify({ type: "error", message: "Mailbox store check failed" }));
+                return;
               }
-            },
+
+              if (countRow && countRow.count >= MAILBOX_CAP) {
+                console.log(`[Mailbox] Cap exceeded for recipient ${canonicalTo.substring(0, 8)} (${countRow.count}/${MAILBOX_CAP})`);
+                ws.send(JSON.stringify({ type: "error", message: "Recipient mailbox is full (cap reached)" }));
+                return;
+              }
+
+              const storeContent = typeof encrypted === 'string' ? encrypted : JSON.stringify(encrypted);
+              db.run(
+                "INSERT INTO mailbox (recipient_hashed_usid, sender_hashed_usid, content) VALUES (?, ?, ?)",
+                [canonicalTo, userHashedUsid, storeContent],
+                (mbErr) => {
+                  if (mbErr) {
+                    ws.send(
+                      JSON.stringify({
+                        type: "error",
+                        message: "Mailbox store failed",
+                      }),
+                    );
+                  } else {
+                    ws.send(
+                      JSON.stringify({
+                        type: "queued",
+                        recipient: to,
+                        message: "Recipient offline — message queued",
+                      }),
+                    );
+                  }
+                },
+              );
+            }
           );
         }
       }

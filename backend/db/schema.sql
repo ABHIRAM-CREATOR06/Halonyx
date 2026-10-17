@@ -21,3 +21,6 @@ CREATE TABLE IF NOT EXISTS mailbox (
     content               TEXT NOT NULL,
     timestamp             DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_mailbox_recipient ON mailbox(recipient_hashed_usid);
+CREATE INDEX IF NOT EXISTS idx_mailbox_timestamp ON mailbox(timestamp);

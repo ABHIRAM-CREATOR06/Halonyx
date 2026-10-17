@@ -29,15 +29,21 @@ test("offline mailbox stores sender, recipient, encrypted content, and timestamp
 });
 
 test("offline mailbox rejects plaintext queueing", () => {
-  assert.match(server, /Only encrypted messages are queued/);
+  assert.match(server, /Only encrypted messages are (?:queued|permitted)/);
   assert.match(server, /if \(!encrypted\)/);
 });
 
-test("frontend still has plaintext fallback paths that must stay visible to tests", () => {
-  assert.match(app, /falling back to plaintext/);
-  assert.match(app, /payload = \{ type: "message", to: currentChatUsid, content \}/);
+test("relay rejects any plaintext content even when recipient is online", () => {
+  assert.match(server, /Plaintext content is not permitted/);
+  assert.match(server, /Only encrypted messages are permitted/);
 });
 
-test("file magnet URI path currently sends content through the relay", () => {
-  assert.match(app, /content: torrent\.magnetURI/);
+test("frontend refuses plaintext fallback when encryption fails or session is missing", () => {
+  assert.doesNotMatch(app, /falling back to plaintext/);
+  assert.doesNotMatch(app, /payload = \{ type: "message", to: currentChatUsid, content \}/);
+});
+
+test("file magnet URI is routed through encrypted Double Ratchet channel", () => {
+  assert.doesNotMatch(app, /content:\s*torrent\.magnetURI/);
+  assert.match(app, /sendMessage\(torrent\.magnetURI\)/);
 });

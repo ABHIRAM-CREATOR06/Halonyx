@@ -239,15 +239,15 @@ The full implementation — X3DH, the Double Ratchet, key management, session st
 
 ### X3DH Key Exchange
 
-Four Diffie-Hellman operations establish a shared secret with a party you have never contacted before:
+Four Diffie-Hellman operations establish a shared secret with a party you have never contacted before (with automatic 3-DH fallback if one-time pre-keys are exhausted):
 
 ```
 DH1 = DH(IKa,  SPKb)    — Alice's identity    × Bob's signed pre-key
 DH2 = DH(EKa,  IKb)     — Alice's ephemeral   × Bob's identity
 DH3 = DH(EKa,  SPKb)    — Alice's ephemeral   × Bob's signed pre-key
-DH4 = DH(EKa,  OPKb)    — Alice's ephemeral   × Bob's one-time pre-key
+DH4 = DH(EKa,  OPKb)    — Alice's ephemeral   × Bob's one-time pre-key (omitted if OPKs depleted)
 
-SK  = HKDF(DH1 ‖ DH2 ‖ DH3 ‖ DH4)
+SK  = HKDF(DH1 ‖ DH2 ‖ DH3 [‖ DH4])
 ```
 
 The server relays an opaque `x3dh_init` packet to the recipient, who runs the responder path and derives the same `SK` independently.

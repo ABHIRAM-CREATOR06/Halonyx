@@ -118,3 +118,49 @@ test("public key bundles encode and decode without losing public material", asyn
   assert.deepEqual(decoded.signedPreKeyPublicBytes, bundle.signedPreKeyPublicBytes);
   assert.deepEqual(decoded.signedPreKeySignature, bundle.signedPreKeySignature);
 });
+
+test("X3DH 4-DH: initiator and responder derive the same shared secret when OPK is used", async (t) => {
+  if (!(await supportsX25519())) return t.skip("Node WebCrypto in this environment does not support X25519");
+
+  const cryptoUtils = new CryptoUtils();
+  const x3dh = new X3DH(cryptoUtils);
+  const alice = await x3dh.generateKeyBundle();
+  const bob = await x3dh.generateKeyBundle();
+
+  // Bob generates a one-time prekey (OPK)
+  const bobOpk = await cryptoUtils.generateDhKeyPair();
+
+  const initial = await x3dh.createInitialMessage(
+    alice.identityPrivateKey,
+    alice.identityPublicBytes,
+    bob.identityPublicBytes,
+    bob.signedPreKeyPublicBytes,
+    bob.signedPreKeySignature,
+    bob.signingPublicBytes,
+    bobOpk.publicKeyBytes,
+  );
+
+  const response = await x3dh.processInitialMessage(
+    alice.identityPublicBytes,
+    initial.ephemeralPublicBytes,
+    bob.identityPrivateKey,
+    bob.signedPreKeyPrivate,
+    bobOpk.privateKey,
+  );
+
+  assert.equal(initial.usedOpk, true);
+  assert.deepEqual(initial.sharedSecret, response.sharedSecret);
+  assert.equal(initial.sharedSecret.length, 32);
+
+  // Deriving without OPK produces a different secret (3-DH fallback)
+  const fallback3DH = await x3dh.createInitialMessage(
+    alice.identityPrivateKey,
+    alice.identityPublicBytes,
+    bob.identityPublicBytes,
+    bob.signedPreKeyPublicBytes,
+    bob.signedPreKeySignature,
+    bob.signingPublicBytes,
+  );
+  assert.equal(fallback3DH.usedOpk, false);
+  assert.notDeepEqual(initial.sharedSecret, fallback3DH.sharedSecret);
+});
