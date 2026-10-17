@@ -54,7 +54,12 @@ class SignalProtocol {
       const bundle = await this.x3dh.generateKeyBundle();
       this.identity = bundle;
       await this.idb.saveIdentity(bundle);
+    }
+    // Always sync public bundle to server so keys.db is kept populated
+    try {
       await this._uploadPublicBundle();
+    } catch (uploadErr) {
+      console.warn('[Signal] Key bundle upload error during init:', uploadErr);
     }
 
     // Restore any persisted sessions
@@ -207,6 +212,7 @@ class SignalProtocol {
       senderSpkPublic:        this.crypto.bufferToBase64(this.identity.signedPreKeyPublicBytes),
       senderSpkSignature:     this.crypto.bufferToBase64(this.identity.signedPreKeySignature),
       ephemeralPublic:        this.crypto.bufferToBase64(ephemeralPublicBytes),
+      ratchetPublic:          this.crypto.bufferToBase64(dr.dhPublicKeyBytes),
       opkId:                  usedOpk ? opkId : null,
     };
   }
@@ -254,11 +260,16 @@ class SignalProtocol {
       myOpkPrivate,
     );
 
+    // Use initiator's ratchet public key if provided, else fall back to identity public
+    const theirRatchetPublicBytes = msg.ratchetPublic
+      ? this.crypto.base64ToBuffer(msg.ratchetPublic)
+      : theirIdentityPublicBytes;
+
     // Initialize Double Ratchet (responder)
     const dr = new DoubleRatchet(this.crypto);
     await dr.initialize(
       sharedSecret,
-      theirIdentityPublicBytes,
+      theirRatchetPublicBytes,
       false,
       {
         privateKey: this.identity.signedPreKeyPrivate,
@@ -400,6 +411,7 @@ class SignalProtocol {
 
   async closeSession(peerUsid) {
     this.sessions.delete(peerUsid);
+    this._sessionMeta.delete(peerUsid);
     await this.idb.deleteSession(peerUsid);
   }
 

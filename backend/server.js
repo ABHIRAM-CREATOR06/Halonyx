@@ -2,6 +2,7 @@ const express = require("express");
 const sqlite3 = require("sqlite3").verbose();
 const jwt = require("jsonwebtoken");
 const fs = require("fs");
+const path = require("path");
 const { hashUSID, generateUSID } = require("./utils");
 const WebSocket = require("ws");
 const dgram = require("dgram");
@@ -35,10 +36,10 @@ app.use((req, res, next) => {
 });
 
 // Operational Database
-const db = new sqlite3.Database("./backend/db/app.db");
+const db = new sqlite3.Database(path.join(__dirname, "db", "app.db"));
 // Identity Database (Metadata)
-const idDb = new sqlite3.Database("./backend/db/identity.db");
-const keyDb = new sqlite3.Database("./backend/db/keys.db");
+const idDb = new sqlite3.Database(path.join(__dirname, "db", "identity.db"));
+const keyDb = new sqlite3.Database(path.join(__dirname, "db", "keys.db"));
 
 // Initialize Databases
 function initDb(database, schemaPath) {
@@ -51,12 +52,12 @@ function initDb(database, schemaPath) {
   });
 }
 
-initDb(db, "./backend/db/schema.sql");
-initDb(idDb, "./backend/db/identity_schema.sql");
-initDb(keyDb, "./backend/db/key_schema.sql");
+initDb(db, path.join(__dirname, "db", "schema.sql"));
+initDb(idDb, path.join(__dirname, "db", "identity_schema.sql"));
+initDb(keyDb, path.join(__dirname, "db", "key_schema.sql"));
 
 const crypto = require("crypto");
-const JWT_SECRET_FILE = "./backend/db/.jwt_secret";
+const JWT_SECRET_FILE = path.join(__dirname, "db", ".jwt_secret");
 
 function getJwtSecret() {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
@@ -66,7 +67,7 @@ function getJwtSecret() {
       if (stored && stored.length >= 16) return stored;
     }
     const secret = crypto.randomBytes(32).toString("hex");
-    const dbDir = "./backend/db";
+    const dbDir = path.join(__dirname, "db");
     if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
     fs.writeFileSync(JWT_SECRET_FILE, secret, "utf8");
     return secret;
@@ -559,10 +560,13 @@ app.post("/keys/replenish", authenticate, uploadLimiter, (req, res) => {
 
 // GET /keys/:hashedUsid — fetch a peer's public key bundle (and dispense one OPK if available)
 app.get("/keys/:hashedUsid", (req, res) => {
-  const { hashedUsid } = req.params;
+  const rawParam = req.params.hashedUsid || "";
+  const clean = rawParam.trim().toLowerCase().replace(/^0x/, "");
+  const candidates = [...new Set([clean, hashUSID(clean)])];
+
   keyDb.get(
-    "SELECT bundle FROM key_bundles WHERE hashed_usid = ?",
-    [hashedUsid],
+    "SELECT bundle, hashed_usid FROM key_bundles WHERE hashed_usid IN (?, ?)",
+    candidates,
     (err, row) => {
       if (err || !row)
         return res.status(404).json({ error: "Key bundle not found" });
@@ -574,7 +578,7 @@ app.get("/keys/:hashedUsid", (req, res) => {
           const now = Date.now();
           keyDb.run(
             "UPDATE key_bundles SET bundle = ?, updated_at = ? WHERE hashed_usid = ?",
-            [JSON.stringify(bundle), now, hashedUsid],
+            [JSON.stringify(bundle), now, row.hashed_usid],
             (updateErr) => {
               if (updateErr) console.error("[Keys] Failed to consume OPK:", updateErr);
             }
@@ -880,14 +884,21 @@ wss.on("connection", (ws) => {
                 if (mbErr || !pending || pending.length === 0) return;
                 console.log(`[Mailbox] Flushing ${pending.length} queued message(s) to ${canonicalHashedUsid.substring(0, 8)}...`);
                 pending.forEach((m) => {
-                  let encData = m.content;
-                  try { encData = JSON.parse(m.content); } catch (e) { }
-                  ws.send(JSON.stringify({
-                    type: "message",
-                    from: m.sender_hashed_usid,
-                    encrypted: encData,
-                    timestamp: m.timestamp,
-                  }));
+                  let parsed = null;
+                  try { parsed = JSON.parse(m.content); } catch (e) { }
+                  if (parsed && parsed.type === "x3dh_init") {
+                    ws.send(JSON.stringify({
+                      ...parsed,
+                      from: m.sender_hashed_usid,
+                    }));
+                  } else {
+                    ws.send(JSON.stringify({
+                      type: "message",
+                      from: m.sender_hashed_usid,
+                      encrypted: parsed !== null ? parsed : m.content,
+                      timestamp: m.timestamp,
+                    }));
+                  }
                 });
                 db.run(
                   "DELETE FROM mailbox WHERE recipient_hashed_usid = ?",
@@ -1020,6 +1031,18 @@ wss.on("connection", (ws) => {
           console.log(
             `[WS] X3DH init relayed: ${userHashedUsid.substring(0, 8)} → ${to.substring(0, 8)}`,
           );
+        } else {
+          // Recipient offline — queue x3dh_init in mailbox so peer can establish session upon reconnecting
+          const canonicalTo = resolveCanonicalUsid(to);
+          const storeContent = JSON.stringify({ ...data, from: userHashedUsid });
+          db.run(
+            "INSERT INTO mailbox (recipient_hashed_usid, sender_hashed_usid, content) VALUES (?, ?, ?)",
+            [canonicalTo, userHashedUsid, storeContent],
+            (mbErr) => {
+              if (mbErr) console.error("[Mailbox] Failed to queue x3dh_init:", mbErr);
+              else console.log(`[Mailbox] Queued x3dh_init for offline recipient ${canonicalTo.substring(0, 8)}`);
+            }
+          );
         }
       }
 
@@ -1151,20 +1174,8 @@ udpServer.on("listening", () => {
 
 udpServer.bind(UDP_PORT, "127.0.0.1");
 
-// Serve protocol/ files at /protocol/* (before cache middleware so headers apply)
-app.use(
-  "/protocol",
-  express.static("protocol", { etag: false, lastModified: false }),
-);
-
-// Serve assets/ files at /assets/*
-app.use(
-  "/assets",
-  express.static("assets", { etag: false, lastModified: false }),
-);
-
-// Disable all caching — must come BEFORE static middleware so Edge (and other browsers)
-// never serve a stale app.js from cache, which would cause identity hash mismatches.
+// Disable all caching — must come BEFORE static middleware so browsers
+// never serve stale JS/protocol files from cache.
 app.use((req, res, next) => {
   res.setHeader(
     "Cache-Control",
@@ -1176,6 +1187,18 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static("frontend", { etag: false, lastModified: false }));
+// Serve protocol/ files at /protocol/*
+app.use(
+  "/protocol",
+  express.static(path.join(__dirname, "..", "protocol"), { etag: false, lastModified: false }),
+);
+
+// Serve assets/ files at /assets/*
+app.use(
+  "/assets",
+  express.static(path.join(__dirname, "..", "assets"), { etag: false, lastModified: false }),
+);
+
+app.use(express.static(path.join(__dirname, "..", "frontend"), { etag: false, lastModified: false }));
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

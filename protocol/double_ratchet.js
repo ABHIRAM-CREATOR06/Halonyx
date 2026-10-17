@@ -106,9 +106,20 @@ class DoubleRatchet {
   async encrypt(plaintext, additionalData = null) {
     // Responder: perform first send-ratchet lazily on first outbound message
     if (!this.sendingChainKey && this._pendingRemoteKey) {
-      const dhOut = await this.crypto.deriveBits(this.dhPrivateKey, this._pendingRemoteKey);
-      const [newRoot, sendCK] = await this._kdfRootKey(this.rootKey, dhOut);
-      this.rootKey         = newRoot;
+      // Step 1: DH with peer's initial ratchet key to bring rootKey to initiator's state
+      const dhOut1 = await this.crypto.deriveBits(this.dhPrivateKey, this._pendingRemoteKey);
+      const [root1, recvCK] = await this._kdfRootKey(this.rootKey, dhOut1);
+      this.rootKey = root1;
+      this.receivingChainKey = recvCK;
+
+      // Step 2: Generate new ratchet keypair and derive sending chain key
+      const kp = await this.crypto.generateDhKeyPair();
+      this.dhPrivateKey = kp.privateKey;
+      this.dhPublicKeyBytes = kp.publicKeyBytes;
+
+      const dhOut2 = await this.crypto.deriveBits(this.dhPrivateKey, this._pendingRemoteKey);
+      const [root2, sendCK] = await this._kdfRootKey(this.rootKey, dhOut2);
+      this.rootKey = root2;
       this.sendingChainKey = sendCK;
       this._pendingRemoteKey = null;
     }

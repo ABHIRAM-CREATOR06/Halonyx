@@ -503,14 +503,26 @@ async function sendThreadReply() {
     const rawEnvelopeStr = JSON.stringify(envelope);
 
     if (!signalProtocol.hasSession(currentChatUsid)) {
-      console.warn("[E2EE] No session with recipient — refusing plaintext thread reply. Initiating X3DH session...");
-      showSnackbar("Cannot send reply: no secure session established. Setting up session...", "warn");
+      console.log("[E2EE] No session with recipient — initiating X3DH session for thread reply...");
+      let failureDetail = null;
       try {
-        await startX3dhSession(currentChatUsid);
+        const ok = await startX3dhSession(currentChatUsid);
+        if (!ok && !signalProtocol.hasSession(currentChatUsid)) {
+          failureDetail = "Handshake did not complete";
+        }
       } catch (e) {
+        failureDetail = e.message || String(e);
         console.error("[E2EE] Thread session setup failed:", e);
       }
-      return;
+
+      if (!signalProtocol.hasSession(currentChatUsid)) {
+        if (failureDetail && failureDetail.includes("No key bundle")) {
+          showSnackbar("Recipient has not registered encryption keys yet. Both peers must log in/refresh.", "warn");
+        } else {
+          showSnackbar("Cannot send reply: no secure session established with peer", "error");
+        }
+        return;
+      }
     }
 
     let encrypted;
@@ -715,6 +727,7 @@ function newSessionId() {
 }
 
 async function startX3dhSession(peerUsid) {
+  if (signalProtocol.hasSession(peerUsid)) return true;
   const initMsg = await signalProtocol.openSession(peerUsid);
   if (!initMsg || !ws || ws.readyState !== WebSocket.OPEN) return false;
 
@@ -767,6 +780,10 @@ async function handleWSMessage(data) {
         myHashedUsid = myUsid;
         localStorage.setItem("usid", myUsid);
         console.log("[Migration] USID updated to canonical hashed format.");
+      }
+      if (signalProtocol && signalProtocol.isReady) {
+        signalProtocol._uploadPublicBundle().catch((e) => console.warn("[Signal] Bundle sync on register:", e));
+        signalProtocol.replenishPreKeysIfNecessary().catch(() => {});
       }
       hideSplashScreen();
       break;
@@ -1575,6 +1592,9 @@ async function sendGroupMessage(forceContent) {
   const otherMembers = HalonyxGroups.getOtherMembers(group, myUsid);
   for (const recipient of otherMembers) {
     try {
+      if (!signalProtocol.hasSession(recipient)) {
+        await startX3dhSession(recipient).catch((e) => console.warn("[Groups] Member X3DH warm-up error:", e));
+      }
       if (signalProtocol.hasSession(recipient)) {
         try {
           const encrypted = await signalProtocol.encrypt(recipient, rawEnvelopeStr);
@@ -1583,8 +1603,7 @@ async function sendGroupMessage(forceContent) {
           console.warn(`[Groups] Encryption failed for ${recipient}, refusing plaintext fallback:`, encErr);
         }
       } else {
-        console.warn(`[Groups] No session with ${recipient}, refusing plaintext fallback; initiating X3DH`);
-        startX3dhSession(recipient).catch((e) => console.warn("[Groups] Member X3DH warm-up error:", e));
+        console.warn(`[Groups] No session with ${recipient}, refusing plaintext fallback`);
       }
     } catch (sendErr) {
       console.error(`[Groups] Dispatch failed for ${recipient}:`, sendErr);
@@ -1649,14 +1668,26 @@ async function sendMessage(forceContent) {
   const rawEnvelopeStr = JSON.stringify(envelope);
 
   if (!signalProtocol.hasSession(currentChatUsid)) {
-    console.warn("[E2EE] No session with recipient — refusing plaintext fallback. Initiating X3DH session...");
-    showSnackbar("Cannot send message: no secure session established. Setting up session...", "warn");
+    console.log("[E2EE] No session with recipient — initiating X3DH session...");
+    let failureDetail = null;
     try {
-      await startX3dhSession(currentChatUsid);
+      const ok = await startX3dhSession(currentChatUsid);
+      if (!ok && !signalProtocol.hasSession(currentChatUsid)) {
+        failureDetail = "Handshake did not complete";
+      }
     } catch (e) {
+      failureDetail = e.message || String(e);
       console.error("[E2EE] Failed to initiate X3DH session:", e);
     }
-    return;
+
+    if (!signalProtocol.hasSession(currentChatUsid)) {
+      if (failureDetail && failureDetail.includes("No key bundle")) {
+        showSnackbar("Recipient has not registered encryption keys yet. Both peers must log in/refresh.", "warn");
+      } else {
+        showSnackbar("Cannot send message: no secure session established with peer", "error");
+      }
+      return;
+    }
   }
 
   let encrypted;
@@ -2838,19 +2869,19 @@ async function sendThreadReplyDirect(content) {
     const otherMembers = HalonyxGroups.getOtherMembers(group, myUsid);
     for (const recipient of otherMembers) {
       try {
-        let payload;
+        if (!signalProtocol.hasSession(recipient)) {
+          await startX3dhSession(recipient).catch(() => {});
+        }
         if (signalProtocol.hasSession(recipient)) {
           try {
             const encrypted = await signalProtocol.encrypt(recipient, rawEnvelopeStr);
-            payload = { type: "message", to: recipient, encrypted };
+            ws.send(JSON.stringify({ type: "message", to: recipient, encrypted }));
           } catch (e) {
-            payload = { type: "message", to: recipient, content: rawEnvelopeStr };
+            console.warn(`[Groups] Direct thread encryption failed for ${recipient}:`, e);
           }
         } else {
-          payload = { type: "message", to: recipient, content: rawEnvelopeStr };
-          startX3dhSession(recipient).catch(() => {});
+          console.warn(`[Groups] Direct thread: no session with ${recipient}, refusing plaintext fallback`);
         }
-        ws.send(JSON.stringify(payload));
       } catch (err) {}
     }
 
@@ -2867,19 +2898,29 @@ async function sendThreadReplyDirect(content) {
     const envelope = EnvelopeModule.createEnvelope(content, replyToMeta);
     const rawEnvelopeStr = JSON.stringify(envelope);
 
-    let payload;
-    if (signalProtocol.hasSession(currentChatUsid)) {
+    if (!signalProtocol.hasSession(currentChatUsid)) {
       try {
-        const encrypted = await signalProtocol.encrypt(currentChatUsid, rawEnvelopeStr);
-        payload = { type: "message", to: currentChatUsid, encrypted };
+        await startX3dhSession(currentChatUsid);
       } catch (e) {
-        payload = { type: "message", to: currentChatUsid, content: rawEnvelopeStr };
+        console.error("[E2EE] Direct thread reply session setup failed:", e);
       }
-    } else {
-      payload = { type: "message", to: currentChatUsid, content: rawEnvelopeStr };
     }
 
-    ws.send(JSON.stringify(payload));
+    if (!signalProtocol.hasSession(currentChatUsid)) {
+      showSnackbar("Cannot send reply: no secure session established with peer", "error");
+      return;
+    }
+
+    let encrypted;
+    try {
+      encrypted = await signalProtocol.encrypt(currentChatUsid, rawEnvelopeStr);
+    } catch (e) {
+      console.error("[E2EE] Direct thread reply encryption failed:", e);
+      showSnackbar("Encryption failed: thread reply not sent", "error");
+      return;
+    }
+
+    ws.send(JSON.stringify({ type: "message", to: currentChatUsid, encrypted }));
     saveMessage(currentChatUsid, {
       id: envelope.id,
       from: "me",
