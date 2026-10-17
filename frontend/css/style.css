@@ -1442,7 +1442,8 @@ body.theme-light .composer-inner {
 .composer-field {
     flex: 1;
 }
-.composer-field input {
+.composer-field input,
+.composer-field textarea {
     background: none;
     border: none;
     outline: none;
@@ -1451,8 +1452,12 @@ body.theme-light .composer-inner {
     width: 100%;
     line-height: 1.4;
     font-family: var(--font-body);
+    resize: none;
+    min-height: 1.4em;
+    padding: 0;
 }
-.composer-field input::placeholder {
+.composer-field input::placeholder,
+.composer-field textarea::placeholder {
     color: var(--fg-muted);
 }
 
@@ -2648,6 +2653,250 @@ body.theme-dark .msg-row.sent .msg-bubble {
 .sn-grid { gap: 7px; }
 .sn-group { font-size: .85rem; color: var(--fg-sub); }
 
+/* ============================
+   MARKDOWN PROFESSIONAL MODE TOOLBAR
+============================ */
+
+/* Toolbar container */
+.md-toolbar-container {
+    width: 100%;
+    overflow: hidden;
+    transition: all var(--t-mid) var(--ease);
+    display: none;
+}
+
+.md-toolbar-container.block {
+    display: block;
+}
+
+/* Toolbar itself */
+.md-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px;
+    background: var(--bg-surface);
+    border: 1px solid var(--bd-hi);
+    border-radius: var(--r);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+
+.md-toolbar::-webkit-scrollbar {
+    height: 4px;
+}
+
+.md-toolbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.md-toolbar::-webkit-scrollbar-thumb {
+    background: var(--bd-hi);
+    border-radius: 4px;
+}
+
+.md-toolbar::-webkit-scrollbar-thumb:hover {
+    background: var(--fg-muted);
+}
+
+/* Toolbar buttons */
+.md-toolbar-btn {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    color: var(--fg-sub);
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background var(--t-fast) var(--ease),
+        color var(--t-fast) var(--ease),
+        transform var(--t-fast) var(--ease);
+    flex-shrink: 0;
+}
+
+.md-toolbar-btn:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+}
+
+.md-toolbar-btn:active {
+    transform: scale(0.92);
+}
+
+.md-toolbar-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.md-toolbar-btn .material-icons-outlined {
+    font-size: 18px;
+}
+
+/* Toolbar dividers */
+.md-toolbar-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--bd);
+    margin: 0 4px;
+    flex-shrink: 0;
+}
+
+/* Professional Mode Toggle */
+.md-toggle-wrapper {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 6px;
+}
+
+.md-professional-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--bg-surface);
+    border: 1px solid var(--bd-hi);
+    border-radius: var(--r);
+    color: var(--fg-sub);
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    transition:
+        background var(--t-fast) var(--ease),
+        color var(--t-fast) var(--ease),
+        border-color var(--t-fast) var(--ease);
+}
+
+.md-professional-toggle:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+    border-color: var(--accent);
+}
+
+.md-professional-toggle.enabled {
+    background: var(--accent-glow);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.md-professional-toggle.enabled:hover {
+    background: var(--accent-glow);
+    opacity: 0.9;
+}
+
+.md-professional-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.md-professional-toggle .material-icons-outlined {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.md-toggle-label {
+    font-family: var(--font-body);
+    font-size: 0.75rem;
+    letter-spacing: 0.03em;
+}
+
+/* Light mode adjustments */
+body.theme-light .md-toolbar {
+    background: var(--surface-l);
+    border-color: var(--border-hi-l);
+}
+
+body.theme-light .md-toolbar-btn {
+    color: var(--text-sub-l);
+}
+
+body.theme-light .md-toolbar-btn:hover {
+    background: var(--hover-l);
+    color: var(--text-l);
+}
+
+body.theme-light .md-toolbar-divider {
+    background: var(--border-l);
+}
+
+body.theme-light .md-professional-toggle {
+    background: var(--surface-l);
+    border-color: var(--border-hi-l);
+    color: var(--text-sub-l);
+}
+
+body.theme-light .md-professional-toggle:hover {
+    background: var(--hover-l);
+    color: var(--text-l);
+}
+
+body.theme-light .md-professional-toggle.enabled {
+    background: var(--accent-glow-l);
+    border-color: var(--accent-l);
+    color: var(--accent-l);
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+    .md-toolbar {
+        padding: 4px 6px;
+        gap: 2px;
+    }
+    
+    .md-toolbar-btn {
+        width: 28px;
+        height: 28px;
+    }
+    
+    .md-toolbar-btn .material-icons-outlined {
+        font-size: 16px;
+    }
+    
+    .md-toolbar-divider {
+        height: 16px;
+    }
+    
+    .md-professional-toggle {
+        padding: 4px 8px;
+        font-size: 0.75rem;
+    }
+    
+    .md-toggle-label {
+        display: none;
+    }
+}
+
+/* Smooth show/hide transition for toolbar */
+@keyframes mdToolbarFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.md-toolbar-container {
+    animation: mdToolbarFadeIn var(--t-mid) var(--ease);
+}
+
+/* Ensure toolbar doesn't interfere with composer */
+.composer {
+    position: relative;
+}
+
+.md-toolbar-container {
+    margin-bottom: 6px;
+}
+
 /* Name contacts at creation or from the peer panel. */
 .contact-name-editor { display: flex; gap: 8px; align-items: center; }
 .contact-name-editor .field-input { min-width: 0; padding: 8px 10px; }
@@ -3171,7 +3420,8 @@ body.theme-dark {
     box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
-#thread-message-input {
+#thread-message-input,
+textarea#thread-message-input {
     flex: 1;
     background: transparent;
     border: none;
@@ -3180,9 +3430,12 @@ body.theme-dark {
     font-size: 0.88rem;
     font-family: inherit;
     padding: 6px 0;
+    resize: none;
+    min-height: 1.4em;
 }
 
-#thread-message-input::placeholder {
+#thread-message-input::placeholder,
+textarea#thread-message-input::placeholder {
     color: var(--fg-muted);
 }
 
@@ -3985,4 +4238,125 @@ input:checked + .slider:before {
     display: flex;
     justify-content: space-between;
     margin-top: 16px;
+}
+
+/* Markdown Toolbar Styles */
+.md-toggle-wrapper {
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+}
+
+.md-professional-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    color: var(--fg);
+    transition: all 0.2s ease;
+}
+
+.md-professional-toggle:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-light);
+}
+
+.md-professional-toggle.enabled {
+    background: var(--accent-subtle);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.md-professional-toggle .material-icons-outlined {
+    font-size: 1.1rem;
+}
+
+.md-toggle-label {
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.md-toolbar-container {
+    display: none;
+    padding: 8px 16px;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border-hairline);
+    border-bottom: 1px solid var(--border-hairline);
+}
+
+.md-toolbar-container.block {
+    display: block;
+}
+
+.md-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    padding: 4px;
+    background: var(--bg-panel);
+    border-radius: 8px;
+}
+
+.md-toolbar-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--fg-muted);
+    transition: all 0.15s ease;
+}
+
+.md-toolbar-btn:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+}
+
+.md-toolbar-btn:active {
+    background: var(--bg-active);
+}
+
+.md-toolbar-btn .material-icons-outlined {
+    font-size: 1.1rem;
+}
+
+.md-toolbar-divider {
+    width: 1px;
+    height: 24px;
+    background: var(--border-hairline);
+    margin: 0 4px;
+}
+
+/* Theme-specific styles */
+body.theme-light .md-professional-toggle {
+    background: var(--bg-surface);
+    border-color: var(--border-light);
+}
+
+body.theme-light .md-professional-toggle:hover {
+    background: var(--bg-hover);
+}
+
+body.theme-light .md-professional-toggle.enabled {
+    background: var(--accent-subtle);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+body.theme-light .md-toolbar {
+    background: var(--bg-panel);
+}
+
+body.theme-light .md-toolbar-btn:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
 }

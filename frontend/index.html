@@ -357,12 +357,12 @@
                                 style="display: none"
                             />
                             <div class="composer-field">
-                                <input
-                                    type="text"
+                                <textarea
                                     id="message-input"
                                     placeholder="Write an encrypted message..."
                                     autocomplete="off"
-                                />
+                                    rows="1"
+                                ></textarea>
                             </div>
                             <button id="send-btn" class="send-btn">
                                 <span class="material-icons-outlined"
@@ -406,12 +406,12 @@
                             <button id="thread-dlp-redact-btn" class="btn-text-sm" type="button">Auto-Redact</button>
                         </div>
                         <div class="thread-composer-inner">
-                            <input
-                                type="text"
+                            <textarea
                                 id="thread-message-input"
                                 placeholder="Reply in thread..."
                                 autocomplete="off"
-                            />
+                                rows="1"
+                            ></textarea>
                             <button id="thread-send-btn" class="send-btn sm" title="Send reply in thread">
                                 <span class="material-icons-outlined">arrow_upward</span>
                             </button>
@@ -1079,6 +1079,10 @@
             </div>
         </div>
 
+        <!-- Markdown Professional Mode -->
+        <script src="js/markdown/actions.js?v=1.0"></script>
+        <script src="js/markdown/toolbar.js?v=1.0"></script>
+        
         <!-- Signal Protocol stack — load in dependency order before app.js -->
         <script src="/protocol/crypto_utils.js?v=6.0"></script>
         <script src="/protocol/email_utils.js?v=6.0"></script>
