@@ -1,0 +1,49 @@
+name: Feature request
+description: Suggest an addition or change to Halonyx
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the use case, not just the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Frontend / UI
+        - Backend / server
+        - Protocol (X3DH / Double Ratchet / keys)
+        - File transfer (WebTorrent)
+        - Docs
+        - Tests / CI
+    validations:
+      required: true
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Security and privacy
+      options:
+        - label: This touches `protocol/` or changes what the server can see
+        - label: This adds a new dependency
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd like to work on this myself
+        - label: I searched existing issues and didn't find a duplicate
+          required: true
