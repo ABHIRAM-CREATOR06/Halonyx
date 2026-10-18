@@ -3,14 +3,7 @@
 <p align="center">
   <img src="assets/Halonyx-github-banner.png" alt="Halonyx Banner" width="100%" />
 </p>
-<pre>
-██╗  ██╗ █████╗ ██╗      ██████╗ ███╗   ██╗██╗   ██╗██╗  ██╗
-██║  ██║██╔══██╗██║     ██╔═══██╗████╗  ██║╚██╗ ██╔╝╚██╗██╔╝
-███████║███████║██║     ██║   ██║██╔██╗ ██║ ╚████╔╝  ╚███╔╝
-██╔══██║██╔══██║██║     ██║   ██║██║╚██╗██║  ╚██╔╝   ██╔██╗
-██║  ██║██║  ██║███████╗╚██████╔╝██║ ╚████║   ██║   ██╔╝ ██╗
-╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝
-</pre>
+
 
 **Self-hostable E2EE Messenger · Signal Protocol (X3DH + Double Ratchet), implemented from scratch**
 
