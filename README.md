@@ -107,6 +107,8 @@ npm run dev      # development (auto-reload via nodemon )
 
 Open [**http://localhost:3000**](http://localhost:3000). On Windows, run `scripts/setup.bat` (or `scripts/start_server.bat` / `scripts/start_server.sh` on Unix/macOS ).
 
+**Contributing, or setting up on Windows, Linux or macOS?** See the [development setup guide](CONTRIBUTING.md#development-setup) for native-build prerequisites, running the tests, and troubleshooting for `sqlite3` and ports 3000/9000.
+
 ### Running with Docker
 
 You can run Halonyx in a container using Docker or Docker Compose:
