@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Report a security vulnerability
-    url: https://github.com/ABHIRAM-CREATOR06/Halonyx/security/advisories/new
-    about: Report vulnerabilities privately. Do not open a public issue.
+  - name: Questions and ideas
+    url: https://github.com/ABHIRAM-CREATOR06/Halonyx/discussions
+    about: Ask questions or float ideas before filing an issue.
