@@ -77,6 +77,8 @@ It's a final-year project built as a deep, from-first-principles exploration of 
 
 - **Beeper-Style Replies** — E2EE inline quote-replies, hover action bars, composer reply preview, jump-to-original with pulse highlight, and thread chain slide-over panel
 
+- **Professional Markdown Mode** — encrypted Markdown formatting with sanitized GFM rendering, live preview, and remote-image blocking
+
 - **Dual Database Isolation** — identity metadata and operational data in separate SQLite databases, linked only by `SHA-256(USID)`
 
 - **Emergency Broadcast** — UDP-bridged system-wide alert reachable from any connected client
@@ -94,6 +96,8 @@ It's a final-year project built as a deep, from-first-principles exploration of 
 ---
 
 ## Getting Started
+
+Markdown messages carry `fmt: "md"` inside the encrypted envelope only. Messages without `fmt` remain plain text for legacy clients.
 
 **Prerequisites:** Node.js 20, 22, or 24 (matches the CI matrix)
 
