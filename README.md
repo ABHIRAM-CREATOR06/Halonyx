@@ -571,57 +571,45 @@ Halonyx/
 
 ## Roadmap
 
+### Completed
+
 - [x] End-to-end encrypted messaging (Signal Protocol — X3DH + Double Ratchet)
-
 - [x] End-to-end encrypted group messaging (Pairwise Signal Double Ratchet fan-out & auto-discovery)
-
-- [x] Enterprise Client-Side Data Loss Prevention (DLP) engine with Luhn verification & audit logs
-
+- [x] Security controls powered by Aegisus Security Engine: client-side DLP, local threat watchlist, audit log, and searchable security knowledge base
 - [x] Slack-style in-thread messaging and sliding panel
-
+- [x] Professional Markdown Mode with sanitized GFM rendering and live preview
+- [x] Keyboard shortcuts for composer formatting and app actions
 - [x] P2P file transfer (WebTorrent / BitTorrent over WebRTC)
-
 - [x] Offline message mailbox with at-most-once delivery
-
 - [x] Key bundle endpoints (upload, fetch, update)
-
 - [x] IndexedDB key persistence across page reloads
-
 - [x] Safety Numbers — 60-digit MITM detection fingerprint
-
 - [x] Key change detection with session warning
-
 - [x] Live torrent stats (speed, progress, ratio)
-
 - [x] Web Audio notification sounds
-
 - [x] Dark / light theme
-
 - [x] Contact remove + duplicate cleanup
-
 - [x] OPK replenishment monitoring
-
 - [x] Interactive protocol simulator
-
 - [x] CI test matrix (Node 20/22/24) with crypto-core enforcement
-
 - [x] Containerized deployment with Docker and Docker Compose
-
 - [x] Interactive one-click setup script (`scripts/setup.bat`) for Windows
-
 - [x] Full STRIDE threat model (18 threats) + performance benchmark suite
-
 - [x] Cross-jurisdiction encryption policy brief
 
+### Planned
+
+- [ ] Independent security review of the custom Signal Protocol implementation and remediation of findings
+- [ ] Browser-level tests for direct messages, groups, threads, markdown rendering, and Aegisus warnings
+- [ ] Local message search with history retention, export, and clear controls
+- [ ] Threat indicator source and expiry fields, plus local watchlist import/export
+- [ ] Define privacy-preserving delivery status semantics beyond queued messages
 - [ ] Safety number QR code scan
-
-- [ ] Post-quantum cryptography (CRYSTALS-Dilithium / SPHINCS+)
-
+- [ ] Evaluate a hybrid post-quantum key exchange for future protocol versions
 - [ ] Multi-device session sync
-
-- [ ] Voice & video (WebRTC)
-
+- [ ] Design user-controlled key and message recovery
 - [ ] Push notifications (Web Push / VAPID)
+- [ ] Screen reader support and broader keyboard accessibility
 
 ---
 
