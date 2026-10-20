@@ -636,6 +636,30 @@ Users frequently paste sensitive development credentials, production cloud keys,
 
 ---
 
+### 3.24 Threat T-24 — Markdown Rendering Cross-Site Scripting
+
+**Category:** Client-Side Injection / Integrity
+**STRIDE:** Tampering, Elevation of Privilege
+**Severity:** High
+
+Untrusted Markdown may contain hostile HTML or unsafe links. Messages are parsed only after decryption; marked HTML output is escaped and DOMPurify applies explicit tag, attribute, and URI allowlists before insertion. Plain text remains escaped.
+
+**Status:** Mitigated; review the renderer and pinned builds when upgrading dependencies.
+
+---
+
+### 3.25 Threat T-25 — Remote Markdown Image IP Leakage
+
+**Category:** Privacy / Information Disclosure
+**STRIDE:** Information Disclosure
+**Severity:** Medium
+
+Remote Markdown images can disclose the recipient's IP address and request metadata. Image syntax is rendered as a visible link/placeholder and image elements are excluded by the sanitizer, so display never loads a remote image.
+
+**Status:** Mitigated; opening an external link still contacts its destination.
+
+---
+
 ## 4. Threat Summary Matrix
 
 | ID | Threat | Severity | Component | Status |

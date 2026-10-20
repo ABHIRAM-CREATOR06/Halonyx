@@ -35,13 +35,14 @@
    * @param {string} replyTo.senderHash - Canonical hashed USID of original parent author
    * @returns {Object} envelope
    */
-  function createEnvelope(body, replyTo, group) {
+  function createEnvelope(body, replyTo, group, fmt) {
     const envelope = {
       v: 1,
       id: generateUUID(),
       ts: new Date().toISOString(),
       body: String(body || '').substring(0, 10000),
     };
+    if (fmt === 'md') envelope.fmt = 'md';
 
     if (replyTo && typeof replyTo === 'object' && replyTo.id) {
       envelope.replyTo = {
@@ -102,6 +103,7 @@
     if (typeof obj.body !== 'string' || obj.body.length > 10000) {
       return null;
     }
+    if (obj.fmt !== undefined && obj.fmt !== 'md') return null;
 
     // Optional replyTo field validation
     if (obj.replyTo !== undefined && obj.replyTo !== null) {
@@ -142,6 +144,7 @@
       id: obj.id,
       ts: obj.ts,
       body: obj.body,
+      fmt: obj.fmt === 'md' ? 'md' : undefined,
       replyTo: obj.replyTo ? {
         id: obj.replyTo.id,
         snippet: obj.replyTo.snippet,

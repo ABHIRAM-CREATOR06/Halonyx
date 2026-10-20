@@ -84,6 +84,24 @@ const pendingX3dhHandshakes = new Map();
 const sessionRecoveryRequests = new Map();
 const outgoingSessionIds = new Map();
 
+function professionalMarkdownEnabled() {
+  return !!(window.HalonyxMarkdownToolbar && window.HalonyxMarkdownToolbar.getProfessionalMode && window.HalonyxMarkdownToolbar.getProfessionalMode());
+}
+
+function messageLengthAllowed(content) {
+  if (String(content || "").length <= 10000) return true;
+  showSnackbar("Messages are limited to 10000 characters", "warn");
+  return false;
+}
+
+function messageBodyHTML(message, className) {
+  if (message.fmt === "md" && window.HalonyxMarkdownRender) {
+    try { return `<div class="${className} markdown-content">${window.HalonyxMarkdownRender.renderMarkdown(String(message.content || ""))}</div>`; }
+    catch (e) { console.warn("[Markdown] Render failed", e); }
+  }
+  return `<div class="${className}">${escapeHTML(message.content || "")}</div>`;
+}
+
 function messageHistoryKey() {
   return `messageHistory:${myUsid || "anonymous"}`;
 }
@@ -356,7 +374,7 @@ function openThread(startMsgId) {
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
         </button>
       </div>
-      <div class="thread-root-content">${escapeHTML(rootMsg.content)}</div>
+      ${messageBodyHTML(rootMsg, "thread-root-content")}
     </div>
   `;
 
@@ -386,7 +404,7 @@ function openThread(startMsgId) {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
           </button>
         </div>
-        <div class="thread-body">${escapeHTML(m.content)}</div>
+        ${messageBodyHTML(m, "thread-body")}
       </div>
     `;
   });
@@ -429,6 +447,7 @@ async function sendThreadReply() {
   }
   let content = input.value.trim();
   if (!content) return;
+  if (!messageLengthAllowed(content)) return;
 
   const targetName = isGroup
     ? ((window.HalonyxGroups && HalonyxGroups.getGroup(currentChatGroupId, myUsid)?.name) || "Group")
@@ -467,7 +486,7 @@ async function sendThreadReply() {
       members: group.members,
       action: "message",
     };
-    const envelope = EnvelopeModule.createEnvelope(content, replyToMeta, groupMeta);
+    const envelope = EnvelopeModule.createEnvelope(content, replyToMeta, groupMeta, professionalMarkdownEnabled() ? "md" : undefined);
     const rawEnvelopeStr = JSON.stringify(envelope);
 
     const otherMembers = HalonyxGroups.getOtherMembers(group, myUsid);
@@ -497,9 +516,10 @@ async function sendThreadReply() {
       rxTs: Date.now(),
       replyTo: envelope.replyTo,
       group: groupMeta,
+      fmt: envelope.fmt,
     });
   } else {
-    const envelope = EnvelopeModule.createEnvelope(content, replyToMeta);
+    const envelope = EnvelopeModule.createEnvelope(content, replyToMeta, undefined, professionalMarkdownEnabled() ? "md" : undefined);
     const rawEnvelopeStr = JSON.stringify(envelope);
 
     if (!signalProtocol.hasSession(currentChatUsid)) {
@@ -544,6 +564,7 @@ async function sendThreadReply() {
       timestamp: envelope.ts,
       rxTs: Date.now(),
       replyTo: envelope.replyTo,
+      fmt: envelope.fmt,
     });
   }
 
@@ -841,6 +862,7 @@ async function handleWSMessage(data) {
           rxTs: Date.now(),
           replyTo: envelope.replyTo,
           group: envelope.group,
+          fmt: envelope.fmt,
         });
 
         const groupName = groupResult.group ? groupResult.group.name : "Group";
@@ -874,6 +896,7 @@ async function handleWSMessage(data) {
         timestamp: envelope.ts || timestamp || new Date().toISOString(),
         rxTs: Date.now(),
         replyTo: envelope.replyTo,
+        fmt: envelope.fmt,
       });
 
       if (currentChatType === "direct" && currentChatUsid === from) {
@@ -1545,16 +1568,18 @@ async function openChat(hashedUsid) {
 
 async function sendGroupMessage(forceContent) {
   const input = document.getElementById("message-input");
-  let content = forceContent !== undefined ? forceContent : input.value.trim();
+  const hasForcedContent = typeof forceContent === "string";
+  let content = hasForcedContent ? forceContent : input.value.trim();
   if (!content || !currentChatGroupId || !ws || ws.readyState !== WebSocket.OPEN)
     return;
+  if (!messageLengthAllowed(content)) return;
 
   if (!window.HalonyxGroups) return;
   const group = HalonyxGroups.getGroup(currentChatGroupId, myUsid);
   if (!group) return;
 
   // Pre-encryption Enterprise DLP Inspection
-  if (window.HalonyxDLP && forceContent === undefined) {
+  if (window.HalonyxDLP && !hasForcedContent) {
     const scan = window.HalonyxDLP.scan(content);
     if (scan.hasViolation) {
       if (scan.mode === "BLOCK") {
@@ -1585,7 +1610,7 @@ async function sendGroupMessage(forceContent) {
     action: "message",
   };
 
-  const envelope = EnvelopeModule.createEnvelope(content, replyToMeta, groupMeta);
+  const envelope = EnvelopeModule.createEnvelope(content, replyToMeta, groupMeta, professionalMarkdownEnabled() ? "md" : undefined);
   const rawEnvelopeStr = JSON.stringify(envelope);
 
   // Pairwise Double Ratchet Fan-Out to all other members in group
@@ -1618,6 +1643,7 @@ async function sendGroupMessage(forceContent) {
     rxTs: Date.now(),
     replyTo: envelope.replyTo,
     group: groupMeta,
+    fmt: envelope.fmt,
   });
 
   input.value = "";
@@ -1635,12 +1661,14 @@ async function sendMessage(forceContent) {
   }
 
   const input = document.getElementById("message-input");
-  let content = forceContent !== undefined ? forceContent : input.value.trim();
+  const hasForcedContent = typeof forceContent === "string";
+  let content = hasForcedContent ? forceContent : input.value.trim();
   if (!content || !currentChatUsid || !ws || ws.readyState !== WebSocket.OPEN)
     return;
+  if (!messageLengthAllowed(content)) return;
 
   // Pre-encryption Enterprise DLP Inspection
-  if (window.HalonyxDLP && forceContent === undefined) {
+  if (window.HalonyxDLP && !hasForcedContent) {
     const scan = window.HalonyxDLP.scan(content);
     if (scan.hasViolation) {
       if (scan.mode === "BLOCK") {
@@ -1664,7 +1692,7 @@ async function sendMessage(forceContent) {
     senderHash: replyTarget.senderHash,
   } : null;
 
-  const envelope = EnvelopeModule.createEnvelope(content, replyToMeta);
+  const envelope = EnvelopeModule.createEnvelope(content, replyToMeta, undefined, professionalMarkdownEnabled() ? "md" : undefined);
   const rawEnvelopeStr = JSON.stringify(envelope);
 
   if (!signalProtocol.hasSession(currentChatUsid)) {
@@ -1709,6 +1737,7 @@ async function sendMessage(forceContent) {
     timestamp: envelope.ts,
     rxTs: Date.now(),
     replyTo: envelope.replyTo,
+    fmt: envelope.fmt,
   });
 
   input.value = "";
@@ -1865,7 +1894,7 @@ function renderMessages() {
             ${hoverActionsHTML}
             ${senderAttributionHTML}
             ${quoteHTML}
-            ${escapeHTML(msg.content)}
+            ${msg.fmt === "md" && !msg.content.startsWith("magnet:?") ? messageBodyHTML(msg, "markdown-message-body") : escapeHTML(msg.content)}
             <span class="msg-time">${time}${statusIcon}</span>
             ${threadChipHTML}
           </div>
@@ -2467,7 +2496,7 @@ function setupEventListeners() {
     .getElementById("email")
     .addEventListener("keypress", (e) => e.key === "Enter" && signup());
 
-  document.getElementById("send-btn").addEventListener("click", sendMessage);
+  document.getElementById("send-btn").addEventListener("click", () => sendMessage());
   document.getElementById("message-input").addEventListener("keypress", (e) => {
     if (e.key === "Enter" && !e.shiftKey) sendMessage();
   });
@@ -2844,6 +2873,7 @@ function handleDlpOverrideSend() {
 }
 
 async function sendThreadReplyDirect(content) {
+  if (!messageLengthAllowed(content)) return;
   const isGroup = currentChatType === "group" && !!currentChatGroupId;
   const activeChatKey = isGroup ? currentChatGroupId : currentChatUsid;
   if (!activeThreadRootMsg || !activeChatKey || !ws || ws.readyState !== WebSocket.OPEN) return;
@@ -2863,7 +2893,7 @@ async function sendThreadReplyDirect(content) {
       members: group.members,
       action: "message",
     };
-    const envelope = EnvelopeModule.createEnvelope(content, replyToMeta, groupMeta);
+    const envelope = EnvelopeModule.createEnvelope(content, replyToMeta, groupMeta, professionalMarkdownEnabled() ? "md" : undefined);
     const rawEnvelopeStr = JSON.stringify(envelope);
 
     const otherMembers = HalonyxGroups.getOtherMembers(group, myUsid);
@@ -2893,9 +2923,10 @@ async function sendThreadReplyDirect(content) {
       rxTs: Date.now(),
       replyTo: envelope.replyTo,
       group: groupMeta,
+      fmt: envelope.fmt,
     });
   } else {
-    const envelope = EnvelopeModule.createEnvelope(content, replyToMeta);
+    const envelope = EnvelopeModule.createEnvelope(content, replyToMeta, undefined, professionalMarkdownEnabled() ? "md" : undefined);
     const rawEnvelopeStr = JSON.stringify(envelope);
 
     if (!signalProtocol.hasSession(currentChatUsid)) {
@@ -2928,6 +2959,7 @@ async function sendThreadReplyDirect(content) {
       timestamp: envelope.ts,
       rxTs: Date.now(),
       replyTo: envelope.replyTo,
+      fmt: envelope.fmt,
     });
   }
 

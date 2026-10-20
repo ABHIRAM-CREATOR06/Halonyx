@@ -211,19 +211,12 @@
         html += '<div class="md-toolbar-divider" role="separator"></div>';
       } else {
         var ariaKeyshortcuts = btn.shortcut ? btn.shortcut.replace(/Meta/g, 'Meta').replace(/Ctrl/g, 'Control').replace(/\+/g, ' ') : null;
-        html += '
-          <button 
-            type="button"
-            class="md-toolbar-btn"
-            data-type="' + btn.type + '"
-            title="' + btn.label + (btn.shortcut ? ' (' + btn.shortcut.replace(/Meta/g, 'Cmd') + ')' : '') + '"
-            aria-label="' + btn.label + '"
-            ' + (ariaKeyshortcuts ? 'aria-keyshortcuts="' + ariaKeyshortcuts + '"' : '') + '
-            tabindex="-1"
-          >
-            <span class="material-icons-outlined">' + btn.icon + '</span>
-          </button>
-        ';
+        html += `
+          <button type="button" class="md-toolbar-btn" data-type="${btn.type}"
+            title="${btn.label}${btn.shortcut ? ` (${btn.shortcut.replace(/Meta/g, 'Cmd')})` : ''}"
+            aria-label="${btn.label}" ${ariaKeyshortcuts ? `aria-keyshortcuts="${ariaKeyshortcuts}"` : ''}>
+            <span class="material-icons-outlined" aria-hidden="true">${btn.icon}</span>
+          </button>`;
       }
     });
     
@@ -236,20 +229,20 @@
    */
   function createToggleButtonHTML() {
     var isEnabled = getProfessionalMode();
-    return '
-      <button 
+    return `
+      <button
         type="button"
         id="professional-mode-toggle"
-        class="md-professional-toggle ' + (isEnabled ? 'enabled' : '') + '"
+        class="md-professional-toggle ${isEnabled ? 'enabled' : ''}"
         aria-label="Professional Mode"
-        aria-pressed="' + isEnabled + '"
+        aria-pressed="${isEnabled}"
         aria-keyshortcuts="Alt+Shift+P"
         title="Professional Mode (Alt+Shift+P)"
       >
-        <span class="material-icons-outlined">' + (isEnabled ? 'code' : 'text_fields') + '</span>
-        <span class="md-toggle-label">Professional</span>
+        <span class="material-icons-outlined" aria-hidden="true">${isEnabled ? 'code' : 'text_fields'}</span>
+        <span class="md-toggle-label">Professional Mode</span>
       </button>
-    ';
+    `;
   }
 
   /**
@@ -286,11 +279,40 @@
     toggleBtn.className = 'md-toggle-wrapper';
     toggleBtn.innerHTML = createToggleButtonHTML();
     
-    // Insert toolbar elements before the chat-active-view or at the end of chat-pane
-    var chatActiveView = document.getElementById('chat-active-view');
-    if (chatActiveView) {
-      chatPane.insertBefore(toggleBtn, chatActiveView);
-      chatPane.insertBefore(toolbarContainer, chatActiveView);
+    // Build one Slack-like composer shell for formatting, preview and writing.
+    var composerInner = composer && composer.querySelector('.composer-inner');
+    if (composer && composerInner) {
+      var shell = document.createElement('div');
+      shell.className = 'md-composer-shell';
+      var topbar = document.createElement('div');
+      topbar.className = 'md-composer-topbar';
+      var previewTabs = document.createElement('div');
+      previewTabs.className = 'md-preview-tabs hidden';
+      previewTabs.innerHTML = '<button type="button" class="md-preview-tab active" data-view="write">Write</button><button type="button" class="md-preview-tab" data-view="preview">Preview</button>';
+      var previewPanel = document.createElement('div');
+      previewPanel.id = 'md-preview-panel';
+      previewPanel.className = 'md-preview-panel hidden markdown-content';
+      composer.insertBefore(shell, composerInner);
+      shell.appendChild(topbar);
+      topbar.appendChild(toolbarContainer);
+      topbar.appendChild(toggleBtn);
+      topbar.appendChild(previewTabs);
+      shell.appendChild(previewPanel);
+      shell.appendChild(composerInner);
+      composer.classList.add('md-composer-mode');
+      previewTabs.addEventListener('click', function (event) {
+        var tab = event.target.closest('.md-preview-tab');
+        if (!tab) return;
+        var previewing = tab.dataset.view === 'preview';
+        previewTabs.querySelectorAll('.md-preview-tab').forEach(function (item) { item.classList.toggle('active', item === tab); });
+        composerInner.classList.toggle('hidden', previewing);
+        toolbarContainer.classList.toggle('hidden', previewing);
+        previewPanel.classList.toggle('hidden', !previewing);
+        if (previewing) {
+          try { previewPanel.innerHTML = window.HalonyxMarkdownRender.renderMarkdown(document.getElementById('message-input').value); }
+          catch (_) { previewPanel.textContent = 'Message exceeds the 10000 character limit.'; }
+        }
+      });
     } else {
       chatPane.appendChild(toggleBtn);
       chatPane.appendChild(toolbarContainer);
@@ -327,6 +349,16 @@
       if (icon) {
         icon.textContent = isEnabled ? 'code' : 'text_fields';
       }
+    }
+
+    var previewTabs = document.querySelector('.md-preview-tabs');
+    if (previewTabs) previewTabs.classList.toggle('hidden', !isEnabled);
+    var previewPanel = document.getElementById('md-preview-panel');
+    if (!isEnabled && previewPanel) {
+      previewPanel.classList.add('hidden');
+      var composerInner = document.querySelector('.composer-inner');
+      if (composerInner) composerInner.classList.remove('hidden');
+      previewTabs.querySelectorAll('.md-preview-tab').forEach(function (tab) { tab.classList.toggle('active', tab.dataset.view === 'write'); });
     }
     
     toolbarVisible = isEnabled;
@@ -527,7 +559,8 @@
   window.HalonyxMarkdownToolbar = {
     init: initMarkdown,
     updateVisibility: updateToolbarVisibility,
-    updateComposerBehavior: updateComposerBehavior
+    updateComposerBehavior: updateComposerBehavior,
+    getProfessionalMode: getProfessionalMode
   };
 
 })();

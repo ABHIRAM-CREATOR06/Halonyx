@@ -1261,6 +1261,23 @@ body.theme-light .chat-header {
     font-size: 0.875rem;
     line-height: 1.5;
 }
+
+.markdown-content { overflow-wrap: anywhere; }
+.markdown-content > :first-child { margin-top: 0; }
+.markdown-content > :last-child { margin-bottom: 0; }
+.markdown-content pre { max-width: 100%; overflow-x: auto; padding: 10px 12px; border-radius: var(--r-md); background: var(--bg-base); color: var(--fg); }
+.markdown-content code { font-family: var(--font-mono); font-size: .88em; }
+.markdown-content :not(pre) > code { padding: 2px 4px; border-radius: 4px; background: var(--bg-base); }
+.markdown-content table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.markdown-content th, .markdown-content td { padding: 5px 8px; border: 1px solid var(--bd); }
+.markdown-content a { color: var(--accent); overflow-wrap: anywhere; }
+.markdown-content input[type="checkbox"] { pointer-events: none; }
+.md-preview-tabs { display: flex; gap: 6px; padding: 5px 10px; }
+.md-preview-tabs.hidden, .md-preview-panel.hidden { display: none; }
+.md-preview-tab { border: 0; border-radius: 6px; padding: 5px 10px; color: var(--fg-muted); background: transparent; cursor: pointer; }
+.md-preview-tab.active { color: var(--fg); background: var(--bg-surface); }
+.md-preview-panel { max-height: 240px; overflow: auto; padding: 8px 14px; color: var(--fg); background: var(--bg-surface); border: 1px solid var(--bd); border-radius: var(--r-md); }
+body.theme-light .markdown-content pre, body.theme-light .markdown-content :not(pre) > code { background: var(--panel-l); }
 .msg-row.sent .msg-bubble {
     background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dim) 100%);
     color: #000;
@@ -1411,6 +1428,76 @@ body.theme-light .msg-row.received .msg-bubble {
     background: var(--bg-panel);
     border-top: 1px solid var(--bd);
 }
+
+/* Slack-style rich message composer (formatting row, editor, and actions). */
+.composer.md-composer-mode { padding: 8px 16px 14px; border-top: 0; }
+.md-composer-shell {
+    width: 100%;
+    overflow: hidden;
+    border: 1px solid var(--bd-hi);
+    border-radius: 10px;
+    background: var(--bg-surface);
+    transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.md-composer-shell:focus-within {
+    border-color: var(--accent-dim);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+}
+.md-composer-topbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 42px;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--bd);
+}
+.md-composer-topbar .md-toolbar-container {
+    display: none;
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    animation: none;
+}
+.md-composer-topbar .md-toolbar-container.block { display: block; }
+.md-composer-topbar .md-toolbar {
+    flex-wrap: nowrap;
+    gap: 2px;
+    padding: 0;
+    overflow-x: auto;
+    border: 0;
+    background: transparent;
+}
+.md-composer-topbar .md-toolbar-btn { width: 30px; height: 30px; }
+.md-composer-topbar .md-toolbar-divider { height: 18px; margin: 0 3px; }
+.md-composer-topbar .md-toggle-wrapper { flex: 0 0 auto; margin: 0; }
+.md-composer-topbar .md-professional-toggle { padding: 5px 8px; font-size: .76rem; }
+.md-composer-topbar .md-professional-toggle .md-toggle-label { display: inline; font-size: .72rem; letter-spacing: 0; }
+.md-composer-topbar .md-preview-tabs { flex: 0 0 auto; gap: 2px; padding: 0; }
+.md-composer-topbar .md-preview-tab { padding: 5px 8px; font-size: .78rem; }
+.md-composer-shell .composer-inner {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr) 40px;
+    grid-template-rows: auto 36px;
+    align-items: center;
+    gap: 4px 6px;
+    padding: 8px 10px 7px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+.md-composer-shell .composer-field { grid-column: 1 / -1; grid-row: 1; min-width: 0; }
+.md-composer-shell .composer-field textarea { min-height: 36px; padding: 3px 1px; }
+.md-composer-shell #attach-btn { grid-column: 1; grid-row: 2; justify-self: start; }
+.md-composer-shell #send-btn { grid-column: 3; grid-row: 2; justify-self: end; }
+.md-preview-panel { margin: 8px 12px; }
+body.theme-light .md-composer-shell { background: var(--surface-l); border-color: var(--border-hi-l); }
+body.theme-light .md-composer-topbar { border-color: var(--border-l); }
+body.theme-light .md-composer-shell .composer-inner { background: transparent; }
 .composer-inner {
     display: flex;
     align-items: center;
