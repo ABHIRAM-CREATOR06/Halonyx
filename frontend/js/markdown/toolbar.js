@@ -90,21 +90,21 @@
       icon: 'looks_one', 
       label: 'Heading 1', 
       action: function(textarea) { applyAction(textarea, function(params) { return actions.toggleHeading(params, 1); }); },
-      shortcut: null
+      shortcut: 'Ctrl+Alt+1,Meta+Alt+1'
     },
     { 
       type: 'h2', 
       icon: 'looks_two', 
       label: 'Heading 2', 
       action: function(textarea) { applyAction(textarea, function(params) { return actions.toggleHeading(params, 2); }); },
-      shortcut: null
+      shortcut: 'Ctrl+Alt+2,Meta+Alt+2'
     },
     { 
       type: 'h3', 
       icon: 'looks_3', 
       label: 'Heading 3', 
       action: function(textarea) { applyAction(textarea, function(params) { return actions.toggleHeading(params, 3); }); },
-      shortcut: null
+      shortcut: 'Ctrl+Alt+3,Meta+Alt+3'
     },
     { 
       type: 'divider-2',
@@ -118,21 +118,21 @@
       icon: 'format_list_bulleted', 
       label: 'Bullet List', 
       action: function(textarea) { applyAction(textarea, actions.toggleBulletList); },
-      shortcut: null
+      shortcut: 'Ctrl+Alt+U,Meta+Alt+U'
     },
     { 
       type: 'numbered_list', 
       icon: 'format_list_numbered', 
       label: 'Numbered List', 
       action: function(textarea) { applyAction(textarea, actions.toggleNumberedList); },
-      shortcut: null
+      shortcut: 'Ctrl+Alt+O,Meta+Alt+O'
     },
     { 
       type: 'task_list', 
       icon: 'checklist', 
       label: 'Task List', 
       action: function(textarea) { applyAction(textarea, actions.toggleTaskList); },
-      shortcut: null
+      shortcut: 'Ctrl+Alt+T,Meta+Alt+T'
     },
     { 
       type: 'divider-3',
@@ -146,14 +146,14 @@
       icon: 'format_quote', 
       label: 'Quote', 
       action: function(textarea) { applyAction(textarea, actions.toggleBlockquote); },
-      shortcut: null
+      shortcut: 'Ctrl+Alt+Q,Meta+Alt+Q'
     },
     { 
       type: 'code_block', 
-      icon: 'code_blocks', 
+      icon: 'terminal',
       label: 'Code Block', 
       action: function(textarea) { applyAction(textarea, actions.toggleCodeBlock); },
-      shortcut: null
+      shortcut: 'Ctrl+Alt+C,Meta+Alt+C'
     },
     { 
       type: 'link', 
@@ -167,14 +167,14 @@
       icon: 'horizontal_rule', 
       label: 'Horizontal Rule', 
       action: function(textarea) { applyAction(textarea, actions.insertHorizontalRule); },
-      shortcut: null
+      shortcut: 'Ctrl+Alt+H,Meta+Alt+H'
     },
     { 
       type: 'table', 
       icon: 'table_chart', 
       label: 'Table', 
       action: function(textarea) { applyAction(textarea, actions.insertTable); },
-      shortcut: null
+      shortcut: 'Ctrl+Alt+Y,Meta+Alt+Y'
     }
   ];
 
@@ -200,6 +200,21 @@
     textarea.focus();
   }
 
+  function matchesShortcut(event, shortcut) {
+    if (!shortcut || event.repeat) return false;
+    return shortcut.split(',').some(function (combination) {
+      var keys = combination.split('+');
+      var key = keys.pop().toLowerCase();
+      var modifiers = new Set(keys);
+      if (event.ctrlKey !== modifiers.has('Ctrl')) return false;
+      if (event.metaKey !== modifiers.has('Meta')) return false;
+      if (event.altKey !== modifiers.has('Alt')) return false;
+      if (event.shiftKey !== modifiers.has('Shift')) return false;
+      var code = /^\d$/.test(key) ? 'Digit' + key : 'Key' + key.toUpperCase();
+      return event.code === code;
+    });
+  }
+
   /**
    * Create the toolbar HTML
    */
@@ -210,10 +225,15 @@
       if (btn.type.startsWith('divider')) {
         html += '<div class="md-toolbar-divider" role="separator"></div>';
       } else {
-        var ariaKeyshortcuts = btn.shortcut ? btn.shortcut.replace(/Meta/g, 'Meta').replace(/Ctrl/g, 'Control').replace(/\+/g, ' ') : null;
+        var ariaKeyshortcuts = btn.shortcut ? btn.shortcut.split(',').map(function (combination) {
+          return combination.split('+').map(function (key) { return key === 'Ctrl' ? 'Control' : key; }).join(' ');
+        }).join(' ') : null;
+        var shortcutLabel = btn.shortcut ? btn.shortcut.split(',').map(function (combination) {
+          return combination.replace(/Meta/g, 'Cmd').replace(/Alt/g, 'Option');
+        }).join(' / ') : '';
         html += `
           <button type="button" class="md-toolbar-btn" data-type="${btn.type}"
-            title="${btn.label}${btn.shortcut ? ` (${btn.shortcut.replace(/Meta/g, 'Cmd')})` : ''}"
+            title="${btn.label}${shortcutLabel ? ` (${shortcutLabel})` : ''}"
             aria-label="${btn.label}" ${ariaKeyshortcuts ? `aria-keyshortcuts="${ariaKeyshortcuts}"` : ''}>
             <span class="material-icons-outlined" aria-hidden="true">${btn.icon}</span>
           </button>`;
@@ -236,8 +256,8 @@
         class="md-professional-toggle ${isEnabled ? 'enabled' : ''}"
         aria-label="Professional Mode"
         aria-pressed="${isEnabled}"
-        aria-keyshortcuts="Alt+Shift+P"
-        title="Professional Mode (Alt+Shift+P)"
+        aria-keyshortcuts="Control+Alt+M Meta+Alt+M"
+        title="Professional Mode (Ctrl+Alt+M / Cmd+Option+M)"
       >
         <span class="material-icons-outlined" aria-hidden="true">${isEnabled ? 'code' : 'text_fields'}</span>
         <span class="md-toggle-label">Professional Mode</span>
@@ -288,7 +308,7 @@
       topbar.className = 'md-composer-topbar';
       var previewTabs = document.createElement('div');
       previewTabs.className = 'md-preview-tabs hidden';
-      previewTabs.innerHTML = '<button type="button" class="md-preview-tab active" data-view="write">Write</button><button type="button" class="md-preview-tab" data-view="preview">Preview</button>';
+      previewTabs.innerHTML = '<button type="button" class="md-preview-tab active" data-view="write" title="Write (Ctrl+Alt+P / Cmd+Option+P)" aria-keyshortcuts="Control+Alt+P Meta+Alt+P">Write</button><button type="button" class="md-preview-tab" data-view="preview" title="Preview (Ctrl+Alt+P / Cmd+Option+P)" aria-keyshortcuts="Control+Alt+P Meta+Alt+P">Preview</button>';
       var previewPanel = document.createElement('div');
       previewPanel.id = 'md-preview-panel';
       previewPanel.className = 'md-preview-panel hidden markdown-content';
@@ -313,6 +333,7 @@
           catch (_) { previewPanel.textContent = 'Message exceeds the 10000 character limit.'; }
         }
       });
+      previewTabs.dataset.shortcut = 'Ctrl+Alt+P,Meta+Alt+P';
     } else {
       chatPane.appendChild(toggleBtn);
       chatPane.appendChild(toolbarContainer);
@@ -408,66 +429,59 @@
    */
   function setupKeyboardShortcuts() {
     document.addEventListener('keydown', function(e) {
-      // Check if we're in a textarea
-      var textarea = document.activeElement;
-      if (!textarea || textarea.tagName !== 'TEXTAREA') {
+      var isModeShortcut = e.altKey && !e.shiftKey && !e.repeat && e.code === 'KeyM' &&
+        ((e.ctrlKey && !e.metaKey) || (e.metaKey && !e.ctrlKey));
+      if (isModeShortcut) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleProfessionalMode();
+        updateToolbarVisibility();
+        updateComposerBehavior();
         return;
       }
-      
-      // Only handle if it's message-input or thread-message-input
-      if (textarea.id !== 'message-input' && textarea.id !== 'thread-message-input') {
-        return;
-      }
-      
-      var isProfessional = getProfessionalMode();
-      if (!isProfessional) {
-        // Only handle Alt+Shift+P for toggle
-        if (e.altKey && e.shiftKey && e.code === 'KeyP') {
-          e.preventDefault();
-          var newState = toggleProfessionalMode();
-          updateToolbarVisibility();
-          updateComposerBehavior();
+
+      var activeElement = document.activeElement;
+      var textarea = activeElement;
+      var isComposerEditor = textarea && textarea.tagName === 'TEXTAREA' &&
+        (textarea.id === 'message-input' || textarea.id === 'thread-message-input');
+      var previewTabs = document.querySelector('.md-preview-tabs');
+      var inPreviewTabs = activeElement && activeElement.classList &&
+        activeElement.classList.contains('md-preview-tab') && activeElement.closest('.md-composer-shell');
+      var canTogglePreview = (isComposerEditor && textarea.id === 'message-input') || inPreviewTabs;
+      if (getProfessionalMode() && canTogglePreview && previewTabs &&
+          matchesShortcut(e, previewTabs.dataset.shortcut)) {
+        e.preventDefault();
+        var previewing = document.querySelector('.md-preview-tab[data-view="preview"]')?.classList.contains('active');
+        var targetTab = document.querySelector('.md-preview-tab[data-view="' + (previewing ? 'write' : 'preview') + '"]');
+        if (targetTab) {
+          targetTab.focus();
+          targetTab.click();
+          if (previewing) document.getElementById('message-input')?.focus();
         }
         return;
       }
+
+      // Formatting shortcuts require the message editor to be focused.
+      if (!isComposerEditor) {
+        return;
+      }
+
+      var isProfessional = getProfessionalMode();
+      if (!isProfessional) {
+        return;
+      }
       
-      // Handle shortcuts
-      var isCtrlOrMeta = e.ctrlKey || e.metaKey;
-      
-      // Bold: Ctrl/Cmd+B
-      if (isCtrlOrMeta && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
-        e.preventDefault();
-        applyAction(textarea, actions.toggleBold);
+      for (var i = 0; i < toolbarButtons.length; i++) {
+        var buttonDef = toolbarButtons[i];
+        if (buttonDef.action && matchesShortcut(e, buttonDef.shortcut)) {
+          e.preventDefault();
+          applyAction(textarea, buttonDef.action);
+          return;
+        }
       }
-      // Italic: Ctrl/Cmd+I
-      else if (isCtrlOrMeta && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'i') {
-        e.preventDefault();
-        applyAction(textarea, actions.toggleItalic);
-      }
-      // Strikethrough: Ctrl/Cmd+Shift+X
-      else if (isCtrlOrMeta && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'x') {
-        e.preventDefault();
-        applyAction(textarea, actions.toggleStrikethrough);
-      }
-      // Insert Link: Ctrl/Cmd+K
-      else if (isCtrlOrMeta && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        applyAction(textarea, actions.insertLink);
-      }
-      // Inline Code: Ctrl/Cmd+E
-      else if (isCtrlOrMeta && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'e') {
-        e.preventDefault();
-        applyAction(textarea, actions.toggleInlineCode);
-      }
-      // Professional Mode toggle: Alt+Shift+P
-      else if (e.altKey && e.shiftKey && e.code === 'KeyP') {
-        e.preventDefault();
-        var newState = toggleProfessionalMode();
-        updateToolbarVisibility();
-        updateComposerBehavior();
-      }
+
       // Ctrl/Cmd+Enter to send (in addition to regular Enter)
-      else if (isCtrlOrMeta && e.key === 'Enter' && !e.isComposing) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !e.isComposing) {
         var sendBtn = textarea.id === 'message-input' ? document.getElementById('send-btn') : document.getElementById('thread-send-btn');
         if (sendBtn) {
           e.preventDefault();

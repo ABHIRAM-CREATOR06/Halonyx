@@ -94,6 +94,15 @@ function messageLengthAllowed(content) {
   return false;
 }
 
+function resizeComposerTextarea(textarea) {
+  if (!textarea) return;
+  const maxHeight = Math.max(72, Math.min(260, Math.round(window.innerHeight * 0.35)));
+  textarea.style.height = "auto";
+  const contentHeight = textarea.scrollHeight;
+  textarea.style.height = `${Math.min(contentHeight, maxHeight)}px`;
+  textarea.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
+}
+
 function messageBodyHTML(message, className) {
   if (message.fmt === "md" && window.HalonyxMarkdownRender) {
     try { return `<div class="${className} markdown-content">${window.HalonyxMarkdownRender.renderMarkdown(String(message.content || ""))}</div>`; }
@@ -418,6 +427,7 @@ function openThread(startMsgId) {
   if (threadWarning) threadWarning.classList.add("hidden");
   if (threadInput) {
     threadInput.value = "";
+    resizeComposerTextarea(threadInput);
     threadInput.focus();
   }
 
@@ -470,6 +480,8 @@ async function sendThreadReply() {
       }
     }
   }
+
+  if (inspectAegisusThreats(content, targetName, "thread")) return;
 
   const replyToMeta = {
     id: activeThreadRootMsg.id,
@@ -569,6 +581,7 @@ async function sendThreadReply() {
   }
 
   input.value = "";
+  resizeComposerTextarea(input);
   const threadWarning = document.getElementById("thread-dlp-warning");
   if (threadWarning) threadWarning.classList.add("hidden");
 
@@ -1566,7 +1579,7 @@ async function openChat(hashedUsid) {
   }
 }
 
-async function sendGroupMessage(forceContent) {
+async function sendGroupMessage(forceContent, bypassThreatIntel = false) {
   const input = document.getElementById("message-input");
   const hasForcedContent = typeof forceContent === "string";
   let content = hasForcedContent ? forceContent : input.value.trim();
@@ -1595,6 +1608,8 @@ async function sendGroupMessage(forceContent) {
       }
     }
   }
+
+  if (!bypassThreatIntel && inspectAegisusThreats(content, group.name, "main")) return;
 
   const replyTarget = activeReplyTarget;
   const replyToMeta = replyTarget ? {
@@ -1647,6 +1662,7 @@ async function sendGroupMessage(forceContent) {
   });
 
   input.value = "";
+  resizeComposerTextarea(input);
   const dlpWarning = document.getElementById("dlp-inline-warning");
   if (dlpWarning) dlpWarning.classList.add("hidden");
 
@@ -1655,9 +1671,9 @@ async function sendGroupMessage(forceContent) {
   playSendSound();
 }
 
-async function sendMessage(forceContent) {
+async function sendMessage(forceContent, bypassThreatIntel = false) {
   if (currentChatType === "group") {
-    return sendGroupMessage(forceContent);
+    return sendGroupMessage(forceContent, bypassThreatIntel);
   }
 
   const input = document.getElementById("message-input");
@@ -1684,6 +1700,8 @@ async function sendMessage(forceContent) {
       }
     }
   }
+
+  if (!bypassThreatIntel && inspectAegisusThreats(content, getContactName(currentChatUsid), "main")) return;
 
   const replyTarget = activeReplyTarget;
   const replyToMeta = replyTarget ? {
@@ -1741,6 +1759,7 @@ async function sendMessage(forceContent) {
   });
 
   input.value = "";
+  resizeComposerTextarea(input);
   const dlpWarning = document.getElementById("dlp-inline-warning");
   if (dlpWarning) dlpWarning.classList.add("hidden");
 
@@ -2505,6 +2524,54 @@ function setupEventListeners() {
     .getElementById("search-input")
     .addEventListener("input", renderContactsList);
   document.getElementById("theme-btn").addEventListener("click", toggleTheme);
+  document.getElementById("keyboard-shortcuts-btn")?.addEventListener("click", () => {
+    showDialog("keyboard-shortcuts-dialog");
+    document.getElementById("close-keyboard-shortcuts")?.focus();
+  });
+  document.getElementById("close-keyboard-shortcuts")?.addEventListener("click", () => {
+    hideDialog("keyboard-shortcuts-dialog");
+    document.getElementById("keyboard-shortcuts-btn")?.focus();
+  });
+  document.getElementById("keyboard-shortcuts-dialog")?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      hideDialog("keyboard-shortcuts-dialog");
+      document.getElementById("keyboard-shortcuts-btn")?.focus();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.repeat) return;
+    const isEmergencyShortcut = event.code === "KeyE";
+    if (event.shiftKey !== isEmergencyShortcut) return;
+    const hasPlatformModifier = (event.ctrlKey && !event.metaKey) || (event.metaKey && !event.ctrlKey);
+    if (!hasPlatformModifier || !event.altKey) return;
+
+    const actions = {
+      KeyA: () => {
+        showDialog("add-contact-dialog");
+        document.getElementById("contact-usid")?.focus();
+      },
+      KeyG: () => {
+        if (currentChatType === "group" && currentChatGroupId) {
+          document.getElementById("message-input")?.focus();
+        } else {
+          showSnackbar("Open an encrypted group conversation first", "info");
+        }
+      },
+      KeyD: openDlpSettings,
+      KeyE: () => {
+        if (window.confirm("Send an emergency alert to connected clients?")) sendEmergency();
+      },
+      KeyV: () => {
+        if (currentChatUsid) showSafetyNumbers();
+        else showSnackbar("Open a direct conversation to verify identity", "info");
+      },
+    };
+    const action = actions[event.code];
+    if (!action) return;
+    event.preventDefault();
+    event.stopPropagation();
+    action();
+  });
 
   document
     .getElementById("fab-add-contact")
@@ -2623,9 +2690,11 @@ function setupEventListeners() {
   const msgInput = document.getElementById("message-input");
   const threadMsgInput = document.getElementById("thread-message-input");
   msgInput?.addEventListener("input", (e) => {
+    resizeComposerTextarea(e.target);
     checkLiveDlp(e.target, document.getElementById("dlp-inline-warning"), document.getElementById("dlp-inline-warning-text"));
   });
   threadMsgInput?.addEventListener("input", (e) => {
+    resizeComposerTextarea(e.target);
     checkLiveDlp(e.target, document.getElementById("thread-dlp-warning"), document.getElementById("thread-dlp-warning-text"));
   });
 
@@ -2670,7 +2739,10 @@ function setupEventListeners() {
   document.getElementById("close-dlp-settings")?.addEventListener("click", closeDlpSettings);
   document.getElementById("save-dlp-settings-btn")?.addEventListener("click", closeDlpSettings);
 
-  // DLP Tabs
+  // Aegisus top-level sections and DLP configuration tabs
+  document.querySelectorAll(".aegisus-section-tab").forEach((btn) => {
+    btn.addEventListener("click", () => selectAegisusSection(btn.dataset.engineSection));
+  });
   document.querySelectorAll(".dlp-tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".dlp-tab-btn").forEach((b) => b.classList.remove("active"));
@@ -2689,7 +2761,7 @@ function setupEventListeners() {
     if (window.HalonyxDLP) {
       window.HalonyxDLP.updateConfig({ enabled: e.target.checked });
       updateDlpStatusBtn();
-      showSnackbar(`Enterprise DLP ${e.target.checked ? "enabled" : "disabled"}`, "info");
+      showSnackbar(`Aegisus Security Engine ${e.target.checked ? "enabled" : "disabled"}`, "info");
     }
   });
 
@@ -2806,23 +2878,51 @@ function setupEventListeners() {
 // ─────────────────────────────────────────
 let pendingDlpAction = null;
 
-function showDlpAlertDialog(scan, originalText, source) {
-  pendingDlpAction = { scan, originalText, source };
+function inspectAegisusThreats(content, targetName, source) {
+  if (!window.HalonyxAegisus) return false;
+  const result = window.HalonyxAegisus.scan(content);
+  if (!result.matches.length) return false;
+  if (result.mode === "BLOCK") {
+    window.HalonyxAegisus.logIncident(result.matches, "BLOCKED", targetName);
+  }
+  showDlpAlertDialog({
+    mode: result.mode,
+    violations: result.matches,
+    redactedText: String(content || ""),
+  }, content, source, "threat");
+  return true;
+}
+
+function showDlpAlertDialog(scan, originalText, source, kind = "dlp") {
+  pendingDlpAction = { scan, originalText, source, kind };
   const dialog = document.getElementById("dlp-alert-dialog");
   if (!dialog) return;
 
+  const isThreatAlert = kind === "threat";
   const firstV = scan.violations[0];
+  document.getElementById("dlp-alert-title").textContent = isThreatAlert
+    ? "Threat Indicator Detected"
+    : "Aegisus Security Engine Alert";
+  document.getElementById("dlp-alert-body").textContent = isThreatAlert
+    ? "This draft matches an indicator in your local threat watchlist. It has not been encrypted or sent."
+    : "Sensitive data was detected in this message before E2EE encryption.";
   document.getElementById("dlp-rule-badge").textContent = firstV.ruleName;
   const sevBadge = document.getElementById("dlp-severity-badge");
-  sevBadge.textContent = firstV.severity.toUpperCase();
-  sevBadge.className = `badge-pill badge-${firstV.severity === "critical" ? "critical" : "danger"}`;
+  sevBadge.textContent = isThreatAlert ? "WATCHLIST" : firstV.severity.toUpperCase();
+  sevBadge.className = `badge-pill badge-${!isThreatAlert && firstV.severity === "critical" ? "critical" : "danger"}`;
 
-  document.getElementById("dlp-category-badge").textContent = firstV.categoryLabel || "Enterprise Rule";
+  document.getElementById("dlp-category-badge").textContent = firstV.categoryLabel || "Security Rule";
   document.getElementById("dlp-snippet-code").textContent = firstV.maskedSnippet;
+  document.getElementById("dlp-remediation-tip").textContent = isThreatAlert
+    ? "Review the matched indicator and its source. If you trust this destination, use Warn mode to choose whether to send."
+    : "Aegisus inspected this message locally before encryption. Review the match or edit the draft.";
+  const redactBtn = document.getElementById("dlp-redact-send-btn");
+  if (redactBtn) redactBtn.style.display = isThreatAlert ? "none" : "inline-flex";
 
   const overrideBtn = document.getElementById("dlp-override-send-btn");
   if (overrideBtn) {
     overrideBtn.style.display = scan.mode === "WARN" ? "inline-flex" : "none";
+    overrideBtn.textContent = isThreatAlert ? "Send Anyway" : "Override & Send";
   }
 
   dialog.classList.remove("hidden");
@@ -2840,7 +2940,8 @@ function hideDlpAlertDialog() {
 
 function handleDlpRedactSend() {
   if (!pendingDlpAction) return;
-  const { scan, source } = pendingDlpAction;
+  const { scan, source, kind = "dlp" } = pendingDlpAction;
+  if (kind === "threat") return;
   hideDlpAlertDialog();
   const targetName = currentChatType === "group"
     ? ((window.HalonyxGroups && HalonyxGroups.getGroup(currentChatGroupId, myUsid)?.name) || "Group")
@@ -2857,11 +2958,17 @@ function handleDlpRedactSend() {
 
 function handleDlpOverrideSend() {
   if (!pendingDlpAction) return;
-  const { scan, originalText, source } = pendingDlpAction;
+  const { scan, originalText, source, kind = "dlp" } = pendingDlpAction;
   hideDlpAlertDialog();
   const targetName = currentChatType === "group"
     ? ((window.HalonyxGroups && HalonyxGroups.getGroup(currentChatGroupId, myUsid)?.name) || "Group")
     : getContactName(currentChatUsid);
+  if (kind === "threat" && window.HalonyxAegisus) {
+    window.HalonyxAegisus.logIncident(scan.violations, "WARNED_SENT", targetName);
+    if (source === "thread") sendThreadReplyDirect(originalText, true);
+    else sendMessage(originalText, true);
+    return;
+  }
   if (window.HalonyxDLP) {
     window.HalonyxDLP.logIncident(scan.violations, "WARNED_SENT", targetName);
   }
@@ -2872,11 +2979,15 @@ function handleDlpOverrideSend() {
   }
 }
 
-async function sendThreadReplyDirect(content) {
+async function sendThreadReplyDirect(content, bypassThreatIntel = false) {
   if (!messageLengthAllowed(content)) return;
   const isGroup = currentChatType === "group" && !!currentChatGroupId;
   const activeChatKey = isGroup ? currentChatGroupId : currentChatUsid;
   if (!activeThreadRootMsg || !activeChatKey || !ws || ws.readyState !== WebSocket.OPEN) return;
+  const targetName = isGroup
+    ? ((window.HalonyxGroups && HalonyxGroups.getGroup(currentChatGroupId, myUsid)?.name) || "Group")
+    : getContactName(currentChatUsid);
+  if (!bypassThreatIntel && inspectAegisusThreats(content, targetName, "thread")) return;
 
   const replyToMeta = {
     id: activeThreadRootMsg.id,
@@ -2985,6 +3096,7 @@ function checkLiveDlp(inputEl, warningEl, textEl) {
 function openDlpSettings() {
   if (!window.HalonyxDLP) return;
   const cfg = window.HalonyxDLP.getConfig();
+  selectAegisusSection("rules");
 
   // Master switch
   const master = document.getElementById("dlp-master-toggle");
@@ -3024,12 +3136,23 @@ function closeDlpSettings() {
   updateDlpStatusBtn();
 }
 
+function selectAegisusSection(sectionName) {
+  document.querySelectorAll(".aegisus-section-tab").forEach((tab) => {
+    const selected = tab.dataset.engineSection === sectionName;
+    tab.classList.toggle("active", selected);
+    tab.setAttribute("aria-selected", String(selected));
+  });
+  document.querySelectorAll(".aegisus-section-panel").forEach((panel) => {
+    panel.hidden = panel.id !== `aegisus-section-${sectionName}`;
+  });
+}
+
 function updateDlpStatusBtn() {
   const btn = document.getElementById("dlp-status-btn");
   if (!btn || !window.HalonyxDLP) return;
   const cfg = window.HalonyxDLP.getConfig();
   btn.className = `icon-btn dlp-mode-${cfg.mode.toLowerCase()}${cfg.enabled ? "" : " dlp-disabled"}`;
-  btn.title = `Enterprise DLP: ${cfg.enabled ? cfg.mode : "Disabled"}`;
+  btn.title = `Aegisus Security Engine: ${cfg.enabled ? cfg.mode : "Disabled"}`;
 }
 
 function renderCustomRulesList() {

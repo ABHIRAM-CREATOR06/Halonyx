@@ -71,7 +71,7 @@ It's a final-year project built as a deep, from-first-principles exploration of 
 
 - **E2EE Group Messaging** — Signal Protocol Pairwise Double Ratchet fan-out architecture; multi-party encrypted channels with automatic group discovery, dynamic member management, and zero server-side group knowledge
 
-- **Enterprise Client-Side DLP** — pre-encryption Data Loss Prevention scanning for Cloud API Keys (AWS, GitHub, Slack, OpenAI, PEM keys), Payment Cards (with Luhn checksum validation), and PII (SSN, custom regex) with Block, Warn, and Auto-Redact modes and local compliance audit logging
+- **Security controls powered by Aegisus Security Engine** — client-side DLP and security rules with pre-encryption inspection for Cloud/API keys, payment cards, and PII; plus custom rules, local threat indicators (domains, IPv4 addresses, and SHA-256 hashes), a local audit log, and a searchable security knowledge base
 
 - **Slack-Style Threading Slide-over** — recursive root resolution tracing nested replies to the root conversation starter, participant metadata counters, in-thread composer, and real-time DLP inspection for both direct and group chats
 
