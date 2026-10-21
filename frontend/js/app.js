@@ -74,6 +74,8 @@ let currentChatGroupId = null;
 let currentCategory = "all"; // "all" | "direct" | "groups"
 let contacts = [];
 let messageHistory = {};
+const reactionStates = {};
+const reactionQueueAcks = new Map();
 let activeReplyTarget = null;
 let ws;
 let identityRejected = false;
@@ -220,10 +222,14 @@ function loadMessageHistory() {
 
 function migrateLegacyHistory() {
   let modified = false;
+  const canonicalId = (id) => typeof id === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(id) ? id.replace(/-/g, '').toLowerCase() : id;
   Object.keys(messageHistory).forEach((chatUsid) => {
     const list = messageHistory[chatUsid];
     if (Array.isArray(list)) {
       list.forEach((m, idx) => {
+        const canonical = canonicalId(m.id);
+        if (canonical !== m.id) { m.id = canonical; modified = true; }
+        if (m.replyTo?.id) { const replyId = canonicalId(m.replyTo.id); if (replyId !== m.replyTo.id) { m.replyTo.id = replyId; modified = true; } }
         if (!m.id) {
           m.id = EnvelopeModule.generateUUID();
           modified = true;
@@ -384,6 +390,7 @@ function openThread(startMsgId) {
         </button>
       </div>
       ${messageBodyHTML(rootMsg, "thread-root-content")}
+      ${reactionMarkup(rootMsg)}
     </div>
   `;
 
@@ -414,11 +421,13 @@ function openThread(startMsgId) {
           </button>
         </div>
         ${messageBodyHTML(m, "thread-body")}
+        ${reactionMarkup(m)}
       </div>
     `;
   });
 
   body.innerHTML = html;
+  mountReactionControls(body);
   panel.classList.remove("hidden");
 
   // Reset thread composer
@@ -855,6 +864,22 @@ async function handleWSMessage(data) {
       }
 
       // Normalize envelope or plaintext payload
+      let decodedEnvelope;
+      try { decodedEnvelope = typeof displayContent === 'string' ? JSON.parse(displayContent) : displayContent; } catch (_) {}
+      if (decodedEnvelope && decodedEnvelope.v === 1 && decodedEnvelope.type === 'reaction') {
+        const reactionChat = Object.keys(messageHistory).find((key) => (messageHistory[key] || []).some((m) => m.id === decodedEnvelope.target));
+        if (!reactionChat) break;
+        const hist = messageHistory[reactionChat] || [];
+        const state = reactionStates[reactionChat] || { messageIds: hist.map((m) => m.id), reactions: Object.fromEntries(hist.filter((m) => m.reactions).map((m) => [m.id, m.reactions])) };
+        const next = HalonyxReactions.applyReaction(state, decodedEnvelope, from);
+        reactionStates[reactionChat] = next;
+        const target = hist.find((m) => m.id === decodedEnvelope.target);
+        if (target) target.reactions = next.reactions[target.id] || {};
+        saveMessageHistory();
+        if (target && ((currentChatType === 'group' && currentChatGroupId === reactionChat) || (currentChatType === 'direct' && currentChatUsid === reactionChat))) { renderMessages(); if (!document.getElementById('reply-chain-panel')?.classList.contains('hidden')) openThread(activeThreadRootMsg?.id); }
+        break;
+      }
+      if (decodedEnvelope && decodedEnvelope.v === 1 && decodedEnvelope.type) break;
       const { envelope } = EnvelopeModule.normalizeMessage(displayContent);
 
       // E2EE Group Message Handling
@@ -970,6 +995,11 @@ async function handleWSMessage(data) {
       // Keepalive acknowledged
       break;
     case "queued": {
+      if (data.recipient && reactionQueueAcks.get(data.recipient)) {
+        const left = reactionQueueAcks.get(data.recipient) - 1;
+        if (left) reactionQueueAcks.set(data.recipient, left); else reactionQueueAcks.delete(data.recipient);
+        break;
+      }
       const activeChatKey = currentChatType === "group" ? currentChatGroupId : currentChatUsid;
       if (activeChatKey && messageHistory[activeChatKey]) {
         const hist = messageHistory[activeChatKey];
@@ -1770,12 +1800,85 @@ async function sendMessage(forceContent, bypassThreatIntel = false) {
 
 function saveMessage(chatUsid, msg) {
   if (!messageHistory[chatUsid]) messageHistory[chatUsid] = [];
+  if (typeof msg.id === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(msg.id)) msg.id = msg.id.replace(/-/g, '').toLowerCase();
+  if (msg.replyTo?.id && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(msg.replyTo.id)) msg.replyTo.id = msg.replyTo.id.replace(/-/g, '').toLowerCase();
   if (!msg.id) msg.id = EnvelopeModule.generateUUID();
   if (!msg.rxTs) msg.rxTs = Date.now();
   messageHistory[chatUsid].push(msg);
+  if (window.HalonyxReactions?.addMessage) {
+    const hist = messageHistory[chatUsid];
+    const state = reactionStates[chatUsid] || { messageIds: hist.map((m) => m.id), reactions: Object.fromEntries(hist.filter((m) => m.reactions).map((m) => [m.id, m.reactions])) };
+    const next = HalonyxReactions.addMessage(state, msg.id);
+    reactionStates[chatUsid] = next;
+    hist.forEach((m) => { if (next.reactions[m.id]) m.reactions = next.reactions[m.id]; });
+  }
   // Amendment 6: Order messages by local receive time rxTs
   messageHistory[chatUsid].sort((a, b) => (a.rxTs || 0) - (b.rxTs || 0));
   saveMessageHistory();
+}
+
+async function sendReaction(targetId, emoji) {
+  const chatKey = currentChatType === 'group' ? currentChatGroupId : currentChatUsid;
+  const hist = messageHistory[chatKey] || [];
+  const target = hist.find((m) => m.id === targetId);
+  if (!target || !ws || ws.readyState !== WebSocket.OPEN) return;
+  const event = EnvelopeModule.createReactionEnvelope(targetId, emoji);
+  const raw = JSON.stringify(event);
+  const recipients = target.group && window.HalonyxGroups
+    ? HalonyxGroups.getOtherMembers(HalonyxGroups.getGroup(target.group.id, myUsid) || target.group, myUsid)
+    : [target.from === 'me' ? chatKey : target.from];
+  let sent = 0;
+  for (const recipient of recipients) {
+    if (!recipient) continue;
+    try {
+      if (!signalProtocol.hasSession(recipient)) await startX3dhSession(recipient);
+      if (!signalProtocol.hasSession(recipient)) {
+        console.warn(`[Reaction] No secure session with ${recipient}; reaction not sent`);
+        continue;
+      }
+      const encrypted = await signalProtocol.encrypt(recipient, raw);
+      reactionQueueAcks.set(recipient, (reactionQueueAcks.get(recipient) || 0) + 1);
+      ws.send(JSON.stringify({ type: 'message', to: recipient, encrypted }));
+      sent++;
+    } catch (e) { console.warn('[Reaction] encrypted send failed', e); }
+  }
+  if (!sent) {
+    showSnackbar('Reaction could not be sent. Check the secure connection and try again.', 'error');
+    return;
+  }
+  const state = { messageIds: hist.map((m) => m.id), reactions: Object.fromEntries(hist.filter((m) => m.reactions).map((m) => [m.id, m.reactions])) };
+  const next = HalonyxReactions.applyReaction(state, event, myUsid);
+  target.reactions = next.reactions[targetId] || {};
+  saveMessageHistory(); renderMessages();
+}
+
+function reactionMarkup(msg) {
+  return `<div class="reaction-row" data-reactions-for="${escapeAttr(msg.id)}"></div>`;
+}
+
+function mountReactionControls(root) {
+  if (!root) return;
+  root.querySelectorAll('[data-reactions-for]').forEach((host) => {
+    const msg = Object.values(messageHistory).flat().find((m) => m.id === host.dataset.reactionsFor);
+    if (!msg) return;
+    host.replaceChildren();
+    const groups = new Map();
+    Object.entries(msg.reactions || {}).forEach(([sender, value]) => {
+      const item = groups.get(value.emoji) || { names: [], own: false };
+      item.names.push(sender === myUsid ? 'You' : getContactName(sender)); item.own ||= sender === myUsid; groups.set(value.emoji, item);
+    });
+    groups.forEach((item, emoji) => {
+      const chip = document.createElement('button'); chip.type = 'button'; chip.className = `reaction-chip${item.own ? ' own' : ''}`;
+      chip.setAttribute('aria-pressed', String(item.own)); chip.setAttribute('aria-label', `${emoji}, ${item.names.join(', ')}`); chip.title = item.names.join(', ');
+      const face = document.createElement('span'); face.textContent = emoji; const count = document.createElement('span'); count.textContent = String(item.names.length); chip.append(face, count);
+      chip.addEventListener('click', () => sendReaction(msg.id, item.own ? null : emoji)); host.append(chip);
+    });
+    const wrap = document.createElement('span'); wrap.className = 'reaction-picker-wrap';
+    const add = document.createElement('button'); add.type = 'button'; add.className = 'reaction-add'; add.setAttribute('aria-label', 'Add reaction'); add.textContent = '☺'; wrap.append(add);
+    const picker = document.createElement('span'); picker.className = 'reaction-picker';
+    HalonyxReactions.ALLOWED_EMOJIS.forEach((emoji) => { const option = document.createElement('button'); option.type = 'button'; option.className = 'reaction-option'; option.setAttribute('aria-label', `React ${emoji}`); option.textContent = emoji; option.addEventListener('click', () => sendReaction(msg.id, emoji)); picker.append(option); });
+    wrap.append(picker); host.append(wrap);
+  });
 }
 
 function renderMessages() {
@@ -1900,6 +2003,7 @@ function renderMessages() {
               }
             </div>
             ${threadChipHTML}
+            ${reactionMarkup(msg)}
           </div>
         </div>`;
     } else {
@@ -1916,12 +2020,14 @@ function renderMessages() {
             ${msg.fmt === "md" && !msg.content.startsWith("magnet:?") ? messageBodyHTML(msg, "markdown-message-body") : escapeHTML(msg.content)}
             <span class="msg-time">${time}${statusIcon}</span>
             ${threadChipHTML}
+            ${reactionMarkup(msg)}
           </div>
         </div>`;
     }
   });
 
   container.innerHTML = html;
+  mountReactionControls(container);
   container.scrollTop = container.scrollHeight;
 
   activeTorrents.forEach((torrent) => updateFileProgress(torrent));

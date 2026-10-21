@@ -14,6 +14,10 @@
   'use strict';
 
   function generateUUID() {
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      const bytes = crypto.getRandomValues(new Uint8Array(16));
+      return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    }
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
       return crypto.randomUUID();
     }
@@ -91,8 +95,14 @@
       return null;
     }
 
+    if (obj.type === 'reaction') {
+      if (!/^[a-f0-9]{32}$/.test(obj.target || '') || (obj.emoji !== null && (typeof obj.emoji !== 'string' || obj.emoji.length > 16))) return null;
+      return { v: 1, type: 'reaction', target: obj.target, emoji: obj.emoji };
+    }
+    if (obj.type !== undefined) return null;
+
     // Required field types & constraints
-    if (typeof obj.id !== 'string' || obj.id.trim().length === 0 || obj.id.length > 64) {
+    if (obj.id !== undefined && (typeof obj.id !== 'string' || !/^[a-f0-9]{32}$/.test(obj.id))) {
       return null;
     }
 
@@ -159,6 +169,10 @@
     };
   }
 
+  function createReactionEnvelope(target, emoji) {
+    return { v: 1, type: 'reaction', target: String(target), emoji: emoji === null ? null : String(emoji) };
+  }
+
   /**
    * Normalizes any input payload (legacy string, legacy stored message, or envelope).
    *
@@ -205,6 +219,7 @@
   return {
     generateUUID: generateUUID,
     createEnvelope: createEnvelope,
+    createReactionEnvelope: createReactionEnvelope,
     parseAndValidateEnvelope: parseAndValidateEnvelope,
     normalizeMessage: normalizeMessage,
   };

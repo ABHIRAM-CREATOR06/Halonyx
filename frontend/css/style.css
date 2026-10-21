@@ -5162,6 +5162,14 @@ body.theme-light .aegisus-feature-panel select.field-input { color-scheme: light
 .aegisus-knowledge-article li::marker { color: var(--accent-dim); }
 .aegisus-knowledge-empty { display: grid; min-height: 100%; place-content: center; justify-items: center; gap: 8px; color: var(--fg-muted); }
 .aegisus-knowledge-empty .material-icons-outlined { font-size: 28px; }
+.reaction-row { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+.reaction-chip,.reaction-add,.reaction-option { border:1px solid var(--bd); border-radius:999px; background:var(--bg-surface); color:var(--fg); padding:3px 7px; cursor:pointer; font:inherit; }
+.reaction-chip { display:inline-flex; gap:5px; align-items:center; font-size:.75rem; }
+.reaction-chip.own { border-color:var(--accent); background:var(--bg-elevated); }
+.reaction-picker-wrap { position:relative; }
+.reaction-picker { display:none; position:absolute; z-index:5; bottom:100%; left:0; padding:5px; border:1px solid var(--bd); border-radius:10px; background:var(--bg-surface); box-shadow:0 4px 16px #0003; white-space:nowrap; }
+.reaction-picker-wrap:hover .reaction-picker,.reaction-picker-wrap:focus-within .reaction-picker { display:flex; gap:3px; }
+.reaction-option { border:0; padding:5px; }
 @media (max-width: 760px) {
     .aegisus-indicator-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .aegisus-indicator-form .btn-primary { justify-self: start; }

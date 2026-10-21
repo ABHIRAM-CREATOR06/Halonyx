@@ -734,3 +734,7 @@ While the system implements multiple security mechanisms inspired by modern encr
 Threats, mitigations, and architectural assumptions documented here are subject to change as the project evolves. Security analysis is an ongoing process involving continuous review, testing, benchmarking, and hardening.
 
 Halonyx is currently an academic and research-oriented project and has not undergone independent cryptographic or professional security auditing.
+
+### Message Reactions
+
+Reactions are encrypted envelopes relayed through the same message path as chat text. The relay cannot distinguish a reaction or read its sender or target from ciphertext. Reactions leak timing and delivery counts to the same degree as messages. Sender identity comes from the authenticated session; target IDs and emojis are validated locally. The emoji allowlist and payload validation limit abuse, and pending reactions have a small cap and short TTL.

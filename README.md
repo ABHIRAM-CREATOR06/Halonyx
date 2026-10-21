@@ -77,6 +77,8 @@ It's a final-year project built as a deep, from-first-principles exploration of 
 
 - **Beeper-Style Replies** — E2EE inline quote-replies, hover action bars, composer reply preview, jump-to-original with pulse highlight, and thread chain slide-over panel
 
+- **Encrypted Message Reactions** — allowlisted emoji reactions in chats and threads, carried inside the E2EE envelope
+
 - **Professional Markdown Mode** — encrypted Markdown formatting with sanitized GFM rendering, live preview, and remote-image blocking
 
 - **Dual Database Isolation** — identity metadata and operational data in separate SQLite databases, linked only by `SHA-256(USID)`
@@ -634,3 +636,5 @@ AGPL-3.0. See [LICENSE](LICENSE).
 Not intended for production deployment.
 
 <div align="center"><sub>Connect Securely. Leave No Trace.</sub></div>
+
+Encrypted envelope additions: reactions use { type: "reaction", target: "<32 lowercase hex chars>", emoji: "??" }; set emoji to null to remove it. Text envelopes have an optional random 128-bit hex id. Legacy envelopes without id still parse, but cannot be reaction targets.
