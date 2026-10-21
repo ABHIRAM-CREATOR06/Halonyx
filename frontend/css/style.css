@@ -5170,6 +5170,24 @@ body.theme-light .aegisus-feature-panel select.field-input { color-scheme: light
 .reaction-picker { display:none; position:absolute; z-index:5; bottom:100%; left:0; padding:5px; border:1px solid var(--bd); border-radius:10px; background:var(--bg-surface); box-shadow:0 4px 16px #0003; white-space:nowrap; }
 .reaction-picker-wrap:hover .reaction-picker,.reaction-picker-wrap:focus-within .reaction-picker { display:flex; gap:3px; }
 .reaction-option { border:0; padding:5px; }
+.msg-row.sent .reaction-chip,
+.msg-row.sent .reaction-add {
+    border-color: rgba(255,255,255,.42);
+    background: rgba(255,255,255,.14);
+    color: #fff;
+}
+.msg-row.sent .reaction-chip.own {
+    border-color: rgba(255,255,255,.8);
+    background: rgba(255,255,255,.26);
+}
+.msg-row.sent .reaction-chip:hover,
+.msg-row.sent .reaction-add:hover,
+.msg-row.sent .reaction-chip:focus-visible,
+.msg-row.sent .reaction-add:focus-visible {
+    border-color: rgba(255,255,255,.82);
+    background: rgba(255,255,255,.24);
+    color: #fff;
+}
 @media (max-width: 760px) {
     .aegisus-indicator-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .aegisus-indicator-form .btn-primary { justify-self: start; }
