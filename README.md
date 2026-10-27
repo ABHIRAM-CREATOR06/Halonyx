@@ -18,7 +18,7 @@
 [![Security Audit](https://img.shields.io/badge/Security%20Audit-Cloudflare%20Security%20Suite-F38020?style=flat&logo=cloudflare&logoColor=white)](specification_docs/audit.md)
 [![Live](https://img.shields.io/badge/Live-halonyx.onrender.com-blueviolet?style=flat)](https://halonyx.onrender.com)
 
-[Live Demo](https://halonyx.onrender.com) · [Simulator](#interactive-simulator) · [Security Audit](specification_docs/audit.md) · [Threat Model](specification_docs/security_docs/datathreat.md) · [Benchmarks](specification_docs/benchmark/benchmark.md) · [Policy Brief](specification_docs/compliance_doc/encryption-policy-brief.md)
+[Live Demo](https://halonyx.onrender.com) · [Simulator](#interactive-simulator) · [Security Audit](specification_docs/audit.md) · [Threat Model](specification_docs/security_docs/datathreat.md) · [Benchmarks](specification_docs/benchmark/benchmark-guide.md) · [Policy Brief](specification_docs/compliance_doc/encryption-policy-brief.md)
 
 </div>
 
@@ -439,7 +439,7 @@ Halonyx ships with a full doc set under [`specification_docs/`](specification_do
 
 - [**Data Threat Model**](specification_docs/security_docs/datathreat.md) — a STRIDE-style analysis covering **18 classified threats** (T-01 through T-18) across the frontend, backend, transport, storage, and dependency supply chain — including a hardcoded JWT secret, unauthenticated WebSocket registration, WebRTC/WebTorrent IP leaks, and OPK exhaustion — each with severity ratings and a phased remediation roadmap.
 
-- [**Performance Benchmarks**](specification_docs/benchmark/benchmark.md) — latency and throughput for every layer of the stack: X3DH and Double Ratchet crypto operations, REST endpoints, WebSocket messaging (including offline mailbox store-and-flush), UDP emergency broadcast, SQLite read/write performance, and WebTorrent transfer over STUN/TURN.
+- [**Performance Benchmarks**](specification_docs/benchmark/benchmark-guide.md) — reproducible crypto, envelope, DLP, group fan-out, SQLite, loopback WebSocket, and local pipeline measurements, with commands and limitations. Historical benchmark figures are marked as unverified.
 
 - [**Encryption Policy Brief**](specification_docs/compliance_doc/encryption-policy-brief.md) — a comparative look at where Halonyx's architecture stands against live encryption policy in the EU (CSAR/"Chat Control"), the US (EARN IT Act), India (IT Rules 2021 traceability), the UK (Online Safety Act / Investigatory Powers Act), and the UN Convention against Cybercrime.
 
@@ -538,7 +538,8 @@ Halonyx/
 │   └── start_server.sh          # Unix/macOS server launcher
 ├── specification_docs/
 │   ├── security_docs/datathreat.md              # STRIDE threat model — 18 classified threats
-│   ├── benchmark/benchmark.md                   # Full-stack performance benchmarks
+│   ├── benchmark/benchmark-guide.md              # Reproducible benchmark commands and scope
+│   ├── benchmark/benchmark.md                    # Superseded historical benchmark figures
 │   └── compliance_doc/encryption-policy-brief.md # EU/US/India/UK/UN encryption policy brief
 ├── tests/                        # Node --test suite — crypto core + server logic
 │   ├── groups.test.js           # Multi-member Pairwise Double Ratchet E2EE fan-out
@@ -636,5 +637,3 @@ AGPL-3.0. See [LICENSE](LICENSE).
 Not intended for production deployment.
 
 <div align="center"><sub>Connect Securely. Leave No Trace.</sub></div>
-
-Encrypted envelope additions: reactions use { type: "reaction", target: "<32 lowercase hex chars>", emoji: "??" }; set emoji to null to remove it. Text envelopes have an optional random 128-bit hex id. Legacy envelopes without id still parse, but cannot be reaction targets.

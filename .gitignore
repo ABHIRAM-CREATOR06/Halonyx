@@ -31,6 +31,10 @@ Thumbs.db
 # Coverage / test artifacts
 coverage/
 
+# Local benchmark databases and generated reports
+benchmark-data/
+benchmark-results/
+
 # Private folders & agent customizations
 .agents/
 private/

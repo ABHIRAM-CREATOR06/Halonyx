@@ -1,5 +1,7 @@
 # Halonyx — Performance Benchmarks
 
+> **Superseded:** The historical values below were not produced by the current reproducible runner and must not be treated as measurements. Use [the benchmark suite guide](benchmark-guide.md) for commands and interpret only raw results generated on the machine being measured.
+
 **Project:** Halonyx Secure Messaging Application    
 **Document Type:** Performance Benchmark Report  
 **Date:** 2026-10-06  
