@@ -1,485 +1,119 @@
-# Halonyx — Performance Benchmarks
+# Halonyx Benchmark Results
 
-> **Superseded:** The historical values below were not produced by the current reproducible runner and must not be treated as measurements. Use [the benchmark suite guide](benchmark-guide.md) for commands and interpret only raw results generated on the machine being measured.
+> Machine-specific snapshot from the reproducible benchmark runner. Treat these figures as a record of this run, not as general performance guarantees. See [benchmark-guide.md](benchmark-guide.md) for commands, suite scope, and limitations.
 
-**Project:** Halonyx Secure Messaging Application    
-**Document Type:** Performance Benchmark Report  
-**Date:** 2026-10-06  
+## Run details
 
----
+The output records 5 runs and 500 measured operations per benchmark. The runner default is 20 warm-up iterations and 100 measured iterations per run. Batched workloads report averaged samples; their total measured operation count is still 500. Every benchmark completed all 500 operations successfully, with 0 failures, 0 warm-up failures, and 0 excluded samples.
 
-## 1. Overview
-
-This document presents detailed performance benchmarks for the Halonyx secure messaging system. Benchmarks are organized by subsystem: cryptographic operations (Signal Protocol), REST API endpoints, WebSocket messaging, UDP broadcast, and database operations. All measurements are based on the application's architecture, technology stack (Node.js + Express + SQLite + WebSocket + Web Crypto API), and implementation patterns found in the codebase.
-
----
-
-## 2. Benchmark Methodology
-
-| Parameter | Value |
+| Environment | Value |
 |---|---|
-| Runtime Environment | Node.js (LTS), single-process |
-| Database | SQLite3 (v5.1.6), file-backed |
-| WebSocket Library | `ws` (v8.14.2) |
-| Crypto Engine | Web Crypto API (browser) / Node.js `crypto` (server) |
-| Measurement Tool | `performance.now()` / `process.hrtime.bigint()` |
-| Iterations per test | 1,000 (cold) / 10,000 (warm) |
-| Network Simulation | Localhost (loopback, ~0.1 ms RTT) |
-
----
-
-## 3. Cryptographic Performance (Signal Protocol)
-
-The entire cryptographic stack lives in `protocol/` and runs in the browser via the Web Crypto API. All timings below reflect browser-side execution on a mid-range device (Intel Core i5, 8 GB RAM).
-
-### 3.1 Identity Key Generation (X25519)
-
-Each user generates a long-term identity key pair on first signup via `CryptoUtils.generateIdentityKeyPair()`.
-
-| Operation | Algorithm | Mean (ms) | P95 (ms) | P99 (ms) |
-|---|---|---|---|---|
-| Identity key pair generation | X25519 (ECDH) | 1.2 | 1.8 | 2.5 |
-| Signed pre-key generation | X25519 | 1.1 | 1.7 | 2.3 |
-| One-time pre-key batch (×100) | X25519 | 112 | 135 | 160 |
-| HMAC-SHA256 signature | HMAC-SHA256 | 0.3 | 0.5 | 0.8 |
-
-> **Notes:** Key generation is a one-time cost on registration. The 100-key pre-key batch (`generatePreKeyBundle(count=100)`) takes ~112 ms total, which is acceptable since it runs in the background after login.
-
----
-
-### 3.2 X3DH Key Exchange
-
-The X3DH handshake (`x3dh.js`) performs four DH operations and one HKDF derivation to produce a shared session secret.
-
-| Operation | Mean (ms) | P95 (ms) | P99 (ms) |
-|---|---|---|---|
-| Full X3DH initiator-side | 5.8 | 7.2 | 9.0 |
-| Full X3DH responder-side | 4.1 | 5.5 | 7.1 |
-| Single DH (ECDH derive bits) | 1.1 | 1.5 | 2.0 |
-| HKDF (PBKDF2, 100k iter, 32B out) | 185 | 210 | 240 |
-| HKDF (1k iter, 32B out — ratchet) | 2.0 | 2.8 | 3.5 |
-
-> **Critical Note:** The shared secret derivation in `x3dh.js → deriveSharedSecret()` uses `PBKDF2` with **100,000 iterations** as the KDF. While secure, this adds ~185 ms to every new session setup. This is a **one-time cost per new contact** and is acceptable. The Double Ratchet uses the same function but callers should reduce iterations to ~1,000 for per-message chain-key ratcheting to avoid throughput bottlenecks.
-
----
-
-### 3.3 Double Ratchet — Message Encryption / Decryption
-
-Per-message encrypt/decrypt latency (`double_ratchet.js`) including chain-key advancement.
-
-| Operation | Mean (ms) | P95 (ms) | P99 (ms) | Throughput (msg/s) |
-|---|---|---|---|---|
-| Encrypt (AES-256-GCM, 1 KB payload) | 0.45 | 0.70 | 1.10 | 2,200 |
-| Encrypt (AES-256-GCM, 10 KB payload) | 0.52 | 0.78 | 1.20 | 1,900 |
-| Encrypt (AES-256-GCM, 100 KB payload) | 1.80 | 2.40 | 3.10 | 550 |
-| Decrypt (AES-256-GCM, 1 KB payload) | 0.48 | 0.72 | 1.15 | 2,000 |
-| Chain-key ratchet step | 0.30 | 0.45 | 0.65 | 3,300 |
-| DH ratchet step (new epoch) | 2.20 | 2.90 | 3.80 | 450 |
-| Nonce generation (12 bytes) | 0.05 | 0.08 | 0.12 | 20,000 |
-
-> **Throughput summary:** The system can handle approximately **2,000 encrypted messages per second** per client for typical chat payloads (< 10 KB). DH ratchet steps (triggered by message direction changes) cost ~2.2 ms each.
-
----
-
-### 3.4 USID Hashing (Server-Side)
-
-`hashUSID()` in `backend/utils.js` uses Node.js `crypto.createHash('sha256')`. This runs on every WebSocket connection registration, every API request that resolves a contact, and every signup.
-
-| Operation | Mean (µs) | P95 (µs) | P99 (µs) | Throughput (ops/s) |
-|---|---|---|---|---|
-| SHA-256 hash of 64-char hex USID | 8.5 | 12 | 18 | 117,000 |
-| generateUSID() (crypto.randomBytes 32) | 5.2 | 8.0 | 12 | 192,000 |
-
-> USID operations are negligible and will never be a bottleneck.
-
----
-
-### 3.5 Signal Envelope Protocol (v: 1)
-
-`EnvelopeModule` (`protocol/envelope.js`) handles JSON envelope construction, schema validation, quote embedding, and legacy payload normalization before Double Ratchet encryption.
-
-| Operation | Mean (µs) | P95 (µs) | P99 (µs) | Throughput (ops/s) |
-|---|---|---|---|---|
-| `createEnvelope` (text + reply quote + UUID v4) | 78 | 120 | 185 | 12,800 |
-| `parseAndValidateEnvelope` (strict v:1 validation) | 58 | 95 | 145 | 17,200 |
-| `normalizeMessage` (legacy fallback & UUID generation) | 42 | 70 | 110 | 23,800 |
-
-> **Envelope Overhead:** Encapsulating message content and parent reply metadata inside the `v:1` envelope adds less than 0.1 ms to client-side payload preparation, with 0 server-side processing overhead since all envelope parsing occurs strictly client-side post-decryption.
-
----
-
-### 3.6 Client-Side Encrypted Message History (T-21 Mitigation)
-
-Local message transcripts stored in browser `localStorage` (`messageHistory:${myUsid}`) are encrypted at rest using Web Crypto AES-256-GCM (`saveMessageHistoryAsync` / `loadMessageHistoryAsync`) with a 256-bit key derived via `SHA-256(myUsid)`.
-
-| Payload Size | Operation | Key Derivation (ms) | Encrypt/Decrypt (ms) | Total Latency (ms) |
-|---|---|---|---|---|
-| 10 KB (~50 messages) | `saveMessageHistoryAsync` (AES-256-GCM) | 0.05 | 0.22 | 0.27 |
-| 10 KB (~50 messages) | `loadMessageHistoryAsync` (AES-256-GCM) | 0.05 | 0.20 | 0.25 |
-| 50 KB (~250 messages) | `saveMessageHistoryAsync` (AES-256-GCM) | 0.05 | 0.78 | 0.83 |
-| 50 KB (~250 messages) | `loadMessageHistoryAsync` (AES-256-GCM) | 0.05 | 0.75 | 0.80 |
-
-> **Storage Security Overhead:** Deriving the encryption key and executing AES-256-GCM encryption on client message history takes < 1 ms for typical transcripts, eliminating plaintext local storage disclosure (T-21) without introducing perceptible UI lag.
-
----
-
-### 3.7 E2EE Multi-Party Group Fan-Out Latency (`frontend/js/groups.js`)
-
-Halonyx utilizes the **Signal Groups v1 pairwise Double Ratchet fan-out** architecture. The sender iterates through all $N-1$ group participants, creates a dedicated `v: 1` envelope, and performs an independent Double Ratchet encryption pass per recipient before emitting individual WebSocket message frames.
-
-| Group Size ($N$) | Recipients ($N-1$) | Mean Latency (ms) | P95 (ms) | P99 (ms) | Fan-Out Throughput (ops/s) |
-|---|---|---|---|---|---|
-| 3 members | 2 | 0.95 | 1.45 | 2.10 | ~1,050 |
-| 5 members | 4 | 1.90 | 2.85 | 3.90 | ~520 |
-| 10 members | 9 | 4.45 | 6.20 | 8.10 | ~225 |
-| 25 members | 24 | 12.20 | 16.50 | 21.00 | ~82 |
-| 50 members | 49 | 24.80 | 33.00 | 42.00 | ~40 |
-
-> **Fan-Out Complexity Analysis:** Client encryption and uplink bandwidth scale linearly as $O(N)$ for the sender, while receipt complexity remains strictly $O(1)$ for each member (a single standard Double Ratchet decrypt). For enterprise teams and small group discussions ($N \le 50$), fan-out latency is well under human perception thresholds (< 25 ms), providing optimal forward/post-compromise secrecy without central server group keys.
-
----
-
-### 3.8 Enterprise Client-Side DLP Pre-Encryption Scanner Latency (`frontend/js/dlp.js`)
-
-The DLP engine inspects outbound message text against cloud token signatures, private key headers, and credit card numbers strictly before `SignalProtocol.encryptMessage()` is invoked.
-
-| Payload / Condition | Pattern Evaluated | Mean Latency (ms) | P95 (ms) | P99 (ms) | Throughput (scans/s) |
-|---|---|---|---|---|---|
-| Clean chat message (1 KB) | Full 8-rule suite (Regex + Luhn) | 0.12 | 0.18 | 0.25 | ~8,300 |
-| Clean chat message (10 KB) | Full 8-rule suite (Regex + Luhn) | 0.38 | 0.52 | 0.70 | ~2,600 |
-| Cloud credential violation (AWS / GitHub / Slack) | Regex pattern match & intercept | 0.14 | 0.20 | 0.28 | ~7,100 |
-| Payment card number match | Regex candidate + Luhn Mod-10 check | 0.16 | 0.22 | 0.31 | ~6,250 |
-| Masked audit record write (`localStorage`) | SHA-256 masked rule persist | 0.22 | 0.35 | 0.48 | ~4,500 |
-
-> **DLP Performance Impact:** Pre-encryption scanning adds approximately **0.12 ms** of compute overhead per message. Because scanning executes synchronously on the user's thread before queuing for WebCrypto encryption, the inspection pipeline introduces zero perceptible user interface friction.
-
----
-
-## 4. REST API Performance
-
-Measured via loopback HTTP requests to `localhost:3000`. Latencies include Express routing, JWT verification, and SQLite I/O.
-
-### 4.1 `POST /signup`
-
-| Scenario | Mean (ms) | P95 (ms) | P99 (ms) |
-|---|---|---|---|
-| New user registration | 8.2 | 14 | 22 |
-| Returning user (identity re-entry) | 9.5 | 16 | 25 |
-| Duplicate email (fast path rejection) | 6.1 | 10 | 15 |
-
-Breakdown for new registration:
-- Email lookup in `identity.db`: ~2.0 ms
-- USID generation + hashing: ~0.015 ms
-- INSERT into `users_metadata`: ~2.5 ms
-- INSERT into `users` (app.db): ~2.0 ms
-- JWT sign: ~0.5 ms
-- Response serialization: ~0.2 ms
-
-### 4.2 `POST /add-contact`
-
-| Scenario | Mean (ms) | P95 (ms) | P99 (ms) |
-|---|---|---|---|
-| Add new contact (success) | 7.0 | 11 | 18 |
-| Refresh existing contact (delete + insert) | 9.8 | 15 | 22 |
-| Self-add rejection | 1.2 | 2.0 | 3.0 |
-| USID not found (404) | 5.5 | 9.0 | 14 |
-
-Breakdown:
-- JWT verify: ~0.5 ms
-- USID hash: ~0.01 ms
-- Identity DB lookup: ~2.0 ms
-- Contacts DB duplicate check: ~1.5 ms
-- INSERT/DELETE contacts: ~2.5 ms
-
-### 4.3 `GET /contacts`
-
-| Concurrent Users | Mean (ms) | P95 (ms) | P99 (ms) | Throughput (req/s) |
-|---|---|---|---|---|
-| 1 | 3.1 | 5.0 | 8.0 | 320 |
-| 10 | 3.8 | 7.2 | 12 | 260 |
-| 50 | 9.2 | 18 | 28 | 105 |
-| 100 | 18 | 38 | 60 | 55 |
-
-> **Bottleneck:** SQLite is single-writer and serializes concurrent reads under write contention. At 50+ concurrent users, response times degrade noticeably. This is expected for SQLite and acceptable for a small-scale deployment.
-
-### 4.4 `GET /pubkey/:hashedUsid`
-
-| Scenario | Mean (ms) | P95 (ms) | P99 (ms) |
-|---|---|---|---|
-| Key found in `keys.db` | 3.5 | 5.5 | 9.0 |
-| Fallback to `app.db` | 5.8 | 9.0 | 14 |
-| Not found (404) | 4.2 | 7.0 | 11 |
-
-### 4.5 `POST /update-pubkey`
-
-| Scenario | Mean (ms) | P95 (ms) | P99 (ms) |
-|---|---|---|---|
-| Update existing key | 4.8 | 7.5 | 12 |
-| Insert new key (edge case) | 5.5 | 8.5 | 14 |
-
----
-
-## 5. WebSocket Messaging Performance
-
-The WebSocket server runs on port 8081 via `ws` library, sharing the HTTP server instance.
-
-### 5.1 Connection Establishment
-
-| Operation | Mean (ms) | P95 (ms) | P99 (ms) |
-|---|---|---|---|
-| TCP handshake + WS upgrade | 0.8 | 1.5 | 2.5 |
-| `register` message → identity DB lookup | 2.5 | 4.0 | 6.5 |
-| Full connection ready (WS established + registered) | 3.4 | 5.8 | 9.0 |
-
-### 5.2 Message Delivery (Online Recipient)
-
-| Payload Size | Mean (ms) | P95 (ms) | P99 (ms) | Throughput (msg/s, single client) |
-|---|---|---|---|---|
-| 256 bytes (short text) | 0.35 | 0.60 | 0.95 | 2,800 |
-| 1 KB (typical message + E2EE envelope) | 0.42 | 0.72 | 1.10 | 2,300 |
-| 10 KB (large message) | 0.85 | 1.40 | 2.10 | 1,100 |
-| 50 KB (rich content) | 3.2 | 5.5 | 8.0 | 310 |
-
-> Server-side processing is minimal: JSON parse → client map lookup → forward. The bottleneck for large payloads is Node.js's JavaScript serialization overhead, not I/O.
-
-### 5.3 Offline Mailbox — Store and Flush
-
-When a recipient is offline, messages are stored in the `mailbox` table and flushed on reconnection.
-
-| Operation | Mean (ms) | P95 (ms) | P99 (ms) |
-|---|---|---|---|
-| Store one message to mailbox (SQLite INSERT) | 2.8 | 4.5 | 7.0 |
-| Flush 10 queued messages on reconnect | 4.5 | 7.0 | 11 |
-| Flush 100 queued messages on reconnect | 32 | 50 | 75 |
-| DELETE mailbox after flush | 1.5 | 2.5 | 4.0 |
-
-> Large mailbox flushes (100+ messages) can cause a noticeable reconnect delay (~32 ms). For production, a paginated flush or background delivery approach would smooth this out.
-
-### 5.4 Concurrent WebSocket Connections
-
-| Active Connections | CPU Usage (%) | Memory per Conn (KB) | P95 Message Latency (ms) |
-|---|---|---|---|
-| 10 | 0.5 | 45 | 0.7 |
-| 100 | 3.2 | 43 | 1.2 |
-| 500 | 12 | 42 | 3.8 |
-| 1,000 | 24 | 41 | 8.5 |
-| 2,000 | 48 | 41 | 22 |
-
-> The `clients` Map provides O(1) lookup. Node.js single-threaded event loop handles up to ~1,000 concurrent connections comfortably before latency climbs above 10 ms.
-
-### 5.5 X3DH Handshake Relay
-
-| Operation | Mean (ms) | P95 (ms) | P99 (ms) |
-|---|---|---|---|
-| Relay `x3dh_init` message (online recipient) | 0.40 | 0.65 | 1.0 |
-| Relay rejected (recipient offline) | 0.15 | 0.25 | 0.40 |
-
----
-
-## 6. UDP Emergency Broadcast
-
-The UDP server listens on port 9000 (bound to `127.0.0.1`) and broadcasts to all connected WebSocket clients. All incoming packets pass through a multi-layer anti-spam pipeline before broadcast.
-
-### 6.1 Broadcast Delivery Latency
-
-| Operation | Mean (ms) | P95 (ms) | P99 (ms) |
-|---|---|---|---|
-| WebSocket → UDP bridge (send) | 0.22 | 0.42 | 0.68 |
-| UDP receive → broadcast to 10 WS clients | 1.6 | 2.6 | 4.2 |
-| UDP receive → broadcast to 100 WS clients | 8.2 | 13.5 | 21 |
-| UDP receive → broadcast to 500 WS clients | 39 | 62 | 92 |
-| UDP receive → broadcast to 1,000 WS clients | 82 | 128 | 190 |
-
-> Broadcasting grows linearly with connected clients. At 1,000 clients an emergency broadcast completes in ~82 ms, which is acceptable for an emergency alert context. The synchronous `clients.forEach()` loop is non-blocking in the event loop but large broadcasts do occupy the loop for tens of milliseconds.
-
-### 6.2 Anti-Spam Guard Overhead
-
-Each incoming UDP packet passes through 5 guards before broadcast. The overhead per-packet is negligible:
-
-| Guard | Operation | Mean (µs) | Notes |
-|---|---|---|---|
-| Payload size check | `msg.length > 512` | 0.02 | Simple integer comparison |
-| Per-IP rate limiter (`RateBucket.allow()`) | Sliding window filter + Map lookup | 3.5 | Includes timestamp array filter |
-| Global rate limiter (`RateBucket.allow()`) | Sliding window filter + Map lookup | 3.2 | Single-key lookup |
-| Token validation | `data.token !== "INTERNAL_UDP_SECRET"` | 0.01 | String comparison post-parse |
-| Content validation | Length + type checks | 0.05 | String operations |
-| **Total guard overhead** | | **~7 µs** | **< 0.01 ms per packet** |
-
-> The `RateBucket` uses an in-memory `Map` with sliding-window timestamp arrays. Cleanup is lazy (filtered on each `allow()` call). Memory usage is proportional to the number of unique source IPs seen within the rate window, which is minimal for a localhost-bound UDP server.
-
-### 6.3 Rate Limiter Capacity
-
-| Limiter | Window | Max Allowed | Ban Threshold | Ban Duration |
-|---|---|---|---|---|
-| UDP per-IP | 30 seconds | 1 message | 5 violations | 5 minutes |
-| UDP global | 60 seconds | 5 messages | N/A | N/A |
-| WS emergency (per-user) | 60 seconds | 1 broadcast | 3 violations | 5 minutes |
-
-| Scenario | Effective Throughput | Rejected Rate |
-|---|---|---|
-| Single source, steady | 1 msg / 30s (2/min) | 0% |
-| Single source, burst of 10 in 1s | 1 delivered, 9 rejected | 90% |
-| Single source, sustained spam (100/min) | 2 delivered, 98 rejected, source banned after 5th violation | 98%+ |
-| 5 different sources, 1 msg each in 1 min | All 5 delivered | 0% |
-| 10 different sources, 1 msg each in 1 min | 5 delivered (global cap), 5 rejected | 50% |
-
-> Under sustained spam from a single source, the auto-ban kicks in after 5 rate-limit violations, blocking the source for 5 minutes. This limits worst-case broadcast to ~5 messages before the spammer is silenced.
-
----
-
-## 7. Database Performance
-
-All databases are SQLite3, file-backed, in WAL mode implicitly.
-
-### 7.1 Read Performance
-
-| Query | Table | Mean (µs) | P95 (µs) | P99 (µs) |
-|---|---|---|---|---|
-| `SELECT` by `hashed_usid` (indexed) | `users_metadata` | 95 | 180 | 280 |
-| `SELECT` by `hashed_usid` (indexed) | `users` | 88 | 165 | 260 |
-| `SELECT` contact list by `user_id` | `contacts` | 110 | 210 | 340 |
-| `SELECT` mailbox by `recipient_hashed_usid` | `mailbox` | 130 | 250 | 400 |
-| `SELECT` key bundle | `key_bundles` | 80 | 150 | 230 |
-
-### 7.2 Write Performance
-
-| Query | Table | Mean (µs) | P95 (µs) | P99 (µs) |
-|---|---|---|---|---|
-| `INSERT` new user metadata | `users_metadata` | 1,800 | 3,200 | 5,000 |
-| `INSERT` user | `users` | 1,700 | 3,000 | 4,800 |
-| `INSERT` contact | `contacts` | 1,600 | 2,800 | 4,500 |
-| `INSERT` mailbox message | `mailbox` | 1,900 | 3,400 | 5,200 |
-| `DELETE` mailbox flush | `mailbox` | 1,500 | 2,600 | 4,200 |
-| `UPDATE` public key bundle | `users` | 1,750 | 3,100 | 4,900 |
-
-> SQLite writes are sync-to-disk by default. The ~1.7–1.9 ms per write reflects disk fsync latency. Enabling WAL mode explicitly (`PRAGMA journal_mode=WAL`) would reduce write latency to ~0.3–0.5 ms for most operations.
-
-### 7.3 Database Size Projections
-
-| Users | `identity.db` | `app.db` (no mailbox) | `app.db` (w/ 10 msgs/user queued) |
-|---|---|---|---|
-| 100 | ~50 KB | ~60 KB | ~100 KB |
-| 1,000 | ~480 KB | ~580 KB | ~1.0 MB |
-| 10,000 | ~4.7 MB | ~5.6 MB | ~9.8 MB |
-| 100,000 | ~47 MB | ~55 MB | ~97 MB |
-
----
-
-## 8. WebTorrent (P2P File Transfer) Performance
-
-WebTorrent uses WebRTC data channels for peer-to-peer file transfer.
-
-| Operation | Mean (ms) | Notes |
-|---|---|---|
-| STUN Resolution | 45 | Local network / direct internet |
-| TURN Relay Allocation | 120 | Required for strict NATs (production) |
-| WebRTC Handshake | 150 | Direct P2P |
-| WebRTC Handshake (TURN) | 280 | Via TURN relay |
-| P2P Throughput (Direct) | ~80 MB/s | LAN or fast direct connection |
-| P2P Throughput (TURN) | ~2-5 MB/s | Constrained by public TURN relay bandwidth |
-
-> **Note:** Deploying to production (e.g., Render) requires TURN servers for reliable NAT traversal. While this guarantees connectivity, relaying traffic through a TURN server significantly increases latency and reduces maximum throughput compared to direct P2P connections on a local network.
-
----
-
-## 9. End-to-End Message Latency
-
-Total observed latency for a message to travel from sender's `sendMessage()` call to recipient's `renderMessages()` display, measured on localhost.
-
-| Stage | Mean (ms) | Notes |
-|---|---|---|
-| Pre-encryption DLP scan (`DLPModule.scan`) | 0.12 | 8-rule suite evaluation + Luhn validation |
-| Envelope creation (`EnvelopeModule.createEnvelope`) | 0.08 | `v:1` payload formatting + UUID v4 |
-| Client-side encrypt (Double Ratchet) | 0.45 | AES-256-GCM + chain ratchet |
-| WebSocket send (browser → server) | 0.10 | Loopback TCP |
-| Server JSON parse + client lookup | 0.15 | O(1) Map lookup |
-| WebSocket forward (server → recipient) | 0.12 | Loopback TCP |
-| Client-side decrypt (Double Ratchet) | 0.48 | AES-256-GCM + ratchet |
-| Envelope parse & validate (`parseAndValidateEnvelope`) | 0.06 | Schema validation + legacy fallback check |
-| Async history save (`saveMessageHistoryAsync`) | 0.27 | AES-256-GCM Web Crypto local history encrypt |
-| DOM render (`renderMessages()`) | 2.50 | Dynamic quote resolution + DOM manipulation |
-| **Total End-to-End (localhost)** | **~4.3** | Including client DLP scan + Double Ratchet |
-| **Total End-to-End (LAN, 5 ms RTT)** | **~9.6** | |
-| **Total End-to-End (Internet, 50 ms RTT)** | **~55.6** | |
-
----
-
-## 10. Startup and Initialization
-
-| Operation | Mean (ms) |
-|---|---|
-| Node.js process start + require all modules | 380 |
-| Database init (3 × `initDb()`) | 45 |
-| WebSocket server bind (port 8081) | 5 |
-| UDP server bind (port 9000) | 3 |
-| Full server ready | ~430 |
-| Client: Protocol initialization (`SignalProtocol.initialize()`) | ~290 |
-| Client: Pre-key bundle generation (×100 keys) | ~112 |
-| Client: WebSocket connect + register | ~4 |
-| **Client fully ready to send E2EE messages** | **~410** |
-
----
-
-## 11. Benchmark Summary Table
-
-| Subsystem | Key Metric | Value |
-|---|---|---|
-| X3DH session setup | Mean latency | 5.8 ms (initiator) |
-| PBKDF2 (100k iter) | Mean latency | 185 ms |
-| AES-256-GCM encrypt (1 KB) | Mean latency | 0.45 ms |
-| AES-256-GCM throughput | Messages/second | ~2,200 |
-| SHA-256 USID hash | Throughput | ~117,000 ops/s |
-| POST /signup | Mean latency | 8.2 ms |
-| GET /contacts (1 user) | Mean latency | 3.1 ms |
-| GET /contacts (100 concurrent) | Mean latency | 18 ms |
-| WS message delivery (online, 1 KB) | Mean latency | 0.42 ms |
-| WS offline mailbox store | Mean latency | 2.8 ms |
-| UDP broadcast (100 clients) | Mean latency | 8.2 ms |
-| UDP anti-spam guard overhead | Per-packet | ~7 µs |
-| UDP per-IP rate limit | Window | 1 msg / 30s |
-| UDP global rate limit | Window | 5 msgs / 60s |
-| WS emergency rate limit | Window | 1 msg / 60s per user |
-| SQLite read (indexed) | Mean latency | ~95 µs |
-| SQLite write (INSERT) | Mean latency | ~1.8 ms |
-| Signal envelope creation (`createEnvelope`) | Mean latency | ~78 µs |
-| Signal envelope validation (`parseAndValidateEnvelope`) | Mean latency | ~58 µs |
-| Client history encryption (`saveMessageHistoryAsync`, 10 KB) | Mean latency | ~0.27 ms |
-| E2EE group fan-out (5 members) | Mean latency | ~1.90 ms |
-| E2EE group fan-out (10 members) | Mean latency | ~4.45 ms |
-| Client DLP scanning (1 KB payload, 8 rules) | Mean latency | ~0.12 ms |
-| Client DLP scanning (10 KB payload, 8 rules) | Mean latency | ~0.38 ms |
-| Max recommended concurrent WS conns | — | ~1,000 |
-| End-to-End message latency (localhost) | Total | ~4.3 ms (w/ DLP) |
-| WebRTC connection setup (via TURN) | Total | ~400 ms |
-| POST /keys/replenish | Mean latency | ~6.4 ms |
-| Client: OPK batch generation (×100) | Mean latency | ~112 ms |
-
----
-
-## 12. Recommendations
-
-1. **Enable SQLite WAL mode** — Add `PRAGMA journal_mode=WAL` at startup to drop write latency from ~1.8 ms to ~0.4 ms under concurrent load.
-
-2. **Reduce PBKDF2 iterations in the ratchet** — The 100,000-iteration PBKDF2 in `deriveSharedSecret()` is appropriate for X3DH session setup but too slow for per-message chain-key derivation. Use 1,000 iterations (or switch to HKDF) in the ratchet loop.
-
-3. **Paginate mailbox flushes** — Deliver queued messages in batches of 20 to avoid blocking the WebSocket on reconnect for users with large backlogs.
-
-4. **Scale with a message broker** — Above ~1,000 concurrent users, replace the in-memory `clients` Map with Redis pub/sub to support horizontal scaling and persist state across restarts.
-
-5. **UDP broadcast chunking** — For large deployments, batch the `clients.forEach()` broadcast loop using `setImmediate()` between chunks to avoid event-loop stalls during emergency broadcasts.
-
-6. **Monitor RateBucket memory** — The sliding-window timestamp arrays grow with traffic. For high-traffic deployments, consider periodic cleanup of stale entries in `RateBucket.hits` and `RateBucket.violations` Maps.
-
-7. **Tune UDP rate limits** — Current limits (1/30s per-IP, 5/min global) are conservative. Adjust based on deployment scale: larger deployments with many legitimate internal sources may need a higher global cap.
-
-8. **Evaluate Sender Keys for large groups ($N > 50$)** — Halonyx's pairwise Double Ratchet fan-out provides zero-knowledge server blindness and optimal PFS/PCS for small teams. If group scaling targets expand beyond 50–100 participants per channel, integrate Signal Groups v2 Sender Keys to reduce client send complexity from $O(N)$ to $O(1)$.
-
----
-
-*Document Version: 1.4 — Halonyx Benchmark Report*  
-*Generated: 2026-05-11*  
-*Last Updated: 2026-10-14 — Integrated Signal Groups v1 pairwise fan-out benchmark curves (N=3 to N=50) and Enterprise DLP pre-encryption scanner latencies; updated summary metrics and recommendations.*
-
-## Benchmark Tooling
-
-Benchmark measurements were collected using OpenBenchmark alongside custom runtime measurements via `performance.now()` and `process.hrtime.bigint()` under controlled local testing conditions.
+| Node.js | 26.12.0 |
+| Platform | Windows (win32/x64) |
+| CPU | 12th Gen Intel(R) Core(TM) i5-12450H |
+| Logical CPUs | 12 |
+| SQLite | 3.52.0 |
+| Synthetic fixture rows | 1,000 per table |
+| Benchmark database size | 733,184 bytes |
+| Git commit | 2b2b0514514dcb062ba6fcff435172bd432eeaae |
+| Working tree at measurement | Dirty |
+
+## Results
+
+Times are milliseconds or microseconds as shown. Percentiles use nearest-rank. SD/CV are sample standard deviation and coefficient of variation. Round mean range is the minimum and maximum mean across the five runs.
+
+### crypto (17 benchmarks)
+
+| Benchmark / parameters | Mean | Median | P50 / P90 / P95 / P99 | Min / max | Round mean range | SD / CV | Throughput | Samples | Operations / failures | Runs / timed |
+|---|---:|---:|---|---|---|---|---:|---|---|---|
+| crypto.x25519.keygen · — | 101.36 µs | 84.65 µs | 84.60 µs / 143.00 µs / 164.60 µs / 278.60 µs | 54.70 µs / 862.60 µs | 88.06 µs / 115.62 µs | 73.26 µs / 72.28% | 9865.59 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 50.681 ms |
+| crypto.x25519.derive · peerKeyBytes=32 | 80.21 µs | 66.45 µs | 66.40 µs / 107.30 µs / 128.80 µs / 247.40 µs | 51.50 µs / 826.50 µs | 71.07 µs / 91.99 µs | 51.77 µs / 64.54% | 12466.93 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 40.106 ms |
+| crypto.ed25519.keygen · — | 88.60 µs | 71.00 µs | 71.00 µs / 122.00 µs / 149.00 µs / 320.50 µs | 57.10 µs / 899.40 µs | 78.67 µs / 105.31 µs | 61.06 µs / 68.92% | 11287.14 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 44.298 ms |
+| crypto.ed25519.sign · inputBytes=33 | 69.41 µs | 58.20 µs | 58.20 µs / 80.50 µs / 94.80 µs / 148.50 µs | 50.10 µs / 797.00 µs | 67.23 µs / 70.91 µs | 57.61 µs / 82.99% | 14406.69 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 34.706 ms |
+| crypto.ed25519.verify · inputBytes=33 | 168.94 µs | 141.50 µs | 141.40 µs / 208.10 µs / 259.20 µs / 807.50 µs | 117.30 µs / 898.00 µs | 162.28 µs / 179.37 µs | 101.19 µs / 59.89% | 5919.26 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 84.470 ms |
+| crypto.hkdf-sha256 · ikmBytes=32, saltBytes=32, infoBytes=10, outputBytes=32 | 79.93 µs | 62.80 µs | 62.80 µs / 121.90 µs / 139.40 µs / 296.50 µs | 23.40 µs / 2.653 ms | 50.99 µs / 122.97 µs | 129.50 µs / 162.01% | 12510.16 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 39.967 ms |
+| crypto.x3dh.key-bundle · — | 414.96 µs | 371.20 µs | 370.60 µs / 556.00 µs / 617.90 µs / 1.022 ms | 229.70 µs / 4.165 ms | 325.39 µs / 487.92 µs | 247.10 µs / 59.55% | 2409.89 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 207.478 ms |
+| crypto.x3dh.initiator · — | 747.98 µs | 703.60 µs | 701.80 µs / 1.017 ms / 1.166 ms / 1.810 ms | 401.50 µs / 3.899 ms | 637.16 µs / 832.91 µs | 306.84 µs / 41.02% | 1336.93 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 373.990 ms |
+| crypto.x3dh.responder · — | 349.65 µs | 271.90 µs | 271.60 µs / 585.10 µs / 687.70 µs / 851.20 µs | 201.50 µs / 2.637 ms | 293.69 µs / 392.06 µs | 217.49 µs / 62.20% | 2859.97 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 174.827 ms |
+| crypto.double-ratchet.encrypt · payloadBytes=0 | 186.37 µs | 136.60 µs | 136.50 µs / 342.30 µs / 409.60 µs / 638.00 µs | 69.20 µs / 1.305 ms | 162.47 µs / 240.64 µs | 130.07 µs / 69.79% | 5365.81 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 93.183 ms |
+| crypto.double-ratchet.decrypt · payloadBytes=0 | 139.82 µs | 110.90 µs | 110.60 µs / 222.70 µs / 254.60 µs / 357.00 µs | 83.30 µs / 1.334 ms | 115.46 µs / 150.31 µs | 85.16 µs / 60.91% | 7152.20 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 69.909 ms |
+| crypto.double-ratchet.encrypt · payloadBytes=1024 | 125.35 µs | 100.85 µs | 100.80 µs / 195.70 µs / 253.80 µs / 331.80 µs | 85.10 µs / 985.20 µs | 107.15 µs / 146.22 µs | 64.61 µs / 51.55% | 7977.80 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 62.674 ms |
+| crypto.double-ratchet.decrypt · payloadBytes=1024 | 119.96 µs | 98.00 µs | 98.00 µs / 170.30 µs / 228.80 µs / 290.30 µs | 84.10 µs / 1.093 ms | 102.79 µs / 135.98 µs | 64.65 µs / 53.89% | 8336.03 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 59.981 ms |
+| crypto.double-ratchet.encrypt · payloadBytes=10240 | 166.80 µs | 129.85 µs | 129.80 µs / 278.30 µs / 328.30 µs / 406.70 µs | 93.20 µs / 1.539 ms | 128.52 µs / 199.51 µs | 100.31 µs / 60.14% | 5995.18 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 83.400 ms |
+| crypto.double-ratchet.decrypt · payloadBytes=10240 | 124.12 µs | 101.95 µs | 101.90 µs / 187.20 µs / 233.60 µs / 312.70 µs | 88.00 µs / 964.80 µs | 107.61 µs / 167.00 µs | 63.09 µs / 50.83% | 8057.00 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 62.058 ms |
+| crypto.double-ratchet.encrypt · payloadBytes=102400 | 272.97 µs | 229.15 µs | 229.10 µs / 399.20 µs / 501.00 µs / 734.60 µs | 148.50 µs / 1.695 ms | 229.37 µs / 348.45 µs | 128.19 µs / 46.96% | 3663.40 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 136.485 ms |
+| crypto.double-ratchet.decrypt · payloadBytes=102400 | 187.35 µs | 162.50 µs | 162.50 µs / 231.70 µs / 339.20 µs / 486.40 µs | 125.00 µs / 1.519 ms | 176.39 µs / 196.19 µs | 94.33 µs / 50.35% | 5337.51 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 93.677 ms |
+
+### envelope (10 benchmarks)
+
+| Benchmark / parameters | Mean | Median | P50 / P90 / P95 / P99 | Min / max | Round mean range | SD / CV | Throughput | Samples | Operations / failures | Runs / timed |
+|---|---:|---:|---|---|---|---|---:|---|---|---|
+| envelope.create.basic · optionalFields=false, bodyBytes=32 | 4.07 µs | 3.92 µs | 3.84 µs / 4.69 µs / 4.70 µs / 4.70 µs | 3.71 µs / 4.70 µs | 3.76 µs / 4.27 µs | 0.39 µs / 9.66% | 245531.33 ops/s | 10 (average of 50 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 2.036 ms |
+| envelope.create.reply-group · optionalFields=true, members=3 | 4.49 µs | 4.43 µs | 4.43 µs / 4.97 µs / 5.04 µs / 5.05 µs | 3.97 µs / 5.05 µs | 4.43 µs / 4.59 µs | 0.31 µs / 6.94% | 222796.54 ops/s | 25 (average of 20 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 2.244 ms |
+| envelope.json.parse · bodyBytes=0, serializedBytes=89 | 0.43 µs | 0.42 µs | 0.42 µs / 0.43 µs / 0.46 µs / 0.75 µs | 0.41 µs / 0.75 µs | 0.41 µs / 0.49 µs | 0.07 µs / 15.15% | 2305209.77 ops/s | 25 (average of 20 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 216.90 µs |
+| envelope.validate · bodyBytes=0, optionalFields=false | 0.43 µs | 0.40 µs | 0.40 µs / 0.43 µs / 0.48 µs / 1.62 µs | 0.38 µs / 1.62 µs | 0.39 µs / 0.53 µs | 0.18 µs / 40.99% | 2310536.04 ops/s | 50 (average of 10 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 216.40 µs |
+| envelope.json.parse · bodyBytes=1024, serializedBytes=1113 | 0.75 µs | 0.71 µs | 0.71 µs / 0.84 µs / 1.02 µs / 1.13 µs | 0.68 µs / 1.13 µs | 0.71 µs / 0.80 µs | 0.11 µs / 14.17% | 1337255.95 ops/s | 25 (average of 20 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 373.90 µs |
+| envelope.validate · bodyBytes=1024, optionalFields=false | 0.25 µs | 0.23 µs | 0.23 µs / 0.24 µs / 0.29 µs / 1.00 µs | 0.21 µs / 1.00 µs | 0.23 µs / 0.31 µs | 0.11 µs / 44.53% | 4048583.00 ops/s | 50 (average of 10 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 123.50 µs |
+| envelope.json.parse · bodyBytes=10000, serializedBytes=10089 | 5.36 µs | 4.45 µs | 4.45 µs / 5.38 µs / 5.39 µs / 27.86 µs | 3.73 µs / 27.86 µs | 4.01 µs / 9.37 µs | 4.72 µs / 88.03% | 186699.53 ops/s | 25 (average of 20 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 2.678 ms |
+| envelope.validate · bodyBytes=10000, optionalFields=false | 0.24 µs | 0.21 µs | 0.21 µs / 0.23 µs / 0.46 µs / 0.59 µs | 0.20 µs / 0.59 µs | 0.21 µs / 0.27 µs | 0.08 µs / 34.38% | 4212299.92 ops/s | 50 (average of 10 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 118.70 µs |
+| envelope.validate.reply-group · members=3, replySnippetBytes=24 | 0.95 µs | 0.85 µs | 0.85 µs / 1.13 µs / 1.33 µs / 2.30 µs | 0.82 µs / 2.30 µs | 0.86 µs / 1.14 µs | 0.25 µs / 26.19% | 1056635.67 ops/s | 50 (average of 10 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 473.20 µs |
+| envelope.normalize.legacy · inputBytes=34 | 6.99 µs | 6.49 µs | 6.28 µs / 7.15 µs / 11.29 µs / 11.29 µs | 6.13 µs / 11.29 µs | 6.14 µs / 8.99 µs | 1.56 µs / 22.25% | 142987.87 ops/s | 10 (average of 50 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 3.497 ms |
+
+### dlp (7 benchmarks)
+
+| Benchmark / parameters | Mean | Median | P50 / P90 / P95 / P99 | Min / max | Round mean range | SD / CV | Throughput | Samples | Operations / failures | Runs / timed |
+|---|---:|---:|---|---|---|---|---:|---|---|---|
+| dlp.scan.clean · inputBytes=0, builtinRules=10 | 0.41 µs | 0.23 µs | 0.23 µs / 1.02 µs / 1.10 µs / 1.98 µs | 0.19 µs / 1.98 µs | 0.22 µs / 1.04 µs | 0.39 µs / 96.93% | 2464268.11 ops/s | 50 (average of 10 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 202.90 µs |
+| dlp.scan.clean · inputBytes=1024, builtinRules=10 | 4.21 µs | 3.75 µs | 3.74 µs / 4.77 µs / 5.58 µs / 6.29 µs | 3.67 µs / 6.29 µs | 3.71 µs / 4.97 µs | 0.66 µs / 15.77% | 237484.56 ops/s | 50 (average of 10 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 2.105 ms |
+| dlp.scan.clean · inputBytes=10240, builtinRules=10 | 21.61 µs | 21.38 µs | 21.38 µs / 22.07 µs / 22.66 µs / 25.61 µs | 21.02 µs / 25.61 µs | 21.31 µs / 21.99 µs | 0.72 µs / 3.34% | 46271.45 ops/s | 50 (average of 10 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 10.806 ms |
+| dlp.scan.match · inputBytes=39, builtinRules=10, expectedMatch=AWS access key pattern | 3.03 µs | 3.26 µs | 3.26 µs / 3.40 µs / 3.70 µs / 5.09 µs | 2.18 µs / 5.09 µs | 2.22 µs / 3.48 µs | 0.60 µs / 19.83% | 330512.96 ops/s | 50 (average of 10 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 1.513 ms |
+| dlp.scan.false-positive-resistant · inputBytes=73, builtinRules=10 | 3.22 µs | 3.20 µs | 3.19 µs / 3.86 µs / 4.67 µs / 11.69 µs | 2.07 µs / 11.69 µs | 2.30 µs / 4.72 µs | 1.44 µs / 44.63% | 310790.65 ops/s | 50 (average of 10 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 1.609 ms |
+| dlp.scan.redaction · inputBytes=39, builtinRules=10 | 2.18 µs | 2.11 µs | 2.11 µs / 2.30 µs / 2.56 µs / 3.31 µs | 2.07 µs / 3.31 µs | 2.12 µs / 2.36 µs | 0.22 µs / 10.13% | 458631.44 ops/s | 50 (average of 10 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 1.090 ms |
+| dlp.luhn · digits=16 | 0.24 µs | 0.23 µs | 0.23 µs / 0.31 µs / 0.31 µs / 0.31 µs | 0.22 µs / 0.31 µs | 0.22 µs / 0.31 µs | 0.04 µs / 14.64% | 4135649.30 ops/s | 5 (average of 100 operations) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 120.90 µs |
+
+### group (6 benchmarks)
+
+| Benchmark / parameters | Mean | Median | P50 / P90 / P95 / P99 | Min / max | Round mean range | SD / CV | Throughput | Samples | Operations / failures | Runs / timed |
+|---|---:|---:|---|---|---|---|---:|---|---|---|
+| group.pairwise-fanout · groupSize=2, recipientCount=1, payloadBytes=128 | 105.14 µs | 96.95 µs | 96.90 µs / 123.70 µs / 144.20 µs / 203.00 µs | 89.90 µs / 798.20 µs | 101.02 µs / 109.34 µs | 37.26 µs / 35.44% | 9511.58 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 52.568 ms |
+| group.pairwise-fanout · groupSize=3, recipientCount=2, payloadBytes=128 | 217.08 µs | 184.85 µs | 184.80 µs / 248.50 µs / 301.00 µs / 883.30 µs | 151.80 µs / 1.266 ms | 190.96 µs / 273.20 µs | 118.63 µs / 54.65% | 4606.60 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 108.540 ms |
+| group.pairwise-fanout · groupSize=5, recipientCount=4, payloadBytes=128 | 470.80 µs | 402.70 µs | 402.40 µs / 630.50 µs / 1.001 ms / 1.288 ms | 318.00 µs / 1.565 ms | 401.96 µs / 524.76 µs | 201.04 µs / 42.70% | 2124.06 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 235.398 ms |
+| group.pairwise-fanout · groupSize=10, recipientCount=9, payloadBytes=128 | 1.064 ms | 920.60 µs | 918.40 µs / 1.512 ms / 1.757 ms / 2.422 ms | 757.20 µs / 6.592 ms | 886.47 µs / 1.275 ms | 445.79 µs / 41.90% | 939.96 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 531.936 ms |
+| group.pairwise-fanout · groupSize=25, recipientCount=24, payloadBytes=128 | 2.363 ms | 2.157 ms | 2.157 ms / 3.018 ms / 3.484 ms / 3.985 ms | 1.675 ms / 5.153 ms | 2.154 ms / 2.938 ms | 494.20 µs / 20.91% | 423.17 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 1181.548 ms |
+| group.pairwise-fanout · groupSize=50, recipientCount=49, payloadBytes=128 | 4.646 ms | 4.520 ms | 4.518 ms / 5.459 ms / 5.854 ms / 6.593 ms | 2.465 ms / 8.230 ms | 4.296 ms / 5.115 ms | 642.84 µs / 13.84% | 215.22 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 2323.242 ms |
+
+### sqlite (8 benchmarks)
+
+| Benchmark / parameters | Mean | Median | P50 / P90 / P95 / P99 | Min / max | Round mean range | SD / CV | Throughput | Samples | Operations / failures | Runs / timed |
+|---|---:|---:|---|---|---|---|---:|---|---|---|
+| sqlite.users.indexed-read · rows=1000, table=users, index=UNIQUE(hashed_usid) | 100.71 µs | 84.50 µs | 84.50 µs / 125.80 µs / 167.80 µs / 313.70 µs | 76.70 µs / 1.476 ms | 94.89 µs / 104.74 µs | 77.27 µs / 76.73% | 9929.95 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 50.353 ms |
+| sqlite.users.insert-delete · rows=1000, table=users | 3.736 ms | 3.523 ms | 3.521 ms / 5.099 ms / 5.503 ms / 7.630 ms | 2.234 ms / 10.498 ms | 2.784 ms / 4.304 ms | 1.128 ms / 30.18% | 267.64 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 1868.207 ms |
+| sqlite.users.update · rows=1000, table=users | 162.90 µs | 108.50 µs | 108.50 µs / 326.50 µs / 386.90 µs / 526.90 µs | 84.10 µs / 828.30 µs | 103.74 µs / 232.02 µs | 109.10 µs / 66.97% | 6138.68 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 81.451 ms |
+| sqlite.mailbox.enqueue · rows=1000, table=mailbox | 3.878 ms | 3.278 ms | 3.273 ms / 6.237 ms / 6.826 ms / 7.734 ms | 2.120 ms / 14.650 ms | 2.602 ms / 6.094 ms | 1.574 ms / 40.58% | 257.85 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 1939.110 ms |
+| sqlite.mailbox.dequeue · rows=1000, table=mailbox | 8.463 ms | 7.802 ms | 7.785 ms / 12.655 ms / 14.243 ms / 17.910 ms | 2.506 ms / 48.388 ms | 4.201 ms / 12.209 ms | 4.231 ms / 50.00% | 118.17 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 4231.348 ms |
+| sqlite.mailbox.expiry-cleanup · rows=1000, table=mailbox, ttlDays=7 | 8.956 ms | 9.319 ms | 9.314 ms / 14.131 ms / 15.920 ms / 21.796 ms | 2.639 ms / 24.208 ms | 4.832 ms / 12.809 ms | 4.234 ms / 47.27% | 111.65 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 4478.097 ms |
+| sqlite.users.concurrent-reads-8 · rows=1000, concurrency=8, table=users | 556.48 µs | 462.60 µs | 462.10 µs / 803.10 µs / 1.048 ms / 1.688 ms | 279.20 µs / 4.816 ms | 496.50 µs / 709.05 µs | 363.60 µs / 65.34% | 1797.02 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 278.238 ms |
+| sqlite.users.competing-writes-3 · rows=1000, concurrency=3, table=users | 11.407 ms | 11.022 ms | 11.008 ms / 14.863 ms / 15.725 ms / 17.605 ms | 6.682 ms / 19.187 ms | 9.933 ms / 12.956 ms | 2.387 ms / 20.93% | 87.66 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 5703.698 ms |
+
+### websocket (6 benchmarks)
+
+| Benchmark / parameters | Mean | Median | P50 / P90 / P95 / P99 | Min / max | Round mean range | SD / CV | Throughput | Samples | Operations / failures | Runs / timed |
+|---|---:|---:|---|---|---|---|---:|---|---|---|
+| websocket.loopback.ack · concurrentClients=1, payloadBytes=0 | 104.26 µs | 73.50 µs | 73.50 µs / 145.60 µs / 233.60 µs / 439.10 µs | 57.00 µs / 3.184 ms | 70.18 µs / 140.22 µs | 156.74 µs / 150.34% | 9591.81 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 52.128 ms |
+| websocket.loopback.ack · concurrentClients=1, payloadBytes=1024 | 83.05 µs | 73.90 µs | 73.90 µs / 101.80 µs / 119.60 µs / 307.30 µs | 61.60 µs / 463.40 µs | 71.81 µs / 90.18 µs | 38.64 µs / 46.53% | 12040.88 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 41.525 ms |
+| websocket.loopback.ack · concurrentClients=1, payloadBytes=10240 | 119.58 µs | 101.75 µs | 101.70 µs / 154.30 µs / 198.10 µs / 428.00 µs | 83.70 µs / 748.10 µs | 109.47 µs / 135.12 µs | 60.78 µs / 50.83% | 8362.94 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 59.788 ms |
+| websocket.loopback.ack · concurrentClients=5, payloadBytes=0 | 236.45 µs | 212.30 µs | 212.30 µs / 282.20 µs / 326.10 µs / 622.30 µs | 181.60 µs / 1.213 ms | 214.49 µs / 256.18 µs | 96.13 µs / 40.65% | 4229.19 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 118.226 ms |
+| websocket.loopback.ack · concurrentClients=5, payloadBytes=1024 | 260.07 µs | 208.45 µs | 208.40 µs / 352.40 µs / 562.40 µs / 923.30 µs | 162.60 µs / 1.397 ms | 241.06 µs / 277.71 µs | 165.75 µs / 63.73% | 3845.12 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 130.035 ms |
+| websocket.loopback.ack · concurrentClients=5, payloadBytes=10240 | 326.83 µs | 294.50 µs | 294.40 µs / 391.90 µs / 567.30 µs / 901.80 µs | 234.10 µs / 1.635 ms | 313.02 µs / 333.35 µs | 135.50 µs / 41.46% | 3059.66 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 163.417 ms |
+
+### pipeline (1 benchmarks)
+
+| Benchmark / parameters | Mean | Median | P50 / P90 / P95 / P99 | Min / max | Round mean range | SD / CV | Throughput | Samples | Operations / failures | Runs / timed |
+|---|---:|---:|---|---|---|---|---:|---|---|---|
+| pipeline.local-loopback-e2e · payloadBytes=45 | 491.59 µs | 421.80 µs | 421.70 µs / 666.80 µs / 858.70 µs / 1.564 ms | 318.40 µs / 2.185 ms | 446.62 µs / 570.17 µs | 233.02 µs / 47.40% | 2034.20 ops/s | 500 (operation) | 500/500 successful; 0 failed, 0 warm-up failures, 0 excluded | 5/5; 245.797 ms |
+
+## Interpretation notes
+
+- SQLite measurements use the application schemas with deterministic synthetic data; they are not production database measurements.
+- WebSocket and pipeline cases use a single-process loopback harness. The pipeline measures DLP, envelope handling, Double Ratchet encryption/decryption, validation, and acknowledgement; it excludes browser painting and production relay authentication.
+- Results are sensitive to machine load, runtime version, power state, and filesystem behavior. Re-run on the target deployment environment before comparing or setting capacity targets.
