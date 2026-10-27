@@ -101,7 +101,7 @@ It's a final-year project built as a deep, from-first-principles exploration of 
 
 Markdown messages carry `fmt: "md"` inside the encrypted envelope only. Messages without `fmt` remain plain text for legacy clients.
 
-**Prerequisites:** Node.js 20, 22, or 24 (matches the CI matrix)
+**Prerequisites:** Node.js 20.17+, 22, or 24 (matches the CI matrix; SQLite native bindings require Node 20.17 or newer)
 
 ```bash
 git clone https://github.com/ABHIRAM-CREATOR06/Halonyx.git
