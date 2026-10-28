@@ -110,9 +110,11 @@ async function seedOne(record, rows, reset) {
     }
   }
   if (matches) return;
-  if (meta.fixture_rows !== -1 && !reset) throw new Error(`Fixture row counts changed in ${record.file}; reset the marked benchmark database before reseeding.`);
+  if (meta.fixture_rows !== -1 && meta.fixture_rows !== rows && !reset) throw new Error(`Database fixture uses ${meta.fixture_rows} rows; requested ${rows}. Use --reset to regenerate this marked benchmark database.`);
   await exec(db, 'BEGIN IMMEDIATE');
   try {
+    const fixtureTables = kind === 'app' ? ['mailbox', 'contacts', 'users'] : kind === 'identity' ? ['users_metadata'] : ['key_bundles'];
+    for (const table of fixtureTables) await run(db, `DELETE FROM ${table}`);
     for (let i = 0; i < rows; i++) {
       const usid = syntheticUsid(i);
       if (kind === 'app') {

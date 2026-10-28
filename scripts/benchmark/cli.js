@@ -61,7 +61,7 @@ async function main(argv = process.argv.slice(2)) {
     }
     if (options['save-baseline']) writeFile(options['save-baseline'], JSON.stringify(result, null, 2) + '\n');
 
-    const rendered = options.format === 'json' ? JSON.stringify(result, null, 2) + '\n' : options.format === 'csv' ? engine.toCsv(results) : engine.formatHuman(result) + '\n';
+    const rendered = options.format === 'json' ? JSON.stringify(result, null, 2) + '\n' : options.format === 'csv' ? engine.toCsv(results) : options.format === 'human' ? engine.formatHuman(result) + '\n' : engine.formatMarkdown(result) + '\n';
     if (options.output) {
       writeFile(options.output, rendered);
       if (options.format === 'human') process.stdout.write(rendered);

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { initializeDatabase, cleanupDatabase, databasePaths, open, get, close, syntheticUsid } = require('../scripts/benchmark/sqlite');
+const { initializeDatabase, cleanupDatabase, databasePaths, open, run, get, close, syntheticUsid } = require('../scripts/benchmark/sqlite');
 
 async function withTemp(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'halonyx-benchmark-test-'));
@@ -51,12 +51,19 @@ test('reset and cleanup require a marked benchmark database; arbitrary SQLite fi
   });
 });
 
-test('fixture row count changes require an explicit reset', async () => {
+test('damaged marked fixtures are reseeded; changing fixture size still requires reset', async () => {
   await withTemp(async (file) => {
     const first = await initializeDatabase(file, 5);
+    await run(first.databases[0].db, 'DELETE FROM mailbox WHERE id=(SELECT MIN(id) FROM mailbox)');
     await Promise.all(first.databases.map((item) => close(item.db)));
-    await assert.rejects(() => initializeDatabase(file, 7), /Use --reset/);
-    const reset = await initializeDatabase(file, 7, true);
+    const repaired = await initializeDatabase(file, 5);
+    assert.equal((await get(repaired.databases[0].db, 'SELECT COUNT(*) AS n FROM users')).n, 5);
+    await Promise.all(repaired.databases.map((item) => close(item.db)));
+    const sizeFile = path.join(path.dirname(file), 'size-change.db');
+    const sized = await initializeDatabase(sizeFile, 5);
+    await Promise.all(sized.databases.map((item) => close(item.db)));
+    await assert.rejects(() => initializeDatabase(sizeFile, 7), /Use --reset/);
+    const reset = await initializeDatabase(sizeFile, 7, true);
     assert.equal((await get(reset.databases[0].db, 'SELECT COUNT(*) AS n FROM users')).n, 7);
     await Promise.all(reset.databases.map((item) => close(item.db)));
   });

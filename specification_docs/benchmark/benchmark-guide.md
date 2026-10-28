@@ -12,6 +12,12 @@ npm run benchmark -- --help
 npm run benchmark -- --suite crypto,envelope,dlp --runs 5 --warmup 20 --iterations 100
 ```
 
+The default output is grouped Markdown tables matching `benchmark.md`. To rerun all suites and replace the checked-in snapshot with fresh values, run:
+
+```text
+npm run benchmark -- --output specification_docs/benchmark/benchmark.md
+```
+
 The runner uses `performance.now()` for high-resolution per-operation timing, awaits asynchronous operations, and runs independent rounds. Warm-ups run before each measured round. Use smaller values for a smoke run and larger values for steadier local measurements.
 
 ## Suites

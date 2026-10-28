@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { summarize, percentile, measureBenchmark, parseArgs, compareResults, regressionSummary } = require('../scripts/benchmark/engine');
+const { summarize, percentile, measureBenchmark, parseArgs, compareResults, regressionSummary, formatMarkdown } = require('../scripts/benchmark/engine');
 
 test('nearest-rank percentiles are correct and samples are not mutated', () => {
   const values = [100, 1, 3, 2];
@@ -45,11 +45,19 @@ test('runner batches fast calls and labels batch averages', async () => {
 });
 
 test('CLI validates suite and incompatible option combinations', () => {
+  assert.equal(parseArgs([]).format, 'markdown');
   assert.equal(parseArgs(['--suite', 'sqlite', '--rows', '0']).rows, 0);
   assert.throws(() => parseArgs(['--iterations', '0']), /positive integer/);
   assert.throws(() => parseArgs(['--suite', 'unknown']), /--suite/);
   assert.throws(() => parseArgs(['--threshold', '5']), /requires --compare/);
   assert.throws(() => parseArgs(['--reset', '--cleanup']), /cannot be used together/);
+});
+
+test('Markdown output contains grouped benchmark tables compatible with benchmark.md', () => {
+  const output = formatMarkdown({ configuration: { runs: 1, warmup: 0, iterations: 1 }, metadata: { nodeVersion: 'v22', platform: 'win32', architecture: 'x64', cpuModel: 'Test CPU', logicalCpuCount: 4, sqliteVersion: null, git: { commit: 'abc', workingTreeClean: true } }, results: [{ suite: 'crypto', id: 'crypto.keygen', parameters: {}, meanMs: 0.1, medianMs: 0.1, p50Ms: 0.1, p90Ms: 0.1, p95Ms: 0.1, p99Ms: 0.1, minMs: 0.1, maxMs: 0.1, roundMeanMinMs: 0.1, roundMeanMaxMs: 0.1, standardDeviationMs: 0, coefficientOfVariationPercent: 0, throughputOpsPerSecond: 10000, sampleCount: 1, sampleUnit: 'operation', successfulOperations: 1, attemptedOperations: 1, failedOperations: 0, warmupFailedOperations: 0, excludedSamples: 0, roundsCompleted: 1, configuredRuns: 1, totalElapsedMs: 0.1 }] });
+  assert.match(output, /^# Halonyx Benchmark Results/m);
+  assert.match(output, /\| Benchmark \/ parameters \| Mean \| Median \|/);
+  assert.match(output, /\| crypto\.keygen · — \|/);
 });
 
 test('comparison aligns by stable benchmark key and regression fails only with sufficient comparable data', () => {
