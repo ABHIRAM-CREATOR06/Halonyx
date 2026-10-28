@@ -46,6 +46,8 @@ test('runner batches fast calls and labels batch averages', async () => {
 
 test('CLI validates suite and incompatible option combinations', () => {
   assert.equal(parseArgs([]).format, 'markdown');
+  assert.deepEqual(parseArgs(['--suite', 'cold-start']).suites, ['cold-start']);
+  assert.throws(() => parseArgs(['--suite', 'crypto,cold-start']), /must be run by itself/);
   assert.equal(parseArgs(['--suite', 'sqlite', '--rows', '0']).rows, 0);
   assert.throws(() => parseArgs(['--iterations', '0']), /positive integer/);
   assert.throws(() => parseArgs(['--suite', 'unknown']), /--suite/);

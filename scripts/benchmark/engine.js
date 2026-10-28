@@ -6,7 +6,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { performance } = require('node:perf_hooks');
 
-const SUITES = ['crypto', 'envelope', 'dlp', 'group', 'sqlite', 'websocket', 'pipeline'];
+const SUITES = ['crypto', 'envelope', 'dlp', 'group', 'sqlite', 'websocket', 'pipeline', 'cold-start'];
+const DEFAULT_SUITES = SUITES.filter((suite) => suite !== 'cold-start');
 const POSITIVE = new Set(['runs', 'iterations']);
 const VALUE_OPTIONS = new Set(['runs', 'warmup', 'iterations', 'suite', 'format', 'output', 'compare', 'save-baseline', 'threshold', 'db', 'rows']);
 const FLAGS = new Set(['help', 'reset', 'cleanup', 'gc']);
@@ -40,7 +41,8 @@ function parseArgs(argv) {
     const unknown = result.suites.filter((suite) => !SUITES.includes(suite));
     if (!result.suites.length || unknown.length) throw new Error(`--suite must be all or a comma-separated list of: ${SUITES.join(', ')}`);
     result.suites = [...new Set(result.suites)];
-  } else result.suites = SUITES.slice();
+  } else result.suites = DEFAULT_SUITES.slice();
+  if (result.suites.includes('cold-start') && result.suites.length !== 1) throw new Error('cold-start must be run by itself; use --suite cold-start');
   if (result.reset && !result.suites.includes('sqlite')) throw new Error('--reset requires the sqlite suite');
   if (result.reset && result.cleanup) throw new Error('--reset and --cleanup cannot be used together');
   if (result.cleanup && (result.suite !== 'all' || result.compare || result['save-baseline'])) throw new Error('--cleanup cannot be combined with suites, comparisons, or baselines');
@@ -236,7 +238,7 @@ function regressionSummary(current, baseline, comparison, thresholdPercent) {
 }
 
 function formatHelp() {
-  return `Halonyx reproducible benchmark suite\n\nUsage: npm run benchmark -- [options]\n\nOptions:\n  --help                      Show this help\n  --suite <all|list>          crypto,envelope,dlp,group,sqlite,websocket,pipeline\n  --runs <n>                  Independent rounds (default 5)\n  --warmup <n>                Warm-ups per benchmark per round (default 20)\n  --iterations <n>            Measured iterations per round (default 100)\n  --format <markdown|human|json|csv> Output format (default markdown)\n  --output <file>             Write formatted results to a file\n  --compare <file>            Compare results with a saved JSON baseline\n  --save-baseline <file>      Save this run as a JSON baseline\n  --threshold <percent>       Fail if a significant regression exceeds this (requires --compare)\n  --db <file>                 Dedicated benchmark app.db path\n  --rows <n>                  Deterministic synthetic rows (default 1000; 0 allowed)\n  --reset                     Reset only a previously marked benchmark database\n  --cleanup                   Delete only marked benchmark database files and exit\n  --gc                        GC between rounds (requires node --expose-gc)\n\nPercentiles use nearest-rank: sorted[ceil(p*n)-1]. Pooled percentiles use successful measured observations; failures and excluded samples are reported separately.`;
+  return `Halonyx reproducible benchmark suite\n\nUsage: npm run benchmark -- [options]\n\nOptions:\n  --help                      Show this help\n  --suite <all|list>          crypto,envelope,dlp,group,sqlite,websocket,pipeline,cold-start\n  --runs <n>                  Independent rounds (default 5)\n  --warmup <n>                Warm-ups per benchmark per round (default 20)\n  --iterations <n>            Measured iterations per round (default 100)\n  --format <markdown|human|json|csv> Output format (default markdown)\n  --output <file>             Write formatted results to a file\n  --compare <file>            Compare results with a saved JSON baseline\n  --save-baseline <file>      Save this run as a JSON baseline\n  --threshold <percent>       Fail if a significant regression exceeds this (requires --compare)\n  --db <file>                 Dedicated benchmark app.db path\n  --rows <n>                  Deterministic synthetic rows (default 1000; 0 allowed)\n  --reset                     Reset only a previously marked benchmark database\n  --cleanup                   Delete only marked benchmark database files and exit\n  --gc                        GC between rounds (requires node --expose-gc)\n\nThe cold-start suite runs one operation in each of several fresh Node.js child processes; OS caches are not cleared.\n\nPercentiles use nearest-rank: sorted[ceil(p*n)-1]. Pooled percentiles use successful measured observations; failures and excluded samples are reported separately.`;
 }
 
 function toCsv(results) {
@@ -269,7 +271,7 @@ function formatHuman(result) {
 
 function formatMarkdown(result) {
   const escape = (value) => String(value ?? '—').replace(/\|/g, '\\|').replace(/\n/g, ' ');
-  const lines = ['# Halonyx Benchmark Results', '', '> Machine-specific snapshot from the reproducible benchmark runner. Treat these figures as a record of this run, not as general performance guarantees. See [benchmark-guide.md](benchmark-guide.md) for commands, suite scope, and limitations.', '', '## Run details', '', `The output records ${result.configuration.runs} runs and ${result.configuration.runs * result.configuration.iterations} measured operations per benchmark. The runner uses ${result.configuration.warmup} warm-up iterations and ${result.configuration.iterations} measured iterations per run. Batched workloads report averaged samples.`, '', '| Environment | Value |', '|---|---|', `| Node.js | ${escape(result.metadata.nodeVersion)} |`, `| Platform | ${escape(result.metadata.platform)}/${escape(result.metadata.architecture)} |`, `| CPU | ${escape(result.metadata.cpuModel || 'Unknown')} |`, `| Logical CPUs | ${escape(result.metadata.logicalCpuCount)} |`, `| SQLite | ${escape(result.metadata.sqliteVersion || 'Not measured')} |`];
+  const lines = ['# Halonyx Benchmark Results', '', '> Machine-specific snapshot from the reproducible benchmark runner. Treat these figures as a record of this run, not as general performance guarantees. See [benchmark-guide.md](benchmark-guide.md) for commands, suite scope, and limitations.', '', '## Run details', '', `The output records ${result.configuration.runs * result.configuration.iterations} measured operations per benchmark across ${result.configuration.runs} runs. The runner uses ${result.configuration.warmup} warm-up iterations and ${result.configuration.iterations} measured iterations per run. Batched workloads report averaged samples.`, '', '| Environment | Value |', '|---|---|', `| Node.js | ${escape(result.metadata.nodeVersion)} |`, `| Platform | ${escape(result.metadata.platform)}/${escape(result.metadata.architecture)} |`, `| CPU | ${escape(result.metadata.cpuModel || 'Unknown')} |`, `| Logical CPUs | ${escape(result.metadata.logicalCpuCount)} |`, `| SQLite | ${escape(result.metadata.sqliteVersion || 'Not measured')} |`];
   if (result.database) lines.push(`| Synthetic fixture rows | ${result.database.syntheticRowsPerTable.toLocaleString('en-US')} per table |`, `| Benchmark database size | ${result.database.pragmas.app.sizeBytes.toLocaleString('en-US')} bytes |`);
   lines.push(`| Git commit | ${escape(result.metadata.git.commit || 'Unavailable')} |`, `| Working tree at measurement | ${result.metadata.git.workingTreeClean == null ? 'Unknown' : result.metadata.git.workingTreeClean ? 'Clean' : 'Dirty'} |`, '', '## Results', '', 'Times are milliseconds or microseconds as shown. Percentiles use nearest-rank. SD/CV are sample standard deviation and coefficient of variation. Round mean range is the minimum and maximum mean across runs.', '');
   for (const suite of [...new Set(result.results.map((item) => item.suite))]) {
@@ -282,7 +284,9 @@ function formatMarkdown(result) {
     }
     lines.push('');
   }
-  lines.push('## Interpretation notes', '', '- SQLite measurements use the application schemas with deterministic synthetic data; they are not production database measurements.', '- WebSocket and pipeline cases use a single-process loopback harness and do not represent remote relay performance.', '- Results vary with machine load, runtime version, power state, and filesystem behavior. Re-run on the target environment before comparing or setting capacity targets.', '');
+  lines.push('## Interpretation notes', '', '- SQLite measurements use the application schemas with deterministic synthetic data; they are not production database measurements.', '- WebSocket and pipeline cases use a single-process loopback harness and do not represent remote relay performance.');
+  if (result.configuration.coldStart) lines.push('- Cold-start samples each launch a fresh Node.js process and include process startup, module loading, and one first operation. OS/filesystem caches are not cleared, so these are process-cold rather than machine-cold measurements.');
+  lines.push('- Results vary with machine load, runtime version, power state, and filesystem behavior. Re-run on the target environment before comparing or setting capacity targets.', '');
   return lines.join('\n');
 }
 

@@ -231,6 +231,7 @@ async function runSuite(name, engine, options, database) {
   if (name === 'sqlite') return require('./sqlite').benchmarkSqlite(engine, database, options);
   if (name === 'websocket') return runWebSocket(engine);
   if (name === 'pipeline') return runPipeline(engine);
+  if (name === 'cold-start') return require('./cold-start').runColdStart(engine);
   throw new Error(`Unknown benchmark suite: ${name}`);
 }
 

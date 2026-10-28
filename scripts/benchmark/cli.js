@@ -34,13 +34,14 @@ async function main(argv = process.argv.slice(2)) {
 
   const startedAt = new Date().toISOString();
   const memoryBefore = process.memoryUsage();
-  const config = { suites: options.suites, runs: options.runs, warmup: options.warmup, iterations: options.iterations, rows: options.rows, gcBetweenRounds: options.gc, dbPath: options.suites.includes('sqlite') ? path.resolve(dbPath) : null };
+  const coldStart = options.suites.includes('cold-start');
+  const config = { suites: options.suites, runs: options.runs, warmup: coldStart ? 0 : options.warmup, iterations: coldStart ? 1 : options.iterations, coldStart, rows: options.rows, gcBetweenRounds: options.gc, dbPath: options.suites.includes('sqlite') ? path.resolve(dbPath) : null };
   let database;
   try {
     if (options.suites.includes('sqlite')) database = await sqlite.initializeDatabase(dbPath, options.rows, options.reset);
     const metadata = engine.collectMetadata(root, startedAt, memoryBefore);
     if (database) metadata.sqliteVersion = database.pragmas.sqliteVersion;
-    const runOne = (definition) => engine.measureBenchmark(definition, { runs: options.runs, warmup: options.warmup, iterations: options.iterations, gc: options.gc, signal: controller.signal });
+    const runOne = (definition) => engine.measureBenchmark(definition, { runs: options.runs, warmup: coldStart ? 0 : options.warmup, iterations: coldStart ? 1 : options.iterations, gc: options.gc, signal: controller.signal });
     const { runSuite } = require('./suites');
     const results = [];
     for (const suite of options.suites) {

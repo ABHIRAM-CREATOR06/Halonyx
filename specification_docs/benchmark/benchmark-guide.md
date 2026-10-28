@@ -1,6 +1,6 @@
 # Halonyx Reproducible Benchmark Suite
 
-The benchmark command measures the repository's cryptographic, envelope, DLP, group fan-out, SQLite, loopback WebSocket, and local end-to-end pipeline workloads. It reports only values actually measured on the current machine. It does not make claims about production performance.
+The benchmark command measures the repository's cryptographic, envelope, DLP, group fan-out, SQLite, loopback WebSocket, local end-to-end pipeline, and optional cold-start workloads. It reports only values actually measured on the current machine. It does not make claims about production performance.
 
 ## Prerequisites and quick start
 
@@ -19,6 +19,16 @@ npm run benchmark -- --output specification_docs/benchmark/benchmark.md
 ```
 
 The runner uses `performance.now()` for high-resolution per-operation timing, awaits asynchronous operations, and runs independent rounds. Warm-ups run before each measured round. Use smaller values for a smoke run and larger values for steadier local measurements.
+
+### Cold-start mode
+
+Cold-start measurements are separate from the default warmed suites. Each sample launches a fresh Node.js child process, loads one module, and performs its first operation. It covers X25519 key generation, envelope creation, and DLP scanning. Samples include Node process startup, module loading, the operation, and process exit; the operating system's filesystem and code caches are not cleared. The default is five child processes per probe, with no warm-ups and one operation per process.
+
+```text
+npm run benchmark:cold -- --runs 5 --output benchmark-results/cold-start.md
+```
+
+Keep this report separate from the warmed `benchmark.md` snapshot. Cold-start measurements are sensitive to OS cache state and background load; use them to compare repeated runs on the same machine, not as pure operation latency.
 
 ## Suites
 
