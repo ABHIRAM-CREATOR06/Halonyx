@@ -4,26 +4,28 @@ Cross-platform warm performance of 12 Halonyx workloads. All latency values are 
 
 ## Key findings
 
-- Apple M3 has the lowest median in **8 of 12** workloads. WSL2 on the i5-12450H is lowest in the other four: X3DH responder, SQLite indexed read, and both WebSocket ACK tests.
-- The Intel i3-4005U is the slowest environment in 11 of 12 workloads, up to 9.8x slower than native i5 (WebSocket ACK, 1 client). On SQLite mailbox enqueue the Ryzen 7 is slightly slower.
+- Apple M3 has the lowest median in **8 of 12** workloads. WSL2 on the Intel Core i5-12450H is lowest in the other four: X3DH responder, SQLite indexed read, and both WebSocket ACK tests.
+- The Intel Core i3-4005U is the slowest environment in 11 of 12 workloads, up to 9.8x slower than native i5 (WebSocket ACK, 1 client). On SQLite mailbox enqueue the AMD Ryzen 7 7445HS is slightly slower.
 - WSL2 beats native Windows on the same CPU for SQLite, WebSocket and X3DH responder, despite seeing only 2 of 12 logical CPUs. SQLite indexed read is 88.90 µs in WSL2 versus 336.1 µs native. This needs a controlled rerun before anyone attributes a cause.
 - Highest value in the warm table: group fan-out on i3-4005U, 28,837 µs. Lowest: DLP clean scan on Apple M3, 14 µs.
 
 ## 1. Environments
 
-| Environment | CPU | Mode | Node.js | Logical CPUs | Role |
-|---|---|---|---|---|---|
-| Apple M3 | Apple M3 | macOS, native | v24.22.2 | 8 | Comparative reference (user-reported metadata) |
-| Intel i5 | 12th Gen Core i5-12450H | Windows, native | v26.12.0 | 12 (host) | Primary development reference |
-| AMD Ryzen 7 | Ryzen 7 7445HS | Windows, native | v24.19.0 | 12 | Modern x86 comparison |
-| Intel i3 | Core i3-4005U | Windows, native | v24.22.1 | 4 | Legacy low-end reference |
-| WSL2 | i5-12450H host | Linux x64 guest | v26.13.0 | 2 (guest) | Same CPU as native i5, 2 of 12 threads visible |
+| CPU | Mode | Node.js | Logical CPUs | Role |
+|---|---|---|---|---|
+| Apple M3 | macOS, native | v24.22.2 | 8 | Comparative reference (user-reported metadata) |
+| Intel Core i5-12450H (12th Gen) | Windows, native | v26.12.0 | 12 (host) | Primary development reference |
+| AMD Ryzen 7 7445HS | Windows, native | v24.19.0 | 12 | Modern x86 comparison |
+| Intel Core i3-4005U | Windows, native | v24.22.1 | 4 | Legacy low-end reference |
+| Intel Core i5-12450H (WSL2 guest) | Windows host, Linux x64 guest | v26.13.0 | 2 (guest) | Same CPU as the native i5, 2 of 12 threads visible |
+
+In the tables below, "i5" and "native i5" mean the Intel Core i5-12450H on native Windows.
 
 ## 2. Median latency (µs)
 
 The fastest value in each row is bold.
 
-| # | Workload | Apple M3 | Intel i5 | AMD Ryzen 7 | Intel i3 | WSL2 (i5) |
+| # | Workload | Apple M3 | Core i5-12450H | Ryzen 7 7445HS | Core i3-4005U | WSL2 (i5-12450H) |
 |--:|---|--:|--:|--:|--:|--:|
 | 1 | X25519 key generation | **40** | 60.4 | 128.15 | 344.1 | 74.44 |
 | 2 | X3DH initiation | **310** | 467.2 | 880.85 | 2,436 | 488.51 |
@@ -42,7 +44,7 @@ The fastest value in each row is bold.
 
 Each value is the environment's median divided by the native i5 median. Below 1.00x is faster than native i5.
 
-| # | Workload | Apple M3 | AMD Ryzen 7 | Intel i3 | WSL2 (i5) |
+| # | Workload | Apple M3 | Ryzen 7 7445HS | Core i3-4005U | WSL2 (i5-12450H) |
 |--:|---|--:|--:|--:|--:|
 | 1 | X25519 key generation | 0.66x | 2.12x | 5.70x | 1.23x |
 | 2 | X3DH initiation | 0.66x | 1.89x | 5.21x | 1.05x |
@@ -62,10 +64,10 @@ Each value is the environment's median divided by the native i5 median. Below 1.
 | Environment | What the data shows | Qualification |
 |---|---|---|
 | Apple M3 | Lowest median in 8 of 12 workloads, roughly 0.6x to 0.7x of native i5 on crypto and pipeline tests | Does not show Halonyx is tuned for Apple Silicon. Metadata is user-reported |
-| Intel i5, native | Main development reference | Node.js v26.12.0 |
-| AMD Ryzen 7 | Close to native i5 on X3DH response, SQLite and group fan-out. Roughly 2x slower on key generation, ratchet and DLP. 3x to 5x slower on WebSocket and pipeline tests | Results are specific to this machine and run. Node.js v24.19.0 |
-| Intel i3 | Legacy low-end reference, slowest in 11 of 12 workloads | Useful for judging constrained hardware |
-| WSL2 | Same physical CPU as native i5, faster on SQLite, WebSocket and X3DH response, slower on ratchet and key generation | Only 2 logical CPUs visible. Node.js v26.13.0 differs from native v26.12.0 |
+| Intel Core i5-12450H, native | Main development reference | Node.js v26.12.0 |
+| AMD Ryzen 7 7445HS | Close to native i5 on X3DH response, SQLite and group fan-out. Roughly 2x slower on key generation, ratchet and DLP. 3x to 5x slower on WebSocket and pipeline tests | Results are specific to this machine and run. Node.js v24.19.0 |
+| Intel Core i3-4005U | Legacy low-end reference, slowest in 11 of 12 workloads | Useful for judging constrained hardware |
+| WSL2 on Intel Core i5-12450H | Same physical CPU as native i5, faster on SQLite, WebSocket and X3DH response, slower on ratchet and key generation | Only 2 logical CPUs visible. Node.js v26.13.0 differs from native v26.12.0 |
 
 ## 5. Workload definitions
 
@@ -87,7 +89,7 @@ Each value is the environment's median divided by the native i5 median. Below 1.
 
 | Limitation | Why it matters |
 |---|---|
-| Runtime versions differ | Native i5 used Node.js v26.12.0 and WSL2 used v26.13.0, while Ryzen 7 (v24.19.0), M3 (v24.22.2) and i3 (v24.22.1) used the v24 line. Runtime differences can affect results |
+| Runtime versions differ | Native i5 used Node.js v26.12.0 and WSL2 used v26.13.0, while Ryzen 7 7445HS (v24.19.0), M3 (v24.22.2) and Core i3-4005U (v24.22.1) used the v24 line. Runtime differences can affect results |
 | WSL2 CPU allocation | WSL2 sees 2 logical CPUs while the host has 12. This can affect workloads that benefit from parallelism |
 | WSL2 filesystem and virtualization | Filesystem location, virtualization and resource configuration may affect results. The data alone does not prove the cause of any individual difference |
 | SQLite fixtures | Application schemas with deterministic synthetic data, not production database measurements |
