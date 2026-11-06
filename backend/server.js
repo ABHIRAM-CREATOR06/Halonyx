@@ -35,11 +35,17 @@ app.use((req, res, next) => {
   next();
 });
 
+// Database directory. Defaults to backend/db; HALONYX_DB_DIR overrides it
+// (used to point tests at a temporary directory).
+const DB_DIR = process.env.HALONYX_DB_DIR
+  ? path.resolve(process.env.HALONYX_DB_DIR)
+  : path.join(__dirname, "db");
+
 // Operational Database
-const db = new sqlite3.Database(path.join(__dirname, "db", "app.db"));
+const db = new sqlite3.Database(path.join(DB_DIR, "app.db"));
 // Identity Database (Metadata)
-const idDb = new sqlite3.Database(path.join(__dirname, "db", "identity.db"));
-const keyDb = new sqlite3.Database(path.join(__dirname, "db", "keys.db"));
+const idDb = new sqlite3.Database(path.join(DB_DIR, "identity.db"));
+const keyDb = new sqlite3.Database(path.join(DB_DIR, "keys.db"));
 
 // Initialize Databases
 function initDb(database, schemaPath) {
@@ -57,7 +63,7 @@ initDb(idDb, path.join(__dirname, "db", "identity_schema.sql"));
 initDb(keyDb, path.join(__dirname, "db", "key_schema.sql"));
 
 const crypto = require("crypto");
-const JWT_SECRET_FILE = path.join(__dirname, "db", ".jwt_secret");
+const JWT_SECRET_FILE = path.join(DB_DIR, ".jwt_secret");
 
 function getJwtSecret() {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
@@ -67,7 +73,7 @@ function getJwtSecret() {
       if (stored && stored.length >= 16) return stored;
     }
     const secret = crypto.randomBytes(32).toString("hex");
-    const dbDir = path.join(__dirname, "db");
+    const dbDir = DB_DIR;
     if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
     fs.writeFileSync(JWT_SECRET_FILE, secret, "utf8");
     return secret;
@@ -1172,7 +1178,11 @@ udpServer.on("listening", () => {
   console.log(`[UDP] Server listening ${address.address}:${address.port}`);
 });
 
-udpServer.bind(UDP_PORT, "127.0.0.1");
+// Bind only when started directly (node backend/server.js); importing this
+// module must not open any ports.
+if (require.main === module) {
+  udpServer.bind(UDP_PORT, "127.0.0.1");
+}
 
 // Disable all caching — must come BEFORE static middleware so browsers
 // never serve stale JS/protocol files from cache.
@@ -1201,4 +1211,8 @@ app.use(
 
 app.use(express.static(path.join(__dirname, "..", "frontend"), { etag: false, lastModified: false }));
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+if (require.main === module) {
+  server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+}
+
+module.exports = { app, server, wss, udpServer, db, idDb, keyDb };
