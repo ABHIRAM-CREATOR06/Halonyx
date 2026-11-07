@@ -32,13 +32,18 @@ async function main(argv = process.argv.slice(2)) {
     return 0;
   }
 
+  if (options.synchronous === 'NORMAL') {
+    process.stderr.write('WARNING: synchronous=NORMAL applies only to isolated synthetic benchmark databases; production app, identity, and key databases remain WAL+FULL.\n');
+  }
+
   const startedAt = new Date().toISOString();
   const memoryBefore = process.memoryUsage();
   const coldStart = options.suites.includes('cold-start');
   const config = { suites: options.suites, runs: options.runs, warmup: coldStart ? 0 : options.warmup, iterations: coldStart ? 1 : options.iterations, coldStart, rows: options.rows, gcBetweenRounds: options.gc, dbPath: options.suites.includes('sqlite') ? path.resolve(dbPath) : null };
   let database;
+  config.synchronous = options.synchronous;
   try {
-    if (options.suites.includes('sqlite')) database = await sqlite.initializeDatabase(dbPath, options.rows, options.reset);
+    if (options.suites.includes('sqlite')) database = await sqlite.initializeDatabase(dbPath, options.rows, options.reset, { synchronous: options.synchronous });
     const metadata = engine.collectMetadata(root, startedAt, memoryBefore);
     if (database) metadata.sqliteVersion = database.pragmas.sqliteVersion;
     const runOne = (definition) => engine.measureBenchmark(definition, { runs: options.runs, warmup: coldStart ? 0 : options.warmup, iterations: coldStart ? 1 : options.iterations, gc: options.gc, signal: controller.signal });

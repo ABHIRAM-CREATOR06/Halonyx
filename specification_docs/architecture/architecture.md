@@ -240,6 +240,8 @@ halonyx-app container :3000
 
 The application also creates or loads a JWT secret from `JWT_SECRET` or `backend/db/.jwt_secret`. A deployment should persist the database directory and provide a stable secret through an environment variable or a protected persistent volume.
 
+The application databases use SQLite WAL mode. A live file-level backup must include each database together with its matching `-wal` and `-shm` sidecars, or use a consistent SQLite backup procedure. Before copying only the main `.db` files, quiesce writers and checkpoint the WAL (for example, with `PRAGMA wal_checkpoint(TRUNCATE)`). `synchronous=FULL` durability also depends on the underlying storage honoring flush requests.
+
 ## Security boundaries and current limitations
 
 The architecture provides a strong separation between browser-held private keys and server-held relay data, but the repository describes itself as a final-year project rather than a production messenger. The following limitations should remain visible to maintainers and deployers:

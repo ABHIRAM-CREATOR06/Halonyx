@@ -46,17 +46,22 @@ No browser-paint benchmark is included: the repository has no browser performanc
 
 ## SQLite fixture isolation
 
-The SQLite suite defaults to a dedicated directory under the operating system's temporary folder. It creates `app.db` plus companion `app.identity.db` and `app.keys.db` files, using the schemas and indexes in `backend/db/`. Synthetic rows are deterministic and use `.invalid` email domains. The benchmark database is never opened by the application server.
+The SQLite suite defaults to a dedicated directory under the operating system's temporary folder. It creates `app.db` plus companion `app.identity.db` and `app.keys.db` files, using the schemas and indexes in `backend/db/`. Synthetic rows are deterministic and use `.invalid` email domains. Both the app and benchmark use `backend/db/connection.js` for connection bootstrap, so WAL mode, FULL synchronous durability, and a 5,000 ms busy timeout are exercised through the same code path; the benchmark still uses only its isolated synthetic files, not the user's app databases.
 
 ```text
 npm run benchmark -- --suite sqlite --db ./benchmark-data/halonyx-bench.db --rows 10000
 npm run benchmark -- --suite sqlite --db ./benchmark-data/halonyx-bench.db --rows 10000 --reset
+npm run benchmark -- --suite sqlite --db ./benchmark-data/halonyx-normal-bench.db --rows 10000 --synchronous NORMAL
 npm run benchmark -- --cleanup --db ./benchmark-data/halonyx-bench.db
 ```
 
-Existing databases are preserved. If a requested path already contains SQLite data without the Halonyx benchmark ownership marker, initialization and cleanup refuse to modify it. A changed fixture size requires `--reset`; reset only operates on marked benchmark databases. Cleanup removes only marked app/identity/key files. Generated database and report directories are ignored by Git.
+Existing databases are preserved. If a requested path already contains SQLite data without the Halonyx benchmark ownership marker, initialization and cleanup refuse to modify it. A changed fixture size requires `--reset`; reset only operates on marked benchmark databases. Cleanup removes only marked app/identity/key databases and their regular `-wal`/`-shm` sidecars; it refuses orphan sidecars and symlink/non-regular paths. Generated database and report directories are ignored by Git.
 
-The suite sets and records fixed SQLite PRAGMAs (`journal_mode=DELETE`, `synchronous=FULL`, `cache_size=-2000`, `foreign_keys=ON`, `temp_store=MEMORY`). Keep these the same when comparing runs. Row counts, file sizes, schema/index validation, library version, and PRAGMAs appear in JSON output.
+The suite records shared connection PRAGMAs (`journal_mode=WAL`, `synchronous=FULL`, `busy_timeout=5000`) and fixture-only settings (`cache_size=-2000`, `foreign_keys=ON`, `temp_store=MEMORY`). Use the same settings when comparing runs. `--synchronous NORMAL` requires an explicit SQLite benchmark flag, prints a warning, and applies only to isolated synthetic fixtures after the shared helper opens them. It does not change the application default and must not be used to benchmark real app data; the production helper exposes only WAL+FULL+5000ms. Row counts, main/WAL/SHM file sizes, schema/index validation, library version, and PRAGMAs appear in JSON output.
+
+### WAL backups and storage durability
+
+While a WAL-mode database is live, recent committed pages may reside in its `-wal` sidecar. A raw backup must include the main database plus the matching `-wal` and `-shm` files for each app, identity, and key database. Alternatively, quiesce writers and checkpoint the WAL (for example, `PRAGMA wal_checkpoint(TRUNCATE)`) before copying only the main files, or use a consistent SQLite backup API. Never copy only `.db` files from a live volume and assume the snapshot is complete. `synchronous=FULL` requests durable flushes, but final durability depends on the underlying storage honoring them.
 
 ## Results, export, and baselines
 
@@ -104,6 +109,6 @@ Use `--gc` only with `node --expose-gc` when intentionally studying GC-assisted 
 
 - No browser rendering/paint instrumentation or remote multi-machine WebSocket harness.
 - Loopback WebSocket and pipeline suites require local loopback sockets to be permitted by the host sandbox/firewall.
-- SQLite workloads measure SQL against dedicated files, not the running Express application/database connection path.
+- SQLite workloads share the app's connection-bootstrap code and core WAL/FULL/busy-timeout settings, but still measure SQL against dedicated synthetic files rather than production data or the running Express request path.
 - CPU frequency, thermal state, and power data are unavailable through portable APIs.
 - Regression intervals are approximate and should not be used as a sole noisy CI gate without stable dedicated hardware.

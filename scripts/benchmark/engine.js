@@ -9,11 +9,11 @@ const { performance } = require('node:perf_hooks');
 const SUITES = ['crypto', 'envelope', 'dlp', 'group', 'sqlite', 'websocket', 'pipeline', 'cold-start'];
 const DEFAULT_SUITES = SUITES.filter((suite) => suite !== 'cold-start');
 const POSITIVE = new Set(['runs', 'iterations']);
-const VALUE_OPTIONS = new Set(['runs', 'warmup', 'iterations', 'suite', 'format', 'output', 'compare', 'save-baseline', 'threshold', 'db', 'rows']);
+const VALUE_OPTIONS = new Set(['runs', 'warmup', 'iterations', 'suite', 'format', 'output', 'compare', 'save-baseline', 'threshold', 'db', 'rows', 'synchronous']);
 const FLAGS = new Set(['help', 'reset', 'cleanup', 'gc']);
 
 function parseArgs(argv) {
-  const result = { runs: 5, warmup: 20, iterations: 100, suite: 'all', format: 'markdown', rows: 1000, reset: false, cleanup: false, gc: false };
+  const result = { runs: 5, warmup: 20, iterations: 100, suite: 'all', format: 'markdown', rows: 1000, synchronous: 'FULL', reset: false, cleanup: false, gc: false };
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
     if (!token.startsWith('--')) throw new Error(`Unexpected argument: ${token}`);
@@ -26,7 +26,11 @@ function parseArgs(argv) {
     if (!VALUE_OPTIONS.has(name)) throw new Error(`Unknown option: --${name}`);
     const value = inline === undefined ? argv[++i] : inline;
     if (value === undefined || value.startsWith('--')) throw new Error(`--${name} requires a value`);
-    if (['runs', 'warmup', 'iterations', 'rows', 'threshold'].includes(name)) {
+    if (name === 'synchronous') {
+      const mode = value.toUpperCase();
+      if (!['FULL', 'NORMAL'].includes(mode)) throw new Error('--synchronous must be FULL or NORMAL (benchmark databases only)');
+      result.synchronous = mode;
+    } else if (['runs', 'warmup', 'iterations', 'rows', 'threshold'].includes(name)) {
       const number = Number(value);
       if (!Number.isSafeInteger(number) || number < (POSITIVE.has(name) ? 1 : 0) || (name === 'threshold' && number > 10000)) {
         throw new Error(`--${name} must be ${name === 'threshold' || name === 'warmup' ? 'a non-negative' : 'a positive'} integer${name === 'threshold' ? ' up to 10000' : ''}`);
@@ -42,6 +46,7 @@ function parseArgs(argv) {
     if (!result.suites.length || unknown.length) throw new Error(`--suite must be all or a comma-separated list of: ${SUITES.join(', ')}`);
     result.suites = [...new Set(result.suites)];
   } else result.suites = DEFAULT_SUITES.slice();
+  if (result.synchronous === 'NORMAL' && !result.suites.includes('sqlite')) throw new Error('--synchronous NORMAL requires the sqlite suite and applies only to synthetic benchmark databases');
   if (result.suites.includes('cold-start') && result.suites.length !== 1) throw new Error('cold-start must be run by itself; use --suite cold-start');
   if (result.reset && !result.suites.includes('sqlite')) throw new Error('--reset requires the sqlite suite');
   if (result.reset && result.cleanup) throw new Error('--reset and --cleanup cannot be used together');
@@ -176,8 +181,9 @@ async function measureBenchmark(definition, options = {}) {
 }
 
 function gitInfo(root) {
+  const safeRoot = path.resolve(root).replace(/\\/g, '/');
   const run = (args) => {
-    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true });
+    const result = spawnSync('git', ['-c', `safe.directory=${safeRoot}`, ...args], { cwd: root, encoding: 'utf8', windowsHide: true });
     return result.status === 0 ? result.stdout.trim() : null;
   };
   const commit = run(['rev-parse', 'HEAD']);
@@ -238,7 +244,7 @@ function regressionSummary(current, baseline, comparison, thresholdPercent) {
 }
 
 function formatHelp() {
-  return `Halonyx reproducible benchmark suite\n\nUsage: npm run benchmark -- [options]\n\nOptions:\n  --help                      Show this help\n  --suite <all|list>          crypto,envelope,dlp,group,sqlite,websocket,pipeline,cold-start\n  --runs <n>                  Independent rounds (default 5)\n  --warmup <n>                Warm-ups per benchmark per round (default 20)\n  --iterations <n>            Measured iterations per round (default 100)\n  --format <markdown|human|json|csv> Output format (default markdown)\n  --output <file>             Write formatted results to a file\n  --compare <file>            Compare results with a saved JSON baseline\n  --save-baseline <file>      Save this run as a JSON baseline\n  --threshold <percent>       Fail if a significant regression exceeds this (requires --compare)\n  --db <file>                 Dedicated benchmark app.db path\n  --rows <n>                  Deterministic synthetic rows (default 1000; 0 allowed)\n  --reset                     Reset only a previously marked benchmark database\n  --cleanup                   Delete only marked benchmark database files and exit\n  --gc                        GC between rounds (requires node --expose-gc)\n\nThe cold-start suite runs one operation in each of several fresh Node.js child processes; OS caches are not cleared.\n\nPercentiles use nearest-rank: sorted[ceil(p*n)-1]. Pooled percentiles use successful measured observations; failures and excluded samples are reported separately.`;
+  return `Halonyx reproducible benchmark suite\n\nUsage: npm run benchmark -- [options]\n\nOptions:\n  --help                      Show this help\n  --suite <all|list>          crypto,envelope,dlp,group,sqlite,websocket,pipeline,cold-start\n  --runs <n>                  Independent rounds (default 5)\n  --warmup <n>                Warm-ups per benchmark per round (default 20)\n  --iterations <n>            Measured iterations per round (default 100)\n  --format <markdown|human|json|csv> Output format (default markdown)\n  --output <file>             Write formatted results to a file\n  --compare <file>            Compare results with a saved JSON baseline\n  --save-baseline <file>      Save this run as a JSON baseline\n  --threshold <percent>       Fail if a significant regression exceeds this (requires --compare)\n  --db <file>                 Dedicated benchmark app.db path\n  --rows <n>                  Deterministic synthetic rows (default 1000; 0 allowed)\n  --synchronous <mode>        Synthetic DB mode FULL or NORMAL (default FULL; benchmark only)\n  --reset                     Reset only a previously marked benchmark database\n  --cleanup                   Delete only marked benchmark database files and exit\n  --gc                        GC between rounds (requires node --expose-gc)\n\nThe cold-start suite runs one operation in each of several fresh Node.js child processes; OS caches are not cleared.\n\nPercentiles use nearest-rank: sorted[ceil(p*n)-1]. Pooled percentiles use successful measured observations; failures and excluded samples are reported separately.`;
 }
 
 function toCsv(results) {

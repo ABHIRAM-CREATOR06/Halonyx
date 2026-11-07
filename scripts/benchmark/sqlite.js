@@ -5,6 +5,8 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const sqlite3 = require('sqlite3').verbose();
+const { openDatabase } = require('../../backend/db/connection');
+const { flushMailbox, formatMailboxMessage } = require('./mailbox-candidate');
 
 const MARKER = 'halonyx-benchmark-v1';
 const DEFAULT_DB = path.join(os.tmpdir(), 'halonyx-benchmark', 'app.db');
@@ -21,9 +23,23 @@ function databasePaths(appPath = DEFAULT_DB) {
   return { app, identity: path.join(dir, `${stem}.identity.db`), keys: path.join(dir, `${stem}.keys.db`) };
 }
 
-function open(file) {
+function open(file, { synchronous = 'FULL' } = {}) {
+  const mode = String(synchronous).toUpperCase();
+  if (!['FULL', 'NORMAL'].includes(mode)) {
+    throw new RangeError(`Unsupported synthetic benchmark synchronous mode: ${synchronous}`);
+  }
+  const connection = openDatabase(file);
+  return connection.ready.then(async () => {
+    if (mode === 'NORMAL') await run(connection.db, 'PRAGMA synchronous = NORMAL');
+    return connection.db;
+  }).catch(async (error) => {
+    await close(connection.db).catch(() => {});
+    throw error;
+  });
+}
+function openReadOnly(file) {
   return new Promise((resolve, reject) => {
-    const db = new sqlite3.Database(file, (error) => error ? reject(error) : resolve(db));
+    const db = new sqlite3.Database(file, sqlite3.OPEN_READONLY, (error) => error ? reject(error) : resolve(db));
   });
 }
 function run(db, sql, params = []) {
@@ -42,20 +58,34 @@ async function verifyMarked(db, kind) {
   return !!meta && meta.marker === MARKER && meta.kind === kind;
 }
 
-async function initializeOne(file, kind, rows, reset) {
+async function initializeOne(file, kind, rows, reset, options = {}) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const exists = fs.existsSync(file);
   if (exists) {
     const stat = fs.lstatSync(file);
     if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Refusing non-regular benchmark database path: ${file}`);
+    for (const sidecar of [`${file}-wal`, `${file}-shm`]) {
+      if (fs.existsSync(sidecar)) {
+        const sidecarStat = fs.lstatSync(sidecar);
+        if (!sidecarStat.isFile() || sidecarStat.isSymbolicLink()) throw new Error(`Refusing non-regular benchmark database sidecar: ${sidecar}`);
+      }
+    }
+    if (stat.size > 0) {
+      const inspector = await openReadOnly(file);
+      try {
+        const tables = await inspectTables(inspector);
+        if (!tables.length) throw new Error(`Refusing non-empty unmarked SQLite file: ${file}`);
+        if (!tables.includes('benchmark_metadata')) throw new Error(`Refusing to use an unmarked existing database: ${file}. Choose a new path; benchmark tooling never modifies arbitrary SQLite files.`);
+        if (!await verifyMarked(inspector, kind)) throw new Error(`Refusing an existing database not owned by this benchmark (${kind}): ${file}`);
+      } finally {
+        await close(inspector);
+      }
+    }
   }
-  const db = await open(file);
+  const db = await open(file, options);
   try {
-    await exec(db, 'PRAGMA foreign_keys=ON; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA cache_size=-2000; PRAGMA temp_store=MEMORY;');
+    await exec(db, 'PRAGMA foreign_keys=ON; PRAGMA cache_size=-2000; PRAGMA temp_store=MEMORY;');
     const tables = await inspectTables(db);
-    if (exists && tables.length && !tables.includes('benchmark_metadata')) throw new Error(`Refusing to use an unmarked existing database: ${file}. Choose a new path; benchmark tooling never modifies arbitrary SQLite files.`);
-    if (exists && !tables.length && fs.statSync(file).size > 0) throw new Error(`Refusing non-empty unmarked SQLite file: ${file}`);
-    if (exists && tables.length && !await verifyMarked(db, kind)) throw new Error(`Refusing an existing database not owned by this benchmark (${kind}): ${file}`);
 
     if (!exists || !tables.length) {
       await exec(db, fs.readFileSync(SCHEMAS[kind], 'utf8'));
@@ -136,13 +166,13 @@ async function seedOne(record, rows, reset) {
   }
 }
 
-async function initializeDatabase(appPath = DEFAULT_DB, rows = 1000, reset = false) {
+async function initializeDatabase(appPath = DEFAULT_DB, rows = 1000, reset = false, options = {}) {
   if (!Number.isSafeInteger(rows) || rows < 0) throw new RangeError('rows must be a non-negative integer');
   const paths = databasePaths(appPath);
   const opened = [];
   try {
     for (const kind of ['app', 'identity', 'keys']) {
-      const record = await initializeOne(paths[kind], kind, rows, reset);
+      const record = await initializeOne(paths[kind], kind, rows, reset, options);
       opened.push(record);
       await seedOne(record, rows, reset);
     }
@@ -150,7 +180,7 @@ async function initializeDatabase(appPath = DEFAULT_DB, rows = 1000, reset = fal
     for (const { db, kind, file } of opened) {
       await validateSchema(db, kind);
       pragmas[kind] = {};
-      for (const key of ['journal_mode', 'synchronous', 'cache_size', 'foreign_keys', 'temp_store']) {
+      for (const key of ['journal_mode', 'synchronous', 'busy_timeout', 'cache_size', 'foreign_keys', 'temp_store']) {
         const row = await get(db, `PRAGMA ${key}`);
         pragmas[kind][key] = row[Object.keys(row)[0]];
       }
@@ -159,7 +189,7 @@ async function initializeDatabase(appPath = DEFAULT_DB, rows = 1000, reset = fal
         const row = await get(db, `SELECT COUNT(*) AS count FROM ${table}`);
         if (row.count !== count) throw new Error(`${kind}.${table} row count mismatch (${row.count}, expected ${count})`);
       }
-      pragmas[kind].sizeBytes = fs.statSync(file).size;
+      pragmas[kind].sizeBytes = [`${file}`, `${file}-wal`, `${file}-shm`].reduce((size, part) => size + (fs.existsSync(part) ? fs.statSync(part).size : 0), 0);
       const version = await get(db, 'SELECT sqlite_version() AS version');
       pragmas.sqliteVersion ||= version.version;
     }
@@ -175,16 +205,36 @@ async function cleanupDatabase(appPath = DEFAULT_DB) {
   const targets = [];
   for (const kind of ['app', 'identity', 'keys']) {
     const file = paths[kind];
-    if (!fs.existsSync(file)) continue;
+    const sidecars = [`${file}-wal`, `${file}-shm`];
+    if (!fs.existsSync(file)) {
+      if (sidecars.some((sidecar) => fs.existsSync(sidecar))) throw new Error(`Refusing orphan WAL/SHM sidecar without a marked database: ${file}`);
+      continue;
+    }
     const stat = fs.lstatSync(file);
     if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Refusing to remove non-regular database path: ${file}`);
-    const db = await open(file);
+    for (const sidecar of sidecars) {
+      if (fs.existsSync(sidecar)) {
+        const sidecarStat = fs.lstatSync(sidecar);
+        if (!sidecarStat.isFile() || sidecarStat.isSymbolicLink()) throw new Error(`Refusing to remove non-regular database sidecar: ${sidecar}`);
+      }
+    }
+    const db = await openReadOnly(file);
     let valid;
     try { valid = await verifyMarked(db, kind); }
     finally { await close(db); }
     if (!valid) throw new Error(`Refusing to remove unmarked database: ${file}`);
     targets.push(file);
   }
+  const sidecarTargets = [];
+  for (const file of targets) {
+    for (const sidecar of [`${file}-wal`, `${file}-shm`]) {
+      if (!fs.existsSync(sidecar)) continue;
+      const stat = fs.lstatSync(sidecar);
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Refusing to remove non-regular database sidecar: ${sidecar}`);
+      sidecarTargets.push(sidecar);
+    }
+  }
+  for (const file of sidecarTargets) fs.unlinkSync(file);
   for (const file of targets) fs.unlinkSync(file);
   return targets;
 }
@@ -222,6 +272,41 @@ async function benchmarkSqlite(engine, database, options) {
     prepare: async () => { const inserted = await run('INSERT INTO mailbox (recipient_hashed_usid, sender_hashed_usid, content) VALUES (?, ?, ?)', [syntheticUsid(999998), syntheticUsid(999999), 'synthetic-ciphertext']); dequeueId = inserted.lastID; return dequeueId; },
     fn: (id) => run('DELETE FROM mailbox WHERE id=?', [id]),
   });
+  for (const queuedMessages of [1, 5, 10]) {
+    const flushRecipient = syntheticUsid(999990 + queuedMessages);
+    const prepareFlush = async () => {
+      for (let index = 0; index < queuedMessages; index += 1) {
+        await run("INSERT INTO mailbox (recipient_hashed_usid, sender_hashed_usid, content, timestamp) VALUES (?, ?, ?, datetime('now', ?))", [
+          flushRecipient,
+          syntheticUsid(999999),
+          JSON.stringify({ synthetic: true, message: `flush-${index}` }),
+          `-${index + 1} seconds`,
+        ]);
+      }
+      return flushRecipient;
+    };
+    const cleanupFlush = async (recipient) => { if (recipient) await run('DELETE FROM mailbox WHERE recipient_hashed_usid=?', [recipient]); };
+    await add({
+      id: 'sqlite.mailbox.flush-select-delete', name: 'Mailbox flush: ordered SELECT then DELETE', parameters: { table: 'mailbox', path: 'previous', queuedMessages },
+      prepare: prepareFlush,
+      fn: async (recipient) => {
+        const pending = await all(db,
+          "SELECT * FROM mailbox WHERE recipient_hashed_usid=? AND timestamp >= datetime('now','-7 days') ORDER BY timestamp ASC",
+          [recipient],
+        );
+        const payloads = pending.map((row) => JSON.stringify(formatMailboxMessage(row)));
+        await run("DELETE FROM mailbox WHERE recipient_hashed_usid=?", [recipient]);
+        return payloads.length;
+      },
+      after: cleanupFlush,
+    });
+    await add({
+      id: 'sqlite.mailbox.flush-delete-returning', name: 'Mailbox flush: BEGIN IMMEDIATE and DELETE RETURNING', parameters: { table: 'mailbox', path: 'optimized', queuedMessages },
+      prepare: prepareFlush,
+      fn: (recipient) => flushMailbox(db, recipient, () => {}),
+      after: cleanupFlush,
+    });
+  }
   let cleanupId = null;
   await add({
     id: 'sqlite.mailbox.expiry-cleanup', name: 'Expired mailbox cleanup', parameters: { table: 'mailbox', ttlDays: 7 },
