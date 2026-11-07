@@ -1364,6 +1364,29 @@ body.theme-light .chat-header {
     border-radius: var(--r-md);
     background: var(--bg-base);
     color: var(--fg);
+    scrollbar-width: thin;
+    scrollbar-color: var(--bd-hi) transparent;
+}
+.markdown-content pre::-webkit-scrollbar {
+    height: 4px;
+}
+.markdown-content pre::-webkit-scrollbar-track {
+    background: transparent;
+}
+.markdown-content pre::-webkit-scrollbar-thumb {
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: var(--bd-hi);
+    background-clip: padding-box;
+}
+.markdown-content pre::-webkit-scrollbar-thumb:hover {
+    background: var(--accent);
+    background-clip: padding-box;
+}
+.markdown-content pre::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
 }
 .markdown-content blockquote {
     box-sizing: border-box;
