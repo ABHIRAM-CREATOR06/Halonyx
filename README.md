@@ -134,6 +134,8 @@ docker run -d -p 3000:3000 -v halonyx-data:/app/backend/db --name halonyx-app ha
 
 Open [**http://localhost:3000**](http://localhost:3000) once the container is running. Database state is persisted in the Docker volume.
 
+SQLite uses WAL mode. Do not back up a live volume by copying only the `.db` files: recent committed pages may still be in matching `-wal` files. Use a consistent SQLite backup, or quiesce writers and checkpoint before a raw copy; if copying while the application is running, include each database and its `-wal`/`-shm` sidecars together. `synchronous=FULL` also depends on the storage device honoring flush requests.
+
 ### Running the tests
 
 ```bash

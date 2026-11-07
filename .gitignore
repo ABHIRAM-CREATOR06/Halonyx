@@ -34,6 +34,12 @@ coverage/
 # Local benchmark databases and generated reports
 benchmark-data/
 benchmark-results/
+.work/
+
+# SQLite databases and WAL/SHM sidecars are local data, not source files.
+*.db
+*.db-wal
+*.db-shm
 
 # Private folders & agent customizations
 .agents/

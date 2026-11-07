@@ -14,7 +14,9 @@ async function withTemp(fn) {
 test('benchmark DB uses actual schema, indexes, deterministic synthetic rows, and empty fixtures', async () => {
   await withTemp(async (file) => {
     const empty = await initializeDatabase(file, 0);
-    assert.equal(empty.pragmas.app.journal_mode, 'delete');
+    assert.equal(empty.pragmas.app.journal_mode, 'wal');
+    assert.equal(empty.pragmas.app.synchronous, 2);
+    assert.equal(empty.pragmas.app.busy_timeout, 5000);
     assert.equal(empty.pragmas.sqliteVersion != null, true);
     await Promise.all(empty.databases.map((item) => close(item.db)));
     const dbs = await initializeDatabase(file, 12, true);
@@ -30,6 +32,22 @@ test('benchmark DB uses actual schema, indexes, deterministic synthetic rows, an
   });
 });
 
+test('NORMAL is a benchmark-only explicit override; production helper defaults all synthetic DBs back to FULL', async () => {
+  await withTemp(async (file) => {
+    const normal = await initializeDatabase(file, 0, false, { synchronous: 'NORMAL' });
+    for (const kind of ['app', 'identity', 'keys']) assert.equal(normal.pragmas[kind].synchronous, 1);
+    await Promise.all(normal.databases.map((item) => close(item.db)));
+
+    const full = await initializeDatabase(file, 0);
+    for (const kind of ['app', 'identity', 'keys']) {
+      assert.equal(full.pragmas[kind].journal_mode, 'wal');
+      assert.equal(full.pragmas[kind].synchronous, 2);
+      assert.equal(full.pragmas[kind].busy_timeout, 5000);
+    }
+    await Promise.all(full.databases.map((item) => close(item.db)));
+  });
+});
+
 test('reset and cleanup require a marked benchmark database; arbitrary SQLite files are preserved', async () => {
   await withTemp(async (file) => {
     const first = await initializeDatabase(file, 4);
@@ -37,9 +55,17 @@ test('reset and cleanup require a marked benchmark database; arbitrary SQLite fi
     const reset = await initializeDatabase(file, 2, true);
     assert.equal((await get(reset.databases[0].db, 'SELECT COUNT(*) AS n FROM users')).n, 2);
     await Promise.all(reset.databases.map((item) => close(item.db)));
+    for (const databaseFile of Object.values(databasePaths(file))) {
+      fs.writeFileSync(`${databaseFile}-wal`, Buffer.alloc(0));
+      fs.writeFileSync(`${databaseFile}-shm`, Buffer.alloc(0));
+    }
     const removed = await cleanupDatabase(file);
     assert.equal(removed.length, 3);
-    assert.equal(fs.existsSync(databasePaths(file).app), false);
+    for (const databaseFile of Object.values(databasePaths(file))) {
+      assert.equal(fs.existsSync(databaseFile), false);
+      assert.equal(fs.existsSync(`${databaseFile}-wal`), false);
+      assert.equal(fs.existsSync(`${databaseFile}-shm`), false);
+    }
     const arbitrary = path.join(path.dirname(file), 'keep-me.db');
     const db = await open(arbitrary);
     await new Promise((resolve, reject) => db.run('CREATE TABLE keep_me (value TEXT)', (error) => error ? reject(error) : resolve()));

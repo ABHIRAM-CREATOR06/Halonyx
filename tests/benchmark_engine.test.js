@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { summarize, percentile, measureBenchmark, parseArgs, compareResults, regressionSummary, formatMarkdown } = require('../scripts/benchmark/engine');
+const path = require('node:path');
+const { summarize, percentile, measureBenchmark, parseArgs, compareResults, regressionSummary, formatMarkdown, gitInfo } = require('../scripts/benchmark/engine');
 
 test('nearest-rank percentiles are correct and samples are not mutated', () => {
   const values = [100, 1, 3, 2];
@@ -46,6 +47,10 @@ test('runner batches fast calls and labels batch averages', async () => {
 
 test('CLI validates suite and incompatible option combinations', () => {
   assert.equal(parseArgs([]).format, 'markdown');
+  assert.equal(parseArgs([]).synchronous, 'FULL');
+  assert.equal(parseArgs(['--suite', 'sqlite', '--synchronous', 'normal']).synchronous, 'NORMAL');
+  assert.throws(() => parseArgs(['--suite', 'crypto', '--synchronous', 'NORMAL']), /requires the sqlite suite/);
+  assert.throws(() => parseArgs(['--synchronous', 'OFF']), /FULL or NORMAL/);
   assert.deepEqual(parseArgs(['--suite', 'cold-start']).suites, ['cold-start']);
   assert.throws(() => parseArgs(['--suite', 'crypto,cold-start']), /must be run by itself/);
   assert.equal(parseArgs(['--suite', 'sqlite', '--rows', '0']).rows, 0);
@@ -53,6 +58,12 @@ test('CLI validates suite and incompatible option combinations', () => {
   assert.throws(() => parseArgs(['--suite', 'unknown']), /--suite/);
   assert.throws(() => parseArgs(['--threshold', '5']), /requires --compare/);
   assert.throws(() => parseArgs(['--reset', '--cleanup']), /cannot be used together/);
+});
+
+test('Git metadata captures the commit and working-tree state in a protected desktop workspace', () => {
+  const info = gitInfo(path.resolve(__dirname, '..'));
+  assert.match(info.commit, /^[0-9a-f]{40}$/i);
+  assert.equal(typeof info.workingTreeClean, 'boolean');
 });
 
 test('Markdown output contains grouped benchmark tables compatible with benchmark.md', () => {
