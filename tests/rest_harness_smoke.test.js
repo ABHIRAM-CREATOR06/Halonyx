@@ -40,7 +40,7 @@ describe("REST test harness", () => {
     assert.equal(errors.length, 0, `cleanup errors: ${errors.map(String).join("; ")}`);
   });
 
-  it("uses a temporary database directory for all three databases", async () => {
+  it("uses isolated WAL/FULL SQLite connections for all three application database files", async () => {
     assert.ok(path.isAbsolute(harness.dbDir));
     assert.ok(isPathInside(os.tmpdir(), harness.dbDir), "database directory should be under the OS temp directory");
     assert.ok(!isPathInside(REAL_DB_DIR, harness.dbDir), "database directory must not be inside backend/db");
@@ -57,6 +57,12 @@ describe("REST test harness", () => {
         fs.realpathSync(path.join(harness.dbDir, fileName)),
         `${handle} should be backed by ${fileName} inside the temporary directory`,
       );
+      const journalMode = await harness.sql.get(harness[handle], "PRAGMA journal_mode");
+      const synchronous = await harness.sql.get(harness[handle], "PRAGMA synchronous");
+      const busyTimeout = await harness.sql.get(harness[handle], "PRAGMA busy_timeout");
+      assert.equal(String(journalMode.journal_mode).toLowerCase(), "wal");
+      assert.equal(synchronous.synchronous, 2, "FULL synchronous mode must remain enabled");
+      assert.equal(busyTimeout.timeout, 5000, "SQLite lock waits must use the configured busy timeout");
     }
   });
 

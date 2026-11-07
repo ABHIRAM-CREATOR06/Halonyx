@@ -323,9 +323,10 @@ async function startHarness() {
         db: mod.db,
         idDb: mod.idDb,
         keyDb: mod.keyDb,
+        dbReady: mod.dbReady,
       });
     }
-    const missing = ["app", "server", "wss", "udpServer", "db", "idDb", "keyDb"].filter((k) => !mod || !mod[k]);
+    const missing = ["app", "server", "wss", "udpServer", "db", "idDb", "keyDb", "dbReady"].filter((k) => !mod || !mod[k]);
     if (missing.length > 0) {
       throw new Error(`rest_harness: backend/server.js does not export: ${missing.join(", ")} (testability refactor missing?)`);
     }
@@ -339,6 +340,8 @@ async function startHarness() {
           `(http: ${afterImport.httpListening}, udp: ${afterImport.udpBound}); it must only listen when run directly.`,
       );
     }
+
+    await withTimeout(mod.dbReady, SCHEMA_TIMEOUT_MS, "database connection and schema initialization");
 
     // Schema creation is queued asynchronously at import time; poll (bounded) until it is visible.
     const handles = { db, idDb, keyDb };

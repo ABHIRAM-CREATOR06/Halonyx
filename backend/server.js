@@ -1,5 +1,5 @@
 const express = require("express");
-const sqlite3 = require("sqlite3").verbose();
+const { openDatabase } = require("./db/connection");
 const jwt = require("jsonwebtoken");
 const fs = require("fs");
 const path = require("path");
@@ -42,25 +42,31 @@ const DB_DIR = process.env.HALONYX_DB_DIR
   : path.join(__dirname, "db");
 
 // Operational Database
-const db = new sqlite3.Database(path.join(DB_DIR, "app.db"));
+const appDbConnection = openDatabase(path.join(DB_DIR, "app.db"));
+const db = appDbConnection.db;
 // Identity Database (Metadata)
-const idDb = new sqlite3.Database(path.join(DB_DIR, "identity.db"));
-const keyDb = new sqlite3.Database(path.join(DB_DIR, "keys.db"));
+const identityDbConnection = openDatabase(path.join(DB_DIR, "identity.db"));
+const idDb = identityDbConnection.db;
+const keyDbConnection = openDatabase(path.join(DB_DIR, "keys.db"));
+const keyDb = keyDbConnection.db;
 
 // Initialize Databases
 function initDb(database, schemaPath) {
-  database.serialize(() => {
-    const schema = fs.readFileSync(schemaPath, "utf8");
-    const statements = schema.split(";").filter((stmt) => stmt.trim());
-    statements.forEach((stmt) => {
-      database.run(stmt);
-    });
+  const schema = fs.readFileSync(schemaPath, "utf8");
+  return new Promise((resolve, reject) => {
+    database.exec(schema, (error) => error ? reject(error) : resolve());
   });
 }
 
-initDb(db, path.join(__dirname, "db", "schema.sql"));
-initDb(idDb, path.join(__dirname, "db", "identity_schema.sql"));
-initDb(keyDb, path.join(__dirname, "db", "key_schema.sql"));
+const dbReady = Promise.all([
+  appDbConnection.ready,
+  identityDbConnection.ready,
+  keyDbConnection.ready,
+]).then(() => Promise.all([
+  initDb(db, path.join(__dirname, "db", "schema.sql")),
+  initDb(idDb, path.join(__dirname, "db", "identity_schema.sql")),
+  initDb(keyDb, path.join(__dirname, "db", "key_schema.sql")),
+]));
 
 const crypto = require("crypto");
 const JWT_SECRET_FILE = path.join(DB_DIR, ".jwt_secret");
@@ -1180,9 +1186,6 @@ udpServer.on("listening", () => {
 
 // Bind only when started directly (node backend/server.js); importing this
 // module must not open any ports.
-if (require.main === module) {
-  udpServer.bind(UDP_PORT, "127.0.0.1");
-}
 
 // Disable all caching — must come BEFORE static middleware so browsers
 // never serve stale JS/protocol files from cache.
@@ -1212,7 +1215,14 @@ app.use(
 app.use(express.static(path.join(__dirname, "..", "frontend"), { etag: false, lastModified: false }));
 const PORT = process.env.PORT || 3000;
 if (require.main === module) {
-  server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  dbReady.then(() => {
+    udpServer.bind(UDP_PORT, "127.0.0.1");
+    server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  }).catch(async (error) => {
+    console.error("[DB] Initialization failed:", error);
+    await Promise.all([db, idDb, keyDb].map((database) => new Promise((resolve) => database.close(() => resolve()))));
+    process.exitCode = 1;
+  });
 }
 
-module.exports = { app, server, wss, udpServer, db, idDb, keyDb };
+module.exports = { app, server, wss, udpServer, db, idDb, keyDb, dbReady };
