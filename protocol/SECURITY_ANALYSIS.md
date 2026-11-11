@@ -61,9 +61,11 @@ This document provides a comprehensive security analysis of the Signal Protocol 
 ### Key Management Security
 
 #### Key Storage
-- Identity Keys: Long-term, stored encrypted
-- Session Keys: Ephemeral, stored only in memory
-- Root Keys: Intermediate, ratcheted regularly
+- Identity keys, signed pre-keys, unused OPKs, and Double Ratchet state are stored as IndexedDB records, partitioned by local account ID.
+- Private keys are stored as WebCrypto `CryptoKey` objects; current X25519 and Ed25519 private keys are generated extractable (`deriveBits` and `sign` usages respectively). This code does not export them to local/session storage, but IndexedDB is not a passphrase-encrypted portable vault.
+- Writes wait for IndexedDB transaction completion. Restores validate key algorithms/usages, record shape, OPK counters, and ratchet-state version before use; malformed or unsupported records fail closed and are preserved.
+- Legacy unscoped records require an explicit one-time confirmation before account association. The migration copies identity, OPKs, and sessions transactionally and preserves/tag-owns the legacy records.
+- There is no portable backup. Browser-profile loss or clearing site data can permanently remove the identity and sessions. Do not promise cross-device recovery.
 
 #### Key Rotation
 - Root keys rotated with each DH ratchet
@@ -128,8 +130,8 @@ Outcome: Attacker cannot decrypt past or future messages
 ### Scenario 3: Device Loss
 ```
 Attacker: Obtains user device
-Protection: Session keys in memory only, encrypted storage for identity keys
-Outcome: Limited exposure, identity keys require password
+Protection: Browser-profile controls only; key records are stored in IndexedDB without a Halonyx passphrase layer
+Outcome: A lost profile may mean permanent loss of identity and sessions; access to an active same-origin browser context may expose extractable keys
 ```
 
 ### Scenario 4: MITM Attack
@@ -174,6 +176,10 @@ Outcome: Attack detected via key fingerprint mismatch
 2. **Multi-Device Support**: Extended multi-identity session management and device synchronization
 3. **Sender Keys (Signal Groups v2)**: Optimize large-scale group fan-out for groups with $N > 50$ members
 4. **Verification Protocol**: Interactive QR code and fingerprint visual verification UI
+
+## Local browser key lifecycle
+
+Auth expiry removes the local login token and account ID but intentionally leaves IndexedDB key records intact. There is no active app logout or account-deletion handler that clears local key data. `SignalProtocol.clear()` is an explicit local deletion operation scoped to the currently initialized account and does not erase other accounts. Deleting a server account does not currently erase its local browser records. No local-data deletion UI is currently implemented.
 
 ## Conclusion
 

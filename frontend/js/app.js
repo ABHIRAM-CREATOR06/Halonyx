@@ -693,8 +693,9 @@ function checkIdentity() {
       .init(myUsid, token)
       .then(() => connectWS())
       .catch((e) => {
-        console.error("[E2EE] Init error", e);
-        connectWS();
+        console.error("[E2EE] Protocol initialization stopped; local key data was preserved", e?.name || "Error");
+        showSnackbar("Encryption identity could not be restored. No replacement identity was created; local key data was preserved. Resolve the storage issue and reload.", "error");
+        loader.style.display = "none";
       });
   } else {
     setTimeout(() => {
@@ -1112,7 +1113,10 @@ async function connectIdentity() {
         await signalProtocol.init(myUsid, token);
         document.getElementById("loader-status").textContent = "Identity restored. Connecting...";
       } catch (e) {
-        console.error("[E2EE] Protocol init failed during connect:", e);
+        console.error("[E2EE] Protocol initialization stopped; local key data was preserved", e?.name || "Error");
+        showSnackbar("Encryption identity could not be restored. No replacement identity was created; local key data was preserved. Resolve the storage issue and retry.", "error");
+        document.getElementById("splash-loader-container").style.display = "none";
+        return;
       }
 
       connectWS();
@@ -1180,9 +1184,10 @@ async function signup() {
           "Identity secured. Connecting...";
         console.log("[E2EE] Protocol initialized, key bundle uploaded");
       } catch (e) {
-        console.error("[E2EE] Protocol init failed:", e);
-        document.getElementById("loader-status").textContent =
-          "Identity secured. Connecting...";
+        console.error("[E2EE] Protocol initialization stopped; local key data was preserved", e?.name || "Error");
+        showSnackbar("Encryption identity could not be restored. No replacement identity was created; local key data was preserved. Resolve the storage issue before continuing.", "error");
+        document.getElementById("splash-loader-container").style.display = "none";
+        return;
       }
 
       connectWS();

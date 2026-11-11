@@ -46,8 +46,19 @@ The Signal Protocol provides:
    - Legacy plain text message normalization
 
 7. **Key Persistence Store** (`idb_key_store.js`)
-   - IndexedDB storage for non-extractable WebCrypto `CryptoKey` objects
-   - Session ratchet state serialization and restoration
+   - Per-account IndexedDB storage for WebCrypto `CryptoKey` objects, OPKs, and ratchet state
+   - Session ratchet state restoration only after version and shape validation
+   - Explicit one-time confirmation before adopting legacy unscoped records
+
+## Browser key persistence and recovery
+
+The active browser path is `SignalProtocol` plus `IDBKeyStore`; `key_management.js` is a legacy helper and is not used by app startup. The active store writes identity and OPK private `CryptoKey` objects directly to IndexedDB and does not place private key bytes or JWK in local or session storage. Current X25519 private keys are generated with `extractable: true` and `deriveBits` usage; Ed25519 signing keys are generated as extractable with `sign` usage. Extractable keys are not exported by this persistence path, but same-origin script access and browser-profile access remain within the threat model.
+
+Identity, OPK state, and sessions are partitioned by the account ID in the local browser database. When an older unscoped identity is found, the app asks whether to associate it with the currently signed-in account. Declining or cancelling leaves the original records unchanged. Confirming copies the identity, OPKs, and compatible sessions into the account-scoped records in a single IndexedDB transaction and marks the preserved legacy records as associated, preventing another account from adopting them. Other accounts get separate identities.
+
+Missing, malformed, or unsupported saved key state fails initialization without silently generating a replacement or deleting the affected records. Writes are considered complete only after the IndexedDB transaction completes. If IndexedDB is blocked or unavailable, close other Halonyx tabs or resolve the browser storage issue and retry. There is no portable backup or cross-device recovery: clearing browser site data or losing the browser profile can permanently lose the local identity. Restored ratchet sessions remain local to that browser profile; this project does not provide ratchet-state backup.
+
+Ordinary auth expiry removes the local login token and account ID but does not clear IndexedDB keys. There is no active app logout or account-deletion handler that clears local key data. Calling `SignalProtocol.clear()` is an explicit local deletion operation for only the currently bound account; it preserves other accounts' records. Removing a server account does not, by itself, erase this browser's local keys.
 
 ## Usage
 

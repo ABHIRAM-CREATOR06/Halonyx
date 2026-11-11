@@ -28,6 +28,46 @@ class SignalProtocol {
     this._ready   = false;
   }
 
+  _validateCryptoKey(key, algorithm, usage) {
+    return !!key && key.type === 'private' && key.algorithm?.name === algorithm &&
+      Array.from(key.usages || []).includes(usage);
+  }
+
+  _validateIdentity(identity, allowUnowned = false) {
+    const bytes = (value, length) => value instanceof Uint8Array && value.length === length;
+    if (!identity || (identity.ownerUserId !== this.userId && !(allowUnowned && identity.ownerUserId === undefined)) ||
+        !bytes(identity.identityPublicBytes, 32) ||
+        !bytes(identity.signingPublicBytes, 32) || !bytes(identity.signedPreKeyPublicBytes, 32) ||
+        !bytes(identity.signedPreKeySignature, 64) ||
+        !this._validateCryptoKey(identity.identityPrivateKey, 'X25519', 'deriveBits') ||
+        !this._validateCryptoKey(identity.signedPreKeyPrivate, 'X25519', 'deriveBits') ||
+        !this._validateCryptoKey(identity.signingPrivateKey, 'Ed25519', 'sign')) {
+      throw new Error('Saved encryption identity is malformed or incompatible; local data was preserved');
+    }
+  }
+
+  _validateOpkState(state) {
+    if (state == null) return;
+    if (state.ownerUserId !== undefined && state.ownerUserId !== this.userId ||
+        !Number.isInteger(state.count) || !Array.isArray(state.keys) || state.count !== state.keys.length ||
+        !Number.isInteger(state.lastKeyId) || state.lastKeyId < 0 ||
+        new Set(state.keys.map((entry) => entry?.id)).size !== state.keys.length ||
+        state.keys.some((entry) => !Number.isInteger(entry.id) || entry.id < 1 || entry.id > state.lastKeyId ||
+          !this._validateCryptoKey(entry.privateKey, 'X25519', 'deriveBits'))) {
+      throw new Error('Saved pre-key state is malformed; local data was preserved');
+    }
+  }
+
+  _validateRatchetState(state) {
+    const bytes = (value, optional = false) => optional && value == null || value instanceof Uint8Array && value.length === 32;
+    if (!state || state.version !== 3 || !bytes(state.rootKey) || !bytes(state.dhPublicKeyBytes) ||
+        !bytes(state.sendingChainKey, true) || !bytes(state.receivingChainKey, true) ||
+        !bytes(state._lastPeerRatchetKey, true) || !bytes(state._pendingRemoteKey, true) ||
+        !this._validateCryptoKey(state.dhPrivateKey, 'X25519', 'deriveBits')) {
+      throw new Error('A saved peer session is malformed or unsupported; local session data was preserved');
+    }
+  }
+
   // ── Initialization ────────────────────────────────────────────────────────
 
   /**
@@ -42,19 +82,65 @@ class SignalProtocol {
     this.userId = userId;
     this.token  = token;
 
+    this.idb.setUserId(userId);
     await this.idb.open();
 
-    // Attempt to restore identity from IDB (Plan B persistence)
-    const stored = await this.idb.loadIdentity();
-    if (stored && stored.identityPrivateKey) {
+    let stored = await this.idb.loadIdentity();
+    if (stored) {
+      this._validateIdentity(stored);
       console.log('[Signal] Restored identity from IndexedDB');
       this.identity = stored;
     } else {
-      console.log('[Signal] Generating new identity…');
-      const bundle = await this.x3dh.generateKeyBundle();
-      this.identity = bundle;
-      await this.idb.saveIdentity(bundle);
+      const legacy = await this.idb.loadLegacyData();
+      const unownedSessions = legacy.sessions;
+      const hasUnownedData = !!legacy.opkState && !legacy.opkState.ownerUserId || unownedSessions.length > 0;
+
+      if (legacy.identity?.ownerUserId === userId) {
+        throw new Error('The previously adopted local identity is missing; no replacement identity was generated');
+      }
+      if (legacy.identity && !legacy.identity.ownerUserId) {
+        if (legacy.opkState?.ownerUserId && legacy.opkState.ownerUserId !== userId) {
+          throw new Error('Legacy key records have conflicting account ownership; local data was preserved');
+        }
+        this._validateIdentity(legacy.identity, true);
+        this._validateOpkState(legacy.opkState);
+        for (const { ratchetState } of unownedSessions) this._validateRatchetState(ratchetState);
+        const confirmed = typeof window !== 'undefined' && typeof window.confirm === 'function' &&
+          window.confirm(`A legacy encryption identity without account metadata was found on this device. Use it for the account ${userId}? This will associate that saved identity with this account. Other accounts on this browser will receive separate identities. The original local records will be preserved.`);
+        if (!confirmed) throw new Error('Saved local identity was not adopted; existing key data was preserved');
+        await this.idb.adoptLegacyData((identity, opkState, sessions) => {
+          this._validateIdentity(identity, true);
+          this._validateOpkState(opkState);
+          for (const { ratchetState } of sessions) this._validateRatchetState(ratchetState);
+        });
+        stored = await this.idb.loadIdentity();
+        this._validateIdentity(stored);
+        this.identity = stored;
+      } else if (hasUnownedData || legacy.identity?.ownerUserId) {
+        if (legacy.identity?.ownerUserId && legacy.identity.ownerUserId !== userId && !hasUnownedData) {
+          // A different account already owns the preserved legacy records.
+        } else {
+          throw new Error('Incomplete or already-associated legacy key data was found; local data was preserved and no new identity was generated');
+        }
+        console.log('[Signal] Generating identity in this account’s isolated local store');
+        const bundle = await this.x3dh.generateKeyBundle();
+        this._validateIdentity(bundle, true);
+        await this.idb.saveIdentity(bundle);
+        this.identity = bundle;
+      } else {
+        const opkState = await this.idb.loadOpkState();
+        const sessions = await this.idb.loadAllSessions();
+        if (opkState || sessions.length) {
+          throw new Error('Saved account key material exists without its identity; local data was preserved and no replacement was generated');
+        }
+        console.log('[Signal] Generating new identity…');
+        const bundle = await this.x3dh.generateKeyBundle();
+        this._validateIdentity(bundle, true);
+        await this.idb.saveIdentity(bundle);
+        this.identity = bundle;
+      }
     }
+    this._validateOpkState(await this.idb.loadOpkState());
     // Always sync public bundle to server so keys.db is kept populated
     try {
       await this._uploadPublicBundle();
@@ -64,14 +150,8 @@ class SignalProtocol {
 
     // Restore any persisted sessions
     const savedSessions = await this.idb.loadAllSessions();
+    for (const { ratchetState } of savedSessions) this._validateRatchetState(ratchetState);
     for (const { peerId, ratchetState } of savedSessions) {
-      // The original responder initialization used a transient ratchet key,
-      // which cannot decrypt an initiator's first message. Do not restore
-      // those incompatible sessions; opening the chat performs fresh X3DH.
-      if (ratchetState.version !== 3) {
-        await this.idb.deleteSession(peerId);
-        continue;
-      }
       const dr = new DoubleRatchet(this.crypto);
       dr.restoreState(ratchetState);
       this.sessions.set(peerId, dr);
@@ -80,7 +160,9 @@ class SignalProtocol {
 
     this._ready = true;
     console.log('[Signal] Protocol ready');
-    this.replenishPreKeysIfNecessary();
+    this.replenishPreKeysIfNecessary().catch(() => {
+      console.warn('[Signal] Pre-key replenishment failed; existing local keys were preserved');
+    });
   }
 
   // ── Key bundle upload / fetch ─────────────────────────────────────────────
@@ -106,6 +188,7 @@ class SignalProtocol {
 
   async replenishPreKeysIfNecessary() {
     let opkState = await this.idb.loadOpkState() || { count: 0, keys: [], lastKeyId: 0 };
+    this._validateOpkState(opkState);
     if (opkState.count < 20) {
       console.log(`[Signal] OPK count low (${opkState.count}), generating fresh batch…`);
       const newPreKeys = [];
@@ -240,6 +323,7 @@ class SignalProtocol {
     // Look up one-time prekey if initiator used DH4
     let myOpkPrivate = null;
     const opkState = (await this.idb.loadOpkState()) || { count: 0, keys: [], lastKeyId: 0 };
+    this._validateOpkState(opkState);
     if (msg.opkId !== undefined && msg.opkId !== null && Array.isArray(opkState.keys)) {
       const idx = opkState.keys.findIndex((k) => k.id === msg.opkId);
       if (idx !== -1) {
@@ -415,7 +499,7 @@ class SignalProtocol {
     await this.idb.deleteSession(peerUsid);
   }
 
-  /** Full logout — wipes all keys and sessions from IDB */
+  /** Explicit local-data deletion for the currently initialized account. */
   async clear() {
     this.sessions.clear();
     this.identity = null;
