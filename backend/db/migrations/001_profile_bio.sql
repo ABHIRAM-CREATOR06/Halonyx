@@ -1,0 +1,1 @@
+ALTER TABLE users_metadata ADD COLUMN bio TEXT NOT NULL DEFAULT '';

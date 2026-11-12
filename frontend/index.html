@@ -242,11 +242,11 @@
                 >
                     <header class="chat-header">
                         <div class="chat-peer">
-                            <div class="peer-avatar" id="active-chat-avatar">
+                            <button type="button" class="peer-avatar" id="active-chat-avatar" title="View profile" aria-label="View contact profile">
                                 <span class="material-icons-outlined"
                                     >account_circle</span
                                 >
-                            </div>
+                            </button>
                             <div class="peer-info">
                                 <h3 id="app-bar-title">Contact</h3>
                                 <span id="peer-status" class="peer-status">
@@ -604,8 +604,15 @@
                     </div>
                     <h3 class="dialog-title">Your Identity</h3>
                     <p class="dialog-body">
-                        Share your USID with trusted peers to connect.
+                        Your bio is visible to your contacts. Share your USID with trusted peers to connect.
                     </p>
+                    <div class="field-wrap profile-bio-field">
+                        <label for="profile-bio-input">Bio <small>(up to 280 characters)</small></label>
+                        <textarea id="profile-bio-input" class="field-input" maxlength="280" rows="3" placeholder="A little about you"></textarea>
+                    </div>
+                    <div class="dialog-actions profile-bio-actions">
+                        <button id="save-profile-bio" class="btn-secondary sm">Save bio</button>
+                    </div>
                     <div class="usid-copy-wrap">
                         <code id="my-usid-code" class="usid-code full"></code>
                         <button id="copy-usid" class="icon-btn-sm" title="Copy USID">
@@ -630,6 +637,19 @@
                     </div>
                 </div>
             </div>
+
+            <section id="profile-hover-card" class="profile-hover-card hidden" aria-label="Profile" aria-live="polite">
+                <button type="button" id="close-profile-card" class="profile-card-close" aria-label="Close profile card" title="Close">×</button>
+                <div class="profile-card-heading">
+                    <div id="profile-card-avatar" class="profile-card-avatar" aria-hidden="true">?</div>
+                    <div class="profile-card-ident">
+                        <strong id="profile-card-name"></strong>
+                        <span id="profile-card-handle"></span>
+                    </div>
+                </div>
+                <p id="profile-card-bio" class="profile-card-bio"></p>
+                <button type="button" id="edit-profile-bio" class="btn-ghost sm hidden">Edit profile</button>
+            </section>
 
             <!-- Email USID Dialog (No Backend Required) -->
             <div id="email-usid-dialog" class="dialog-overlay">

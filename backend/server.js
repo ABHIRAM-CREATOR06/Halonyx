@@ -58,6 +58,15 @@ function initDb(database, schemaPath) {
   });
 }
 
+async function applyProfileBioMigration() {
+  const columns = await new Promise((resolve, reject) => {
+    idDb.all("PRAGMA table_info(users_metadata)", (error, rows) => error ? reject(error) : resolve(rows));
+  });
+  if (columns.some((column) => column.name === "bio")) return;
+  const migration = fs.readFileSync(path.join(__dirname, "db", "migrations", "001_profile_bio.sql"), "utf8");
+  await new Promise((resolve, reject) => idDb.exec(migration, (error) => error ? reject(error) : resolve()));
+}
+
 const dbReady = Promise.all([
   appDbConnection.ready,
   identityDbConnection.ready,
@@ -66,7 +75,7 @@ const dbReady = Promise.all([
   initDb(db, path.join(__dirname, "db", "schema.sql")),
   initDb(idDb, path.join(__dirname, "db", "identity_schema.sql")),
   initDb(keyDb, path.join(__dirname, "db", "key_schema.sql")),
-]));
+])).then(applyProfileBioMigration);
 
 const crypto = require("crypto");
 const JWT_SECRET_FILE = path.join(DB_DIR, ".jwt_secret");
@@ -239,6 +248,42 @@ function authenticate(req, res, next) {
     next();
   });
 }
+
+app.get("/profile/:hashedUsid", authenticate, (req, res) => {
+  const hashedUsid = String(req.params.hashedUsid || "").toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(hashedUsid)) return res.status(400).json({ error: "Invalid USID" });
+  const isSelf = hashedUsid === req.user.hashedUsid;
+  const lookupProfile = () => idDb.get(
+    "SELECT id, name, hashed_usid, bio FROM users_metadata WHERE hashed_usid = ?",
+    [hashedUsid],
+    (err, profile) => {
+    if (err) return res.status(500).json({ error: "Profile lookup failed" });
+    if (!profile) return res.status(404).json({ error: "Profile not found" });
+    res.json({ usid: profile.hashed_usid, name: profile.name, bio: profile.bio || "" });
+  });
+  if (isSelf) return lookupProfile();
+  db.get("SELECT id FROM contacts WHERE user_id = ? AND contact_hashed_usid = ?",
+    [req.user.userId, hashedUsid],
+    (err, contact) => {
+      if (err) return res.status(500).json({ error: "Profile access check failed" });
+      if (!contact) return res.status(404).json({ error: "Profile not found" });
+      lookupProfile();
+    });
+});
+
+app.put("/profile", authenticate, (req, res) => {
+  if (typeof req.body?.bio !== "string" || req.body.bio.length > 280) {
+    return res.status(400).json({ error: "Bio must be text up to 280 characters" });
+  }
+  const bio = req.body.bio.trim();
+  idDb.run("UPDATE users_metadata SET bio = ? WHERE id = ? AND hashed_usid = ?",
+    [bio, req.user.userId, req.user.hashedUsid],
+    function (err) {
+      if (err) return res.status(500).json({ error: "Profile update failed" });
+      if (this.changes === 0) return res.status(404).json({ error: "Profile not found" });
+      res.json({ bio });
+    });
+});
 
 app.post("/add-contact", authenticate, (req, res) => {
   const { usid } = req.body;

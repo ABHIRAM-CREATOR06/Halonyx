@@ -1367,6 +1367,60 @@ body.theme-light .chat-header {
     scrollbar-width: thin;
     scrollbar-color: var(--bd-hi) transparent;
 }
+.markdown-content .code-block-card {
+    margin: .75em 0;
+    overflow: hidden;
+    border: 1px solid var(--bd);
+    border-radius: var(--r-md);
+    background: var(--bg-panel);
+}
+.markdown-content .code-block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 38px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--bd);
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    font-size: .76rem;
+}
+.markdown-content .code-copy-btn {
+    padding: 4px 8px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--fg-sub);
+    cursor: pointer;
+    font: inherit;
+}
+.markdown-content .code-copy-btn:hover { background: var(--bg-elevated); color: var(--fg); }
+.markdown-content .code-block-card pre {
+    margin: 0;
+    padding: 10px 0;
+    border-radius: 0;
+    background: var(--bg-surface);
+    color: var(--fg);
+}
+.markdown-content .code-block-card code { display: block; min-width: max-content; font-size: .82rem; line-height: 1.7; }
+.markdown-content .code-line { display: block; padding: 0 14px 0 52px; position: relative; white-space: pre; }
+.markdown-content .code-line::before {
+    position: absolute;
+    left: 0;
+    width: 38px;
+    padding-right: 10px;
+    border-right: 1px solid var(--bd);
+    color: var(--fg-muted);
+    content: counter(code-line);
+    counter-increment: code-line;
+    text-align: right;
+    user-select: none;
+}
+.markdown-content .code-block-card code { counter-reset: code-line; }
+.markdown-content .syntax-keyword { color: #c084fc; }
+.markdown-content .syntax-string { color: #86efac; }
+.markdown-content .syntax-comment { color: #94a3b8; }
+.markdown-content .syntax-number { color: #fbbf24; }
 .markdown-content pre::-webkit-scrollbar {
     height: 4px;
 }
@@ -4679,6 +4733,84 @@ body.theme-light .msg-row.sent .markdown-content :not(pre) > code {
     color: #ffffff;
 }
 body.theme-light .markdown-content blockquote { border-left-color: #c3cedc; color: #465367; }
+
+/* Keep fenced-code panels legible inside both blue sender and white receiver bubbles. */
+body.theme-light .markdown-content .code-block-card pre,
+body.theme-dark .markdown-content .code-block-card pre {
+    padding: 10px 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--bg-surface);
+    color: var(--fg);
+}
+.msg-row.sent .markdown-content .code-block-card {
+    border-color: rgba(255,255,255,.38);
+    background: rgba(12,35,75,.18);
+    color: #fff;
+}
+.msg-row.sent .markdown-content .code-block-header {
+    border-bottom-color: rgba(255,255,255,.3);
+    color: rgba(255,255,255,.88);
+}
+.msg-row.sent .markdown-content .code-copy-btn { color: #fff; }
+.msg-row.sent .markdown-content .code-copy-btn:hover { background: rgba(255,255,255,.16); }
+.msg-row.sent .markdown-content .code-block-card pre {
+    border: 0;
+    background: rgba(12,35,75,.3);
+    color: #fff;
+}
+body.theme-light .msg-row.sent .markdown-content .code-block-card pre {
+    background: #edf2f8;
+    color: #182230;
+}
+body.theme-light .msg-row.sent .markdown-content .syntax-string { color: #16864a; }
+body.theme-light .msg-row.sent .markdown-content .syntax-keyword { color: #7c3aed; }
+body.theme-light .msg-row.sent .markdown-content .syntax-number { color: #b45309; }
+body.theme-light .msg-row.sent .markdown-content .syntax-comment { color: #64748b; }
+
+.profile-hover-card {
+    position: fixed;
+    z-index: 3000;
+    width: min(340px, calc(100vw - 24px));
+    padding: 18px;
+    border: 1px solid var(--bd);
+    border-radius: 18px;
+    background: var(--bg-panel);
+    color: var(--fg);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, .25);
+}
+.profile-hover-card.hidden { display: none; }
+.profile-card-close {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    border: 0;
+    background: transparent;
+    color: var(--fg-muted);
+    cursor: pointer;
+    font: inherit;
+    font-size: 1.25rem;
+}
+.profile-card-heading { display: flex; align-items: center; gap: 12px; padding-right: 22px; }
+.profile-card-avatar {
+    display: grid;
+    width: 56px;
+    height: 56px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    color: var(--fg);
+    font-size: 1.15rem;
+}
+.profile-card-ident { display: grid; gap: 4px; min-width: 0; }
+.profile-card-ident strong { overflow-wrap: anywhere; }
+.profile-card-ident span { color: var(--fg-muted); font-size: .82rem; }
+.profile-card-bio { margin: 14px 0 0; color: var(--fg-sub); line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
+.profile-bio-field { margin: 12px 0; }
+.profile-bio-field textarea { min-height: 76px; resize: vertical; }
+.profile-bio-actions { justify-content: flex-start; margin: 0 0 12px; }
+.peer-avatar { border: 0; padding: 0; cursor: pointer; }
 body.theme-light .composer-field textarea,
 body.theme-light textarea#thread-message-input { color: var(--fg); }
 

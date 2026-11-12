@@ -79,6 +79,7 @@ const reactionQueueAcks = new Map();
 let activeReplyTarget = null;
 let ws;
 let identityRejected = false;
+let activeProfileData = null;
 // WebSocket frames are ordered, but their async handlers are not. Hold an
 // encrypted message until its preceding X3DH handshake has finished.
 const pendingEncryptedMessages = new Map();
@@ -1040,6 +1041,61 @@ async function authFetch(url, options = {}) {
     handleAuthError("Session expired or invalid token. Please reconnect.");
   }
   return res;
+}
+
+function closeProfileCard() {
+  document.getElementById("profile-hover-card")?.classList.add("hidden");
+  activeProfileData = null;
+}
+
+async function showProfileCard(anchor, usid) {
+  if (!usid || (currentChatType === "group" && usid !== myUsid)) return;
+  let response;
+  try {
+    response = await authFetch(`/profile/${encodeURIComponent(usid)}`);
+  } catch (_) {
+    showSnackbar("Could not load profile", "warn");
+    return;
+  }
+  if (!response.ok) {
+    showSnackbar("Could not load profile", "warn");
+    return;
+  }
+  const profile = await response.json();
+  const ownProfile = usid === myUsid;
+  const card = document.getElementById("profile-hover-card");
+  const displayName = ownProfile ? profile.name : (getContactAliases()[usid] || profile.name);
+  document.getElementById("profile-card-name").textContent = displayName;
+  document.getElementById("profile-card-handle").textContent = `@${String(profile.name || "user").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 24) || "user"}`;
+  document.getElementById("profile-card-avatar").textContent = String(displayName || "?").trim().charAt(0).toUpperCase() || "?";
+  document.getElementById("profile-card-bio").textContent = profile.bio || (ownProfile ? "Add a short bio to introduce yourself to your contacts." : "No bio added yet.");
+  document.getElementById("edit-profile-bio").classList.toggle("hidden", !ownProfile);
+  activeProfileData = profile;
+  card.classList.remove("hidden");
+  const bounds = anchor.getBoundingClientRect();
+  const cardBounds = card.getBoundingClientRect();
+  card.style.left = `${Math.max(12, Math.min(bounds.left, window.innerWidth - cardBounds.width - 12))}px`;
+  card.style.top = `${Math.max(12, Math.min(bounds.bottom + 8, window.innerHeight - cardBounds.height - 12))}px`;
+}
+
+async function saveProfileBio() {
+  const input = document.getElementById("profile-bio-input");
+  const bio = input.value.trim();
+  if (bio.length > 280) return showSnackbar("Bio is limited to 280 characters", "warn");
+  try {
+    const response = await authFetch("/profile", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bio }),
+    });
+    const result = await response.json();
+    if (!response.ok) return showSnackbar(result.error || "Could not save bio", "error");
+    hideDialog("profile-dialog");
+    showSnackbar("Bio saved", "success");
+    await showProfileCard(document.getElementById("show-profile"), myUsid);
+  } catch (_) {
+    showSnackbar("Could not save bio", "error");
+  }
 }
 
 function handleAuthError(reason) {
@@ -2615,6 +2671,20 @@ function isContactAlreadyAdded(usid) {
 }
 
 function setupEventListeners() {
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest(".code-copy-btn");
+    if (!button) return;
+    const code = button.closest(".code-block-card")?.querySelector("pre code")?.textContent;
+    if (typeof code !== "string") return;
+    try {
+      await navigator.clipboard.writeText(code);
+      button.textContent = "Copied";
+      setTimeout(() => { if (button.isConnected) button.textContent = "Copy"; }, 1200);
+    } catch (_) {
+      showSnackbar("Could not copy code", "warn");
+    }
+  });
+
   document.getElementById("signup-btn").addEventListener("click", signup);
   document
     .getElementById("name")
@@ -2706,10 +2776,25 @@ function setupEventListeners() {
     showSnackbar("Contact name saved", "success");
   });
 
-  document.getElementById("show-profile").addEventListener("click", () => {
+  document.getElementById("show-profile").addEventListener("click", (event) => {
     document.getElementById("my-usid-code").textContent =
       myUsid || "Not registered";
+    showProfileCard(event.currentTarget, myUsid);
+  });
+  document.getElementById("active-chat-avatar").addEventListener("click", (event) => {
+    showProfileCard(event.currentTarget, currentChatUsid);
+  });
+  document.getElementById("close-profile-card").addEventListener("click", closeProfileCard);
+  document.getElementById("edit-profile-bio").addEventListener("click", () => {
+    document.getElementById("profile-bio-input").value = activeProfileData?.bio || "";
+    document.getElementById("my-usid-code").textContent = myUsid || "Not registered";
+    closeProfileCard();
     showDialog("profile-dialog");
+  });
+  document.getElementById("save-profile-bio").addEventListener("click", saveProfileBio);
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("#profile-hover-card, #show-profile, #active-chat-avatar")) return;
+    closeProfileCard();
   });
   document
     .getElementById("close-profile")
